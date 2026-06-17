@@ -15,7 +15,7 @@ scope_key: "default"
 
 intent:
   name: red
-  mission: "Define red's one-line mission here — refine in .cogni/repo-spec.yaml (surfaced at session start)."
+  mission: "Adversarial security intelligence: think like an attacker so defenders win. The red team to blue's defense."
 
 cogni_dao:
   dao_contract: "0xe77f1d69b17e24aaab0299e9bc3bcf079fb78914"

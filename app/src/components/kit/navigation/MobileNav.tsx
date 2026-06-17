@@ -57,7 +57,7 @@ export function MobileNav({ className }: MobileNavProps): ReactElement {
           <NavigationLink href="/gov">Gov</NavigationLink>
           <NavigationLink href="/credits">Credits</NavigationLink>
           <a
-            href="https://github.com/cogni-DAO/cogni-template"
+            href="https://github.com/cogni-dao/red"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2 font-medium text-muted-foreground text-sm transition-colors hover:text-foreground"
