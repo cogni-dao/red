@@ -9,15 +9,29 @@
 
 schema_version: "0.1.4"
 
-node_id: "b927a9dd-6132-4fc9-a51e-e3cee2568e3c"
-scope_id: "b44d4394-3147-5787-acab-51546be6a3da"
+node_id: "895147d5-2ad9-4b2b-aeaa-f2669999fdce"
+scope_id: "201a1f36-41ba-5b55-8d18-9143e5cffe31"
 scope_key: "default"
 
 intent:
-  name: node-template
+  name: red
+  mission: "Define red's one-line mission here — refine in .cogni/repo-spec.yaml (surfaced at session start)."
 
 cogni_dao:
-  chain_id: "8453" # Base mainnet
+  dao_contract: "0xe77f1d69b17e24aaab0299e9bc3bcf079fb78914"
+  plugin_contract: "0x95cc9c980795ee4c41c020791f28c5f5ae6cb5ce"
+  signal_contract: "0x3e35cafb2ebaa44c9ae9c012f5a9d29632777bbc"
+  chain_id: "8453"
+  base_url: "https://proposal.cognidao.org"
+
+knowledge:
+  database: "knowledge_red"
+  remote:
+    provider: dolthub
+    owner: "cogni-dao"
+    repo: "knowledge-red"
+    url: "https://doltremoteapi.dolthub.com/cogni-dao/knowledge-red"
+    custody: cogni-owned
 
 # Activity ledger ingestion + approver allowlist.
 # `approvers` gates the `(admin)/` route group and write routes under
@@ -30,7 +44,7 @@ activity_ledger:
   activity_sources:
     github:
       attribution_pipeline: cogni-v0.0
-      source_refs: ["Cogni-DAO/standalone-node"]
+      source_refs: ["cogni-dao/red"]
 
 payments:
   status: pending_activation
