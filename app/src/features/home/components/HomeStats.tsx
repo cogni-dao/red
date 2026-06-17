@@ -18,17 +18,7 @@ import { cn } from "@cogni/node-ui-kit/util/cn";
 import { motion } from "framer-motion";
 import type { ReactElement } from "react";
 
-interface StatItem {
-  value: string;
-  label: string;
-}
-
-const STATS: StatItem[] = [
-  { value: "Recon", label: "Expose attack surface" },
-  { value: "Paths", label: "Model likely movement" },
-  { value: "Risk", label: "Rank exploitable gaps" },
-  { value: "Blue", label: "Brief defender actions" },
-];
+import { STATS } from "../content";
 
 export function HomeStats(): ReactElement {
   return (

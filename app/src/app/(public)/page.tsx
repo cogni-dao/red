@@ -3,19 +3,23 @@
 
 /**
  * Module: `@app/(public)/page`
- * Purpose: Homepage with hero section and feature showcase. Redirects signed-in users to /chat.
+ * Purpose: Public landing page with hero, agent stream, red-vs-blue showcase,
+ *   activity feed, and stats. Redirects signed-in users to /chat.
  * Scope: Server component that checks session and redirects or renders landing page. Does not handle authentication logic — proxy.ts handles primary auth routing; server-side check here is defense-in-depth.
- * Invariants: Responsive design; uses Hero layout component.
+ * Invariants: Responsive design. Editable landing copy/data lives in
+ *   src/features/home/content.ts.
  * Side-effects: IO (session check, redirect)
- * Links: src/components/kit/sections/Hero.tsx, src/features/home/components/*
+ * Links: src/features/home/content.ts, src/features/home/components/*
  * @public
  */
 
 import { redirect } from "next/navigation";
 import type { ReactElement } from "react";
 
+import { ActivityFeed } from "@/features/home/components/ActivityFeed";
 import { HomeStats } from "@/features/home/components/HomeStats";
-import { NewHomeHero } from "@/features/home/components/NewHomeHero";
+import { LandingHero } from "@/features/home/components/LandingHero";
+import { ShowcaseCards } from "@/features/home/components/ShowcaseCards";
 import { getServerSessionUser } from "@/lib/auth/server";
 
 import { AuthRedirect } from "./AuthRedirect";
@@ -29,7 +33,9 @@ export default async function HomePage(): Promise<ReactElement> {
   return (
     <div className="flex min-h-screen flex-col">
       <AuthRedirect />
-      <NewHomeHero />
+      <LandingHero />
+      <ShowcaseCards />
+      <ActivityFeed />
       <HomeStats />
     </div>
   );
