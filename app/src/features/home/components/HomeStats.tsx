@@ -18,17 +18,7 @@ import { cn } from "@cogni/node-ui-kit/util/cn";
 import { motion } from "framer-motion";
 import type { ReactElement } from "react";
 
-interface StatItem {
-  value: string;
-  label: string;
-}
-
-const STATS: StatItem[] = [
-  { value: "0%", label: "Payment Fees" },
-  { value: "1", label: "Starter Kit" },
-  { value: "2", label: "Critical Services" },
-  { value: "12k+", label: "Community-Source Files" },
-];
+import { STATS } from "../content";
 
 export function HomeStats(): ReactElement {
   return (
@@ -38,7 +28,7 @@ export function HomeStats(): ReactElement {
           <motion.div
             key={stat.label}
             className={cn(
-              "relative flex flex-col items-center justify-center overflow-hidden rounded-2xl bg-transparent p-8"
+              "relative flex flex-col items-center justify-center overflow-hidden rounded-lg bg-transparent p-8"
             )}
             initial="initial"
             whileHover="hover"
@@ -61,10 +51,10 @@ export function HomeStats(): ReactElement {
             }}
             transition={{ duration: 0.2 }}
           >
-            <span className="font-bold text-4xl text-foreground tracking-tight sm:text-5xl">
+            <span className="font-bold text-3xl text-foreground tracking-tight sm:text-4xl">
               {stat.value}
             </span>
-            <span className="mt-2 font-medium text-muted-foreground text-sm uppercase tracking-wider">
+            <span className="mt-2 text-center font-medium text-muted-foreground text-sm">
               {stat.label}
             </span>
           </motion.div>

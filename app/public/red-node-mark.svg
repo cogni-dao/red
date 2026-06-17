@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">cogni/red mark</title>
+  <desc id="desc">A red crosshair node mark for adversarial security intelligence.</desc>
+  <rect width="64" height="64" rx="12" fill="#0a0a0a"/>
+  <circle cx="32" cy="32" r="18" fill="none" stroke="#dc2626" stroke-width="4"/>
+  <circle cx="32" cy="32" r="5" fill="#dc2626"/>
+  <path d="M32 6v14M32 44v14M6 32h14M44 32h14" stroke="#fafafa" stroke-width="4" stroke-linecap="round"/>
+</svg>
