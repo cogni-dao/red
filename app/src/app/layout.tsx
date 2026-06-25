@@ -34,9 +34,8 @@ const manrope = Manrope({
 });
 
 export const metadata: Metadata = {
-  title: "cogni/red - Adversarial Security Intelligence",
-  description:
-    "Think like an attacker so defenders win. Red-team recon, threat modeling, and attack-path analysis for blue-team defense.",
+  title: "Cogni",
+  description: "Web3 Gov + Web2 AI",
 };
 
 // See operator/app/src/app/layout.tsx for rationale — `headers()` in the
