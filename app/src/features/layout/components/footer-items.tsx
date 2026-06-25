@@ -49,7 +49,7 @@ export const FOOTER_COLUMNS: FooterColumn[] = [
     links: [
       {
         label: "Documentation",
-        href: "https://github.com/cogni-dao/red",
+        href: "https://github.com/cogni-DAO/cogni-template",
         external: true,
       },
     ],
@@ -59,7 +59,7 @@ export const FOOTER_COLUMNS: FooterColumn[] = [
     links: [
       {
         label: "GitHub",
-        href: "https://github.com/cogni-dao/red",
+        href: "https://github.com/cogni-DAO/cogni-template",
         external: true,
       },
       {
@@ -74,7 +74,7 @@ export const FOOTER_COLUMNS: FooterColumn[] = [
 export const SOCIAL_LINKS: SocialLink[] = [
   {
     label: "GitHub",
-    href: "https://github.com/cogni-dao/red",
+    href: "https://github.com/cogni-DAO/cogni-template",
     icon: GitHubIcon,
   },
   {

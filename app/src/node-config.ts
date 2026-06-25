@@ -9,8 +9,8 @@ import {
 import { DiscordIcon } from "@/components";
 
 export const nodeConfig: NodeAppConfig = {
-  name: "cogni/red",
-  logo: { src: "/red-node-mark.svg", alt: "cogni/red", href: "/chat" },
+  name: "Cogni",
+  logo: { src: "/TransparentBrainOnly.png", alt: "Cogni", href: "/chat" },
   navItems: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/work", label: "Work", icon: Briefcase },
@@ -19,7 +19,7 @@ export const nodeConfig: NodeAppConfig = {
   ],
   externalLinks: [
     {
-      href: "https://github.com/cogni-dao/red",
+      href: "https://github.com/cogni-DAO/cogni-template",
       label: "GitHub",
       icon: Github,
     },

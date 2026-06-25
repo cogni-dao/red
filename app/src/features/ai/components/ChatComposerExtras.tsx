@@ -37,19 +37,14 @@ import {
  */
 const AVAILABLE_GRAPHS: readonly GraphOption[] = [
   {
+    graphId: "langgraph:poly-brain" satisfies GraphId,
+    name: "Poly Brain",
+    description: "Prediction market analyst with live market data",
+  },
+  {
     graphId: "langgraph:brain" satisfies GraphId,
-    name: "Red Brain",
-    description: "Code-aware attack-path and threat-modeling assistant",
-  },
-  {
-    graphId: "langgraph:research" satisfies GraphId,
-    name: "Threat Intel",
-    description: "Deep research for adversary techniques and controls",
-  },
-  {
-    graphId: "langgraph:browser" satisfies GraphId,
-    name: "Recon Browser",
-    description: "Browser agent for public-surface inspection",
+    name: "Brain",
+    description: "Code-aware assistant with repo access",
   },
   {
     graphId: "langgraph:poet" satisfies GraphId,
@@ -62,15 +57,25 @@ const AVAILABLE_GRAPHS: readonly GraphOption[] = [
     description: "Philosophical thinker",
   },
   {
+    graphId: "langgraph:research" satisfies GraphId,
+    name: "Research",
+    description: "Deep research with web search",
+  },
+  {
+    graphId: "langgraph:browser" satisfies GraphId,
+    name: "Browser",
+    description: "Web browsing agent with Playwright MCP",
+  },
+  {
     graphId: "langgraph:frontend-tester" satisfies GraphId,
-    name: "UI Probe",
-    description: "QA agent that tests web UI behavior with Playwright",
+    name: "Frontend Tester",
+    description: "QA agent — tests web UIs via Playwright",
   },
   {
     graphId: "langgraph:operating-review" satisfies GraphId,
-    name: "Risk Review",
+    name: "Operating Review",
     description:
-      "Periodic review that triages backlog risks into structured briefs",
+      "Periodic review — triages backlog, flags risks, produces structured briefs",
   },
 ];
 

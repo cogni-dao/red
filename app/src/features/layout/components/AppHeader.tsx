@@ -14,7 +14,8 @@
 
 "use client";
 
-import { Crosshair, Github } from "lucide-react";
+import { Github } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import type { ReactElement } from "react";
 
@@ -44,12 +45,15 @@ export function AppHeader(): ReactElement {
               aria-current="page"
               className="flex min-w-0 items-center gap-2 pl-4 sm:pl-0"
             >
-              <Crosshair
-                className="size-6 shrink-0 text-primary"
-                aria-hidden="true"
+              <Image
+                src="/TransparentBrainOnly.png"
+                alt="Cogni"
+                width={24}
+                height={24}
+                className="shrink-0"
               />
-              <span className="hidden truncate font-bold text-xl md:inline">
-                cogni<span className="text-gradient-accent">/red</span>
+              <span className="hidden truncate font-bold text-gradient-accent text-xl md:inline">
+                Cogni
               </span>
             </Link>
 
