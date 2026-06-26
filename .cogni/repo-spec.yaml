@@ -15,7 +15,11 @@ scope_key: "default"
 
 intent:
   name: red
-  mission: "Adversarial security intelligence: think like an attacker so defenders win. The red team to blue's defense."
+  hook: "Break it before they do"
+  mission: "An AI-powered hacking team, for good — think like an attacker so defenders win. In perpetual war with blue."
+  brand:
+    icon: "Crosshair"
+    color: "#ef4444"
 
 cogni_dao:
   dao_contract: "0xe77f1d69b17e24aaab0299e9bc3bcf079fb78914"
