@@ -21,7 +21,7 @@ intent:
     icon: "Crosshair"
     color: "#ef4444"
 
-cogni_dao:
+governance:
   dao_contract: "0xe77f1d69b17e24aaab0299e9bc3bcf079fb78914"
   plugin_contract: "0x95cc9c980795ee4c41c020791f28c5f5ae6cb5ce"
   signal_contract: "0x3e35cafb2ebaa44c9ae9c012f5a9d29632777bbc"
