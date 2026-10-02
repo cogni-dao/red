@@ -1,0 +1,4 @@
+interface:
+  display_name: "Solve CTF Challenges"
+  short_description: "Evidence-led CTF investigation and flag proof"
+  default_prompt: "Use $solve-ctf-challenges to investigate this authorized CTF and prove the real flag."
