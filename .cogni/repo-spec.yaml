@@ -9,34 +9,56 @@
 
 schema_version: "0.1.4"
 
-node_id: "b927a9dd-6132-4fc9-a51e-e3cee2568e3c"
-scope_id: "b44d4394-3147-5787-acab-51546be6a3da"
+node_id: "921b1d1d-4ded-4a6d-b3f1-f7d6affa406a"
+scope_id: "a85d240b-26a3-573f-89a3-4b8aa9b8087c"
 scope_key: "default"
 
 intent:
-  name: node-template
-  # Identity projected to /.well-known/agent.json → the operator gallery reads it
-  # (never hardcodes). Forkers: replace hook/mission/brand with your node's own.
-  #   hook    — punchy ≤6-word gallery card tagline
-  #   mission — 1–3 sentence north-star, surfaced at the top of every agent's
-  #             session cognition (the node's reason to exist)
-  #   brand   — { icon, color }; `icon` is the SINGLE source for the node's mark —
-  #             app header, gallery card, og:image all render it (no hand-edited AppHeader
-  #             JSX). It is POLYMORPHIC: a Lucide icon NAME (PascalCase, e.g. `GitFork`)
-  #             OR a hosted image path (a real logo, e.g. `/MyLogo.png`, from the node's own
-  #             `app/public/`). `color` tints the card wash + monogram fallback.
-  #             Forks: set these two fields; never re-hardcode an icon in AppHeader.
-  hook: "Build from this shared foundation"
-  mission: "The first and most general Cogni template — an ever-improving foundation for a DAO-governed AI service app, carrying working CI/CD, governance, payments, and cognition so each fork builds only its mission, not its plumbing. The seed of a family of category-specific templates to come."
-  brand:
-    icon: "GitFork"
-    color: "#22c55e"
-    # Transitional: gallery still reads `thumbnail` until the operator renders `icon`
-    # directly. /opengraph-image now renders the icon, so the gallery shows it today.
-    thumbnail: "/opengraph-image"
+  name: red
+  mission: "Define red's one-line mission here — refine in .cogni/repo-spec.yaml (surfaced at session start)."
 
 governance:
-  chain_id: "8453" # Base mainnet
+  dao_contract: "0xd562b1d2d86a666a07bb6ccfdc9189aa4c1701e4"
+  plugin_contract: "0x7392896f7ecacdad8309c14080c137980a17c98c"
+  signal_contract: "0xdad8ee37919b35ccaf3c5fc7b546ede5304b242f"
+  token_contract: "0x2A16291384F9DD78049d1b7a3620B23b137F4540"
+  chain_id: "8453"
+  base_url: "https://proposal.cognidao.org"
+
+knowledge:
+  database: "knowledge_red"
+  remote:
+    provider: dolthub
+    owner: "cogni-dao"
+    repo: "red"
+    url: "https://doltremoteapi.dolthub.com/cogni-dao/red"
+    custody: cogni-owned
+
+# App-tier workload this node runs, in the node's own words: services, ports,
+# resources, and exactly one `public` service. This is provider-neutral — the
+# parent catalog, not this file, decides whether an environment lands on k3s or
+# off-cluster compute.
+# The `cogni-node-app-v1` runtime_profile pins the Cogni Next.js app contract;
+# the operator supplies that profile's standard secrets automatically, so you only
+# add `secret_refs` here for a secret BEYOND the profile.
+# Add sibling services here (private by default) as this node grows.
+deployment:
+  services:
+    - name: app
+      artifact:
+        name: app
+        context: .
+        dockerfile: Dockerfile
+        target: runner
+      port: 3200
+      visibility: public
+      runtime_profile: cogni-node-app-v1
+      bindings: {}
+      bind_host: 0.0.0.0
+      resources:
+        cpu_units: 2
+        memory_mi: 2048
+        storage_mi: 4096
 
 # Activity ledger ingestion + approver allowlist.
 # `approvers` gates the `(admin)/` route group and write routes under
@@ -49,18 +71,14 @@ activity_ledger:
   activity_sources:
     github:
       attribution_pipeline: cogni-v0.0
-      source_refs: ["Cogni-DAO/standalone-node"]
+      source_refs: ["cogni-dao/red"]
 
 payments:
   status: pending_activation
 
-# Outbound payment config — the human-custodied steward wallet that settles vendor
-# invoices (OpenRouter) via manual USDC checkout. The operator wallet funds this one
-# pinned address via withdrawToSteward; a human then completes each vendor checkout.
-# Default = Derek's admin wallet (he admins all current forks). See docs/design/node-steward-wallet.md.
-payments_out:
-  steward_wallet:
-    address: "0x070075F1389Ae1182aBac722B36CA12285d0c949"
+# Token distributions — activate after verifying DAO-controlled minted inventory.
+distributions:
+  status: pending_activation
 
 # Born-reviewable default gates. When this node is minted as a single-node fork
 # (node-at-root, no `nodes:` registry) the operator's review path runs these gates
@@ -82,26 +100,3 @@ gates:
   - type: ai-rule
     with:
       rule_file: repo-goal-alignment.yaml
-
-# Akash lane (story.5016). Declares WHAT this node runs so the operator can
-# render a provider-neutral workload. Emitted verbatim by
-# `renderNodeDeploymentYaml()` in @cogni/repo-spec -- the SAME renderer the node
-# scaffolder mints from and that `assertDeclaredNodeDeployment` prints when a
-# node is missing one. One renderer, no hand-authored drift.
-deployment:
-  services:
-    - name: app
-      artifact:
-        name: app
-        context: .
-        dockerfile: Dockerfile
-        target: runner
-      port: 3200
-      visibility: public
-      runtime_profile: cogni-node-app-v1
-      bindings: {}
-      bind_host: 0.0.0.0
-      resources:
-        cpu_units: 2
-        memory_mi: 2048
-        storage_mi: 4096
