@@ -44,8 +44,9 @@ Useful contributor guides:
 - [`docs/guides/contribute-knowledge.md`](docs/guides/contribute-knowledge.md)
 - [`docs/guides/htb-fullpwn-vpn-macos.md`](docs/guides/htb-fullpwn-vpn-macos.md) — connect a Mac
   to an HTB CTF Fullpwn network and diagnose competing-VPN routes.
-- [`docs/case-studies/fullpwn-sqli-to-system.md`](docs/case-studies/fullpwn-sqli-to-system.md) —
-  sanitized evidence-led case study from web SQL injection through Windows SYSTEM.
+- [`docs/case-studies/htb-fullpwn-training-examples.md`](docs/case-studies/htb-fullpwn-training-examples.md)
+  — sanitized evidence-led examples spanning Windows SQL injection, BGP traffic interception,
+  unsafe Python deserialization, and host root.
 
 ## Staying current with node-template
 

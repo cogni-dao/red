@@ -31,6 +31,44 @@ that must be exhausted.
 When dependencies are stale, prefer a local compatibility shim or isolated harness. Do not
 modify challenge source merely to make the exploit appear successful.
 
+## Serialized application objects
+
+1. Decode opaque cookies or tokens as bytes and inspect their format without invoking the native
+   object loader. For Python pickle, use `pickletools.dis`; never call `pickle.loads` on an unknown
+   local artifact.
+2. Confirm that the live server consumes the attacker-controlled object. A low-impact timing effect
+   separates real deserialization from a cookie that is merely stored or echoed.
+3. Expect the application to fail after a proof payload returns the wrong object type. The timing or
+   other side effect can still conclusively prove execution.
+4. Build the smallest callback only after the harmless proof works. Preserve the authenticated
+   session independently from the serialized object cookie.
+5. Remove any account, file, process, or other state introduced to obtain the proof.
+
+## Compromised router or network appliance
+
+1. Treat uid 0 inside a router container as a network-control capability, not automatically host
+   root. Verify namespaces, cgroups, mounts, interfaces, routes, peers, and routing-daemon state.
+2. Draw the endpoint networks and the legitimate next hop for each direction before modifying a
+   route. A topology note is evidence only when it agrees with the live RIB and neighbor state.
+3. Prefer a more-specific route for the exact endpoints over hijacking an entire customer prefix.
+4. Apply per-neighbor export filters so neither endpoint's own router learns a route that points its
+   local endpoint back toward the interception node.
+5. Confirm advertised routes per peer and local forwarding routes before starting a capture.
+6. Capture only the relevant endpoints and protocol. Stop as soon as the required challenge evidence
+   appears; do not collect unrelated traffic.
+7. Withdraw advertisements, delete temporary static routes and filters, stop the capture, and verify
+   that the RIB and per-neighbor advertisements returned to baseline.
+
+## Linux local privilege boundary
+
+1. Check sudo policy, unusual SUID/SGID files, file capabilities, scheduled jobs, service ownership,
+   writable privileged paths, and listening local services before importing an enumeration script.
+2. For a version-dependent exploit, record the installed package version and compare it to the fixed
+   package boundary. A binary's display version alone may be insufficient.
+3. Compile or stage the smallest compatible primitive in a dedicated temporary directory.
+4. Prove the resulting identity before reading privileged files.
+5. Delete the build directory and terminate callbacks after the authoritative proof is captured.
+
 ## Opaque or silent network service
 
 1. Distinguish transport reachability from application response.
