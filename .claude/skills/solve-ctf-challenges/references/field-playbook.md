@@ -3,6 +3,21 @@
 Load only the section matching the challenge surface. These are pivot patterns, not a checklist
 that must be exhausted.
 
+## Private lab or VPN target
+
+1. Confirm that the profile belongs to the exact event or lab that issued the target. A valid
+   profile for a different HTB product can connect successfully while installing the wrong routes.
+2. Verify the target route independently of the client's green status. On macOS, use
+   `route -n get <target-ip>` and require the expected `utun` interface and lab gateway.
+3. Verify the VPN server's outer route too. It should use the physical network interface; if it
+   uses another commercial VPN tunnel, the nested connection may flap or silently black-hole.
+4. Disconnect competing VPNs through their normal UI, then reconnect the lab profile. Do not kill
+   helpers, delete routes, or approve unexpected privilege prompts merely to force the state.
+5. Distinguish routing from service reachability: a correct route is proof of network placement;
+   ping or one closed port is not proof that the target is down.
+6. Keep one OpenVPN session active. Repeated disconnects, extra tunnel interfaces, or stale routes
+   justify a clean client reconnect before more target probing.
+
 ## Source-assisted web or service challenge
 
 1. Inventory routes, trust boundaries, workers, backing services, secrets flow, and privileged

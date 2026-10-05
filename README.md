@@ -42,6 +42,10 @@ Useful contributor guides:
 - [`docs/guides/new-node-styling.md`](docs/guides/new-node-styling.md)
 - [`docs/guides/add-secret.md`](docs/guides/add-secret.md)
 - [`docs/guides/contribute-knowledge.md`](docs/guides/contribute-knowledge.md)
+- [`docs/guides/htb-fullpwn-vpn-macos.md`](docs/guides/htb-fullpwn-vpn-macos.md) — connect a Mac
+  to an HTB CTF Fullpwn network and diagnose competing-VPN routes.
+- [`docs/case-studies/fullpwn-sqli-to-system.md`](docs/case-studies/fullpwn-sqli-to-system.md) —
+  sanitized evidence-led case study from web SQL injection through Windows SYSTEM.
 
 ## Staying current with node-template
 

@@ -114,8 +114,8 @@ Use this default order:
 Before a persistent or destructive step, record why it is necessary, its expected effect, how
 to recognize success, and whether rollback or a fresh instance exists.
 
-Use [references/field-playbook.md](references/field-playbook.md) for source-assisted web,
-opaque-service, packet-capture, and agent-security pivots.
+Use [references/field-playbook.md](references/field-playbook.md) for private-lab routing,
+source-assisted web, opaque-service, packet-capture, and agent-security pivots.
 
 ### 6. Prove the real win
 
