@@ -1,61 +1,58 @@
-# node-template
+# Red
 
-Node-at-root template for a **Cogni full-app submodule node** — the canonical single node, minted via GitHub generate-from-template and added as a git submodule at `nodes/<slug>/` in the operator monorepo (`Cogni-DAO/cogni`).
+**Break it before they do.**
 
-Seeded from `Cogni-DAO/cogni:nodes/node-template/` and projected to a
-node-at-repo-root build surface.
+Red is Cogni's adversarial AI node: an ethical hacking team that thinks like an
+attacker so defenders win. It maps attack surface, develops bounded exploit
+hypotheses, preserves evidence, and turns verified findings into owned fixes and
+regression checks.
 
-- **Node-at-root** layout (`app/`, `graphs/`, `packages/`, `.cogni/`) so it mounts cleanly at `nodes/<slug>/` when added as a submodule.
-- `.cogni/secrets-catalog.yaml` + `k8s/external-secrets/` are intentionally absent (bug.5086 Part D: a node inherits baseline secrets via the substrate; declares its own only when it has unique ones).
-- The root workspace includes the required private `@cogni/*` package closure so a generated child repo can install, typecheck, build, and push its own image without the operator monorepo.
-- `.github/workflows/ci.yaml` builds the app image, pushes to the repo-owned GHCR package (`ghcr.io/<owner>/<repo>-node`), pushes PR images as `pr-<number>-<headSha>`, and pushes `main` images as `sha-<childSha>`.
-- The deploy/infra plane is intentionally absent: no candidate-flight, preview/prod promote, provision-env, Argo/AppSet, or parent infra workflows live here.
+Red operates only against systems whose owners have explicitly authorized the
+work. Scope, proof limits, evidence handling, and disclosure paths are part of
+the task—not paperwork added afterward.
 
-## Local checks
+## The Red loop
+
+1. Establish authorization, targets, exclusions, and stop conditions.
+2. Map the exposed surface and form testable attack hypotheses.
+3. Validate safely while preserving commands, outputs, and timestamps.
+4. Hand Blue a reproducible finding with severity, owner, and mitigation.
+5. Retest the fix and retain a regression check.
+
+The public app combines this workflow with Cogni chat, knowledge, contribution
+accounting, and DAO governance. Node identity and deployment declarations live
+in [`.cogni/repo-spec.yaml`](.cogni/repo-spec.yaml).
+
+## Local development
 
 ```bash
 pnpm install --frozen-lockfile
 pnpm check
-docker build --target runner -t cogni-node-template:local .
+docker build --target runner -t cogni-red:local .
 ```
 
-## Node developer guides
+This is a node-at-root repository: the app, graphs, packages, CI policy, and
+container image are owned here. The Cogni operator pins this repository as a
+submodule and owns environment placement, DNS, secrets delivery, and promotion.
+Do not hand-edit the operator catalog or deployment overlays from this repo.
 
-- `docs/guides/contributing-to-cogni.md` — node contribution loop and ownership boundaries.
-- `docs/guides/new-node-styling.md` — first-pass rebrand for a minted node.
-- `docs/guides/add-secret.md` — node-owned secret declarations and typed consumption.
-- `docs/guides/contribute-knowledge.md` — when reusable findings should become durable node knowledge.
+Useful contributor guides:
 
-## Conductor workspaces
+- [`docs/guides/contributing-to-cogni.md`](docs/guides/contributing-to-cogni.md)
+- [`docs/guides/new-node-styling.md`](docs/guides/new-node-styling.md)
+- [`docs/guides/add-secret.md`](docs/guides/add-secret.md)
+- [`docs/guides/contribute-knowledge.md`](docs/guides/contribute-knowledge.md)
 
-This template ships a shared Conductor setup entrypoint:
+## Staying current with node-template
 
-- `conductor.json`
-- `scripts/conductor-worktree-setup.sh`
+The operator propagates node-template releases in three tiers:
 
-When a node repo minted from this template is added as a Conductor project,
-Conductor runs the setup script from the new workspace. The script refreshes
-`origin/main`, symlinks `.env.cogni` and `.local-auth` from
-`COGNI_NODE_AUTH_ROOT` or `COGNI_TEMPLATE_ROOT` when available, installs
-dependencies, builds package declarations, and writes
-`.context/conductor-setup.json` as proof that setup ran.
-
-For a laptop that stores Cogni auth in the main monorepo checkout:
-
-```bash
-export COGNI_TEMPLATE_ROOT="$HOME/dev/cogni-template"
-```
-
-The operator consumes the pushed digest and owns URL/DNS/deployment state.
-
-## Inheriting from node-template (3-tier sync)
-
-The operator keeps every node aligned with `node-template` automatically (a GitHub App webhook fires on each node-template release). Changes propagate in **three tiers, by path** — know which tier your edit lands in:
-
-| Tier | Paths | What happens to your edit |
+| Tier | Paths | Policy |
 | --- | --- | --- |
-| **1 — CI contract** | `.github/workflows/{ci,pr-build,pr-lint}.yaml`, `scripts/check-node-ci-workflow.mjs` | **Force-synced** from node-template. Do not diverge here; CI fixes land upstream first. |
-| **2 — Substrate** | `app/src/app/api/**`, `app/src/shared/**`, `app/src/bootstrap/**`, `graphs/**`, `packages/**` | **Auto-merged** from node-template each release (conflict-free); you inherit framework + cognition improvements. |
-| **3 — Your node** | `app/src/app/(public)/**`, `app/src/features/home/**`, branding/theme, `.cogni/repo-spec.yaml`, `.cogni/persona/**` | **Never synced** — build your node's identity, homepage, and features here in stability. |
+| CI contract | `.github/workflows/`, CI validation scripts | Force-synced; fix upstream |
+| Substrate | API/shared/bootstrap code, graphs, packages | Auto-merged from node-template |
+| Red-owned | Homepage, theme, branding, persona | Preserved as this node's identity |
 
-The Tier-3 carve-out is declared in `.cogni/sync-manifest.yaml#node_local` (data, not hardcoded), so the boundary moves with the template. Full contract: the operator knowledge entry `node-template-sync-contract`.
+The exact path contract is declared in
+`.cogni/sync-manifest.yaml#node_local`. This keeps Red current with the shared
+platform without erasing its mission.

@@ -84,10 +84,10 @@ export function AppHeader({
 					{/* Right side: GitHub + Wallet + Theme */}
 					<div className="flex shrink-0 items-center gap-3">
 						<a
-							href="https://github.com/cogni-dao"
+							href="https://github.com/cogni-dao/red"
 							target="_blank"
 							rel="noopener noreferrer"
-							aria-label="Cogni on GitHub"
+							aria-label="Cogni Red on GitHub"
 							className="hidden text-muted-foreground transition-colors hover:text-foreground lg:inline-flex"
 						>
 							<Github className="size-4" strokeWidth={1.5} aria-hidden="true" />
