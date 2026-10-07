@@ -54,6 +54,14 @@ ENV AUTH_SECRET=${AUTH_SECRET_BUILD}
 RUN --mount=type=cache,id=next-cache-node-template,target=/app/app/.next/cache,sharing=locked \
     pnpm --filter @cogni/node-template-app build
 
+# Static build-identity proof consumed by the operator's candidate verifier.
+# Generate it after the Next build so a source-SHA change does not invalidate
+# the expensive application build layer; the runner copies app/public below.
+ARG BUILD_SHA
+RUN test -n "$BUILD_SHA" \
+    && mkdir -p /app/app/public/__cogni-build \
+    && printf '%s\n' "$BUILD_SHA" > "/app/app/public/__cogni-build/${BUILD_SHA}.txt"
+
 # Migrator — node-template scaffold migrator (task.0324).
 # node-template is not deployed; this stage exists so forks have a working template.
 # Copy only core schema + node-template's own migrations + its drizzle config.
