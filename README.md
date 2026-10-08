@@ -42,6 +42,11 @@ Useful contributor guides:
 - [`docs/guides/new-node-styling.md`](docs/guides/new-node-styling.md)
 - [`docs/guides/add-secret.md`](docs/guides/add-secret.md)
 - [`docs/guides/contribute-knowledge.md`](docs/guides/contribute-knowledge.md)
+- [`docs/guides/htb-fullpwn-vpn-macos.md`](docs/guides/htb-fullpwn-vpn-macos.md) — connect a Mac
+  to an HTB CTF Fullpwn network and diagnose competing-VPN routes.
+- [`docs/case-studies/htb-fullpwn-training-examples.md`](docs/case-studies/htb-fullpwn-training-examples.md)
+  — sanitized evidence-led examples spanning Windows SQL injection, BGP traffic interception,
+  unsafe Python deserialization, and host root.
 
 ## Staying current with node-template
 
