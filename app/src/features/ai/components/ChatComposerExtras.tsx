@@ -62,6 +62,11 @@ const AVAILABLE_GRAPHS: readonly GraphOption[] = [
     description: "Deep research with web search",
   },
   {
+    graphId: "langgraph:red-solver" satisfies GraphId,
+    name: "Red Solver",
+    description: "Authorized ethical red-team solver — scope-bound HTTP attack loop",
+  },
+  {
     graphId: "langgraph:browser" satisfies GraphId,
     name: "Browser",
     description: "Web browsing agent with Playwright MCP",

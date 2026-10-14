@@ -37,6 +37,8 @@ export { createPondererGraph, PONDERER_GRAPH_NAME } from "./ponderer/graph";
 // PR Review graph (single-call structured output, no tools)
 export { createPrReviewGraph, PR_REVIEW_GRAPH_NAME } from "./pr-review/graph";
 export { buildReviewUserMessage } from "./pr-review/prompts";
+// Red Solver graph (authorized ethical red-team solver)
+export { createRedSolverGraph, RED_SOLVER_GRAPH_NAME } from "./red-solver/graph";
 // Research graph (deep research with web search)
 export { createResearchGraph, RESEARCH_GRAPH_NAME } from "./research/graph";
 // Shared graph types
