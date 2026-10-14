@@ -179,12 +179,26 @@ tools to persist challenges/findings, trading schema rigor for zero migration in
 The agent needs to actually touch a target. Recommended Pareto path: **a single sandboxed exec MCP
 server**, not a pile of native tools.
 
-**Before building: evaluate the existing sandbox surface.** `app/src/adapters/server/sandbox/sandbox-runner.adapter.ts`
-and the `sandbox:` graph-provider namespace already exist as a safe-exec seam. If it can run bounded
-shell/http in an isolated container, wrap it as the exec backend and skip a from-scratch sandbox —
-this is the cheapest path and should be the first thing we spike.
+**DECISION (spiked): reuse the existing sandbox substrate — do NOT build a new sandbox.**
+`app/src/ports/sandbox-runner.port.ts` + `app/src/adapters/server/sandbox/sandbox-runner.adapter.ts`
+(dockerode) already give us exactly what an attack-exec tool needs:
+- One-shot ephemeral containers, workspace mount, `maxRuntime` timeout + `maxOutputBytes` cap, pids limit.
+- `NETWORK_DEFAULT_DENY` (`NetworkMode: 'none'`), with a `networkMode: 'internal'` mode that attaches
+  the container to a **named Docker network created `internal: true`** (P0.5a). Secrets stay host-only.
+- A `sandbox:` graph-provider namespace + `sandbox-agent-catalog.provider.ts` already wired.
 
-**Recommended (if the existing sandbox doesn't fit): a "red-ops" MCP server** (reuses the already-working MCP path; Playwright proves it):
+**The CTF scope guard is therefore structural, enforced by Docker — not just by prompt/policy:**
+stand the target (self-hosted Juice Shop) on a dedicated `internal: true` Docker network; run the
+agent's exec sandbox in `networkMode: 'internal'` on that same network. The sandbox can reach **only
+the target** and has **no external egress at all** — a scope violation is impossible at the network
+layer. This collapses most of §7's egress-guard work into a Docker network boundary.
+
+**Build (small):** a `core__sandbox_exec`-style attack tool (BoundTool) that wraps `SandboxRunnerPort.runOnce`
+with a target-scoped `networkMode: 'internal'`, plus a Kali-lite image with curl/nmap/common CTF CLI.
+We still add an app-level PII/secret tripwire on tool output (§7). We do **not** build container
+isolation, timeouts, output caps, or egress control — all inherited.
+
+**Fallback only if the sandbox can't be driven from a tool: a "red-ops" MCP server** (reuses the MCP path; Playwright proves it):
 - Runs in an **isolated sandbox container** on a network that can reach *only* the target
   (egress-allowlisted), so a scope violation is impossible at the network layer.
 - Exposes a few bounded tools: `http_request` (method/url/headers/body), `shell` (curl, nmap,
@@ -254,8 +268,9 @@ The doctrine in §3 maps to three enforcement points, all at the existing tool c
 | Schedule the accumulator | ✅ `schedules`+Temporal+run ledger | 1 schedule row |
 | Per-target run record | ✅ `graph_runs` | `red_challenges`, `red_attempts` tables |
 | Controlled recon→exploit→verify loop | ✅ `research/graph.ts` as template | new `red-solver` StateGraph |
-| Attack capability (http/shell/fs) | ✅ MCP path (Playwright proves it) | `red-ops` sandbox MCP server |
-| Safety (scope/PII/budgets) | ✅ deny-by-default policy + `redact()` chokepoint | scope guard, PII tripwire, budget enforcement |
+| Attack capability (http/shell/fs) | ✅ `SandboxRunnerPort` — isolation, timeout, output caps, workspace | thin `sandbox_exec` attack tool + Kali-lite image |
+| Scope / egress containment | ✅ `networkMode:'internal'` on a target-only Docker network (Docker-enforced) | wire target + sandbox onto one `internal:true` network |
+| Safety (PII/budgets) | ✅ deny-by-default policy + `redact()` + `maxRuntime`/`maxOutputBytes` | app-level PII/secret tripwire on tool output |
 | Durable resume | ❌ nothing exists | defer to v1 (`PostgresSaver`) |
 
 ---
