@@ -51,6 +51,8 @@ import {
   EDO_RECORD_OUTCOME_NAME,
   GET_CURRENT_TIME_NAME,
   getCurrentTimeImplementation,
+  HTTP_REQUEST_NAME,
+  httpRequestImplementation,
   KNOWLEDGE_READ_NAME,
   KNOWLEDGE_SEARCH_NAME,
   KNOWLEDGE_WRITE_NAME,
@@ -113,6 +115,7 @@ export function createToolBindings(deps: ToolBindingDeps): ToolBindings {
     // Pure tools (no I/O dependencies)
     [GET_CURRENT_TIME_NAME]:
       getCurrentTimeImplementation as AnyToolImplementation,
+    [HTTP_REQUEST_NAME]: httpRequestImplementation as AnyToolImplementation,
 
     // Knowledge tools (Doltgres-backed knowledge store)
     [KNOWLEDGE_SEARCH_NAME]: createKnowledgeSearchImplementation({

@@ -148,6 +148,17 @@ export {
   getCurrentTimeImplementation,
 } from "./tools/get-current-time";
 export {
+  HTTP_REQUEST_NAME,
+  type HttpRequestInput,
+  HttpRequestInputSchema,
+  type HttpRequestOutput,
+  HttpRequestOutputSchema,
+  type HttpRequestRedacted,
+  httpRequestBoundTool,
+  httpRequestContract,
+  httpRequestImplementation,
+} from "./tools/http-request";
+export {
   createKnowledgeReadImplementation,
   KNOWLEDGE_READ_NAME,
   type KnowledgeReadDeps,

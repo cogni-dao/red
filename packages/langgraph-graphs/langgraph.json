@@ -4,6 +4,7 @@
     "brain": "./src/graphs/brain/server.ts:brain",
     "poet": "./src/graphs/poet/server.ts:poet",
     "ponderer": "./src/graphs/ponderer/server.ts:ponderer",
+    "red-solver": "./src/graphs/red-solver/server.ts:redSolver",
     "research": "./src/graphs/research/server.ts:research"
   }
 }
