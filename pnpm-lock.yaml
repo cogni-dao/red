@@ -87,8 +87,8 @@ importers:
         specifier: workspace:*
         version: link:../packages/graph-execution-core
       '@cogni/graph-execution-host':
-        specifier: workspace:*
-        version: link:../packages/graph-execution-host
+        specifier: https://github.com/cogni-dao/node-template/releases/download/graph-execution-v0.1.1/cogni-dao-graph-execution-0.1.1.tgz
+        version: '@cogni-dao/graph-execution@https://github.com/cogni-dao/node-template/releases/download/graph-execution-v0.1.1/cogni-dao-graph-execution-0.1.1.tgz'
       '@cogni/ids':
         specifier: workspace:*
         version: link:../packages/ids
@@ -688,25 +688,6 @@ importers:
         specifier: ^5
         version: 5.9.3
 
-  packages/graph-execution-host:
-    dependencies:
-      '@cogni/ai-core':
-        specifier: workspace:*
-        version: link:../ai-core
-      '@cogni/graph-execution-core':
-        specifier: workspace:*
-        version: link:../graph-execution-core
-      '@cogni/node-shared':
-        specifier: workspace:*
-        version: link:../node-shared
-    devDependencies:
-      tsup:
-        specifier: ^8.5.1
-        version: 8.5.1(jiti@2.7.0)(postcss@8.5.15)(tsx@4.22.4)(typescript@5.9.3)(yaml@2.9.0)
-      typescript:
-        specifier: ^5
-        version: 5.9.3
-
   packages/ids:
     dependencies:
       type-fest:
@@ -1239,6 +1220,11 @@ packages:
     peerDependencies:
       '@cogni/ai-tools': '*'
 
+  '@cogni-dao/graph-execution@https://github.com/cogni-dao/node-template/releases/download/graph-execution-v0.1.1/cogni-dao-graph-execution-0.1.1.tgz':
+    resolution: {tarball: https://github.com/cogni-dao/node-template/releases/download/graph-execution-v0.1.1/cogni-dao-graph-execution-0.1.1.tgz}
+    version: 0.1.1
+
+  '@cogni-dao/graph-execution@https://github.com/cogni-dao/node-template/releases/download/graph-execution-v0.1.1/cogni-dao-graph-execution-0.1.1.tgz': {}
   '@cogni-dao/work-items@https://github.com/cogni-dao/node-template/releases/download/work-items-v0.1.8/cogni-dao-work-items-0.1.8.tgz':
     resolution: {tarball: https://github.com/cogni-dao/node-template/releases/download/work-items-v0.1.8/cogni-dao-work-items-0.1.8.tgz}
     version: 0.1.8
