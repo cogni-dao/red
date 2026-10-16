@@ -138,3 +138,4 @@ The item keeps only its contract: a **story** = the e2e behavior supported; a **
 - **EXPLAIN_REJECTIONS** — document why alternatives were too complex/bespoke
 
 #$ITEM
+
