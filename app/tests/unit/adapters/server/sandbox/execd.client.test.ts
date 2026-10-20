@@ -196,6 +196,44 @@ describe("execd trusted transport", () => {
 			mode: 600,
 		});
 	});
+	it("does not report a truncated shell acknowledgement as success", async () => {
+		const { client, fetcher } = setup();
+		fetcher
+			.mockResolvedValueOnce(new Response())
+			.mockResolvedValueOnce(Response.json({ session_id: "shell-fixture" }))
+			.mockResolvedValueOnce(
+				new Response('data: {"type":"init","text":"shell-fixture"}'),
+			);
+		await expect(
+			client.exec(a, { action: "shell", command: "write-once" }),
+		).rejects.toMatchObject({ ambiguous: true });
+		expect(fetcher).toHaveBeenCalledTimes(3);
+	});
+	it("allows an explicit close to release a failed local allocation without claiming cleanup", async () => {
+		const { client, fetcher } = setup();
+		fetcher
+			.mockResolvedValueOnce(new Response())
+			.mockRejectedValueOnce(new Error("lost session acknowledgement"));
+		await expect(
+			client.exec(a, { action: "shell", command: "write-once" }),
+		).rejects.toMatchObject({ ambiguous: true });
+		await expect(
+			client.exec(a, { action: "close_shell" }),
+		).rejects.toMatchObject({ ambiguous: true });
+		fetcher
+			.mockResolvedValueOnce(new Response())
+			.mockResolvedValueOnce(Response.json({ session_id: "replacement-shell" }))
+			.mockResolvedValueOnce(sse());
+		expect(
+			(
+				await client.exec(a, {
+					action: "shell",
+					command: "new explicitly requested command",
+				})
+			).status,
+		).toBe("ok");
+	});
+
 	it("polls and reads retained logs without repeating command content", async () => {
 		const { client, fetcher } = setup();
 		fetcher.mockResolvedValueOnce(new Response()).mockResolvedValueOnce(sse());

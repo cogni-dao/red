@@ -272,7 +272,9 @@ export class ExecdClient {
 			status: failed ? "error" : "ok",
 			output: this.safe(output.join("")),
 			truncated: false,
-			...(id && path === "/command" ? { commandId: this.handle(workspace, id) } : {}),
+			...(id && path === "/command"
+				? { commandId: this.handle(workspace, id) }
+				: {}),
 			...(failed
 				? { message: "Sandbox command failed; inspect bounded logs." }
 				: {}),
@@ -323,18 +325,32 @@ export class ExecdClient {
 		}
 		if (input.action === "close_shell") {
 			if (this.shellBusy.has(workspace)) throw new ExecdClientError("busy");
-			const shell = this.shells.get(workspace);
-			if (shell) {
-				const response = await this.request(
-					`/session/${encodeURIComponent(await shell)}`,
-					{ method: "DELETE" },
-					10000,
-					true,
-				);
-				await response.body?.cancel();
-				this.shells.delete(workspace);
+			this.shellBusy.add(workspace);
+			try {
+				const shell = this.shells.get(workspace);
+				if (shell) {
+					let id: string;
+					try {
+						id = await shell;
+					} catch {
+						// Explicit close releases a failed local allocation. Its upstream
+						// identity is unknown, so never claim that an orphan was cleaned up.
+						this.shells.delete(workspace);
+						throw new ExecdClientError("protocol", true);
+					}
+					const response = await this.request(
+						`/session/${encodeURIComponent(id)}`,
+						{ method: "DELETE" },
+						10000,
+						true,
+					);
+					await response.body?.cancel();
+					this.shells.delete(workspace);
+				}
+				return { status: "ok", output: "", truncated: false };
+			} finally {
+				this.shellBusy.delete(workspace);
 			}
-			return { status: "ok", output: "", truncated: false };
 		}
 		const id = encodeURIComponent(this.commandId(workspace, input.commandId));
 		if (input.action === "signal") {

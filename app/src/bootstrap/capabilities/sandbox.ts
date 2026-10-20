@@ -72,8 +72,8 @@ export function createSandboxCapability(
 		let reasonCode = "none";
 		try {
 			result = await fn(workspace);
-      if (result.status === "error") reasonCode = "command_failed";
-      if (result.status === "unknown") reasonCode = "output_limit";
+			if (result.status === "error") reasonCode = "command_failed";
+			if (result.status === "unknown") reasonCode = "output_limit";
 		} catch (error) {
 			reasonCode =
 				error instanceof ExecdClientError ? error.reasonCode : "protocol";
