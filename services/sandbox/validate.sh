@@ -30,4 +30,6 @@ pnpm --filter @cogni/ai-tools exec tsup ../../services/sandbox/validate-client.t
   --out-dir ../../app/node_modules/.cache/sandbox-runtime --no-splitting \
   --external @cogni/ai-tools --external @cogni/ai-core --external @cogni/node-shared --external pino
 mv app/node_modules/.cache/sandbox-runtime/validate-client.js app/node_modules/.cache/sandbox-runtime/validate-client.mjs
-node app/node_modules/.cache/sandbox-runtime/validate-client.mjs
+# Workspace tsc declarations also emit extensionless ESM imports on a clean
+# checkout. Use the existing TS loader for that resolution, keeping the fixture ESM.
+node --import tsx app/node_modules/.cache/sandbox-runtime/validate-client.mjs
