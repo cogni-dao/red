@@ -30,7 +30,7 @@ import { createSandboxCapability } from "../../app/src/bootstrap/capabilities/sa
 import { makeNoopLogger } from "../../app/src/shared/observability/server/logger";
 
 async function main() {
-	const url = process.env.SANDBOX_URL;
+	const url = process.env.SANDBOX_BASE_URL;
 	const token = process.env.SANDBOX_EXECD_TOKEN;
 	assert(url && token, "Fixture URL/token required");
 	const scope: ExecutionScope = {
@@ -51,7 +51,7 @@ async function main() {
 	};
 	const capability = createSandboxCapability(
 		{
-			SANDBOX_URL: url,
+			SANDBOX_BASE_URL: url,
 			SANDBOX_EXECD_TOKEN: token,
 			SANDBOX_ALLOWED_ACTOR_IDS: "fixture-owner",
 		},
@@ -101,6 +101,13 @@ async function main() {
 		);
 		return value;
 	}
+	const version = await fetch(`${url}/version`, { redirect: "error" });
+	assert.equal(version.status, 200);
+	assert.equal(
+		((await version.json()) as { buildSha: string }).buildSha,
+		process.env.SANDBOX_PROOF_SHA,
+	);
+	checks.push("front-door build SHA");
 	const denied = await fetch(`${url}/command/status/fixture`, {
 		redirect: "error",
 	});
@@ -166,6 +173,24 @@ async function main() {
 		"persistent",
 	);
 	checks.push("persistent shell state");
+	const hardening = await ok(SANDBOX_EXEC_NAME, {
+		action: "shell",
+		command: `python3 - <<'PYTHON'
+import os
+assert not any(k in os.environ for k in ('EXECD_ACCESS_TOKEN', 'SANDBOX_EXECD_TOKEN'))
+try:
+    open('/proc/1/environ', 'rb').read()
+except PermissionError:
+    print('credential-env-absent;daemon-env-denied')
+else:
+    raise AssertionError('daemon credential environment readable')
+PYTHON`,
+	});
+	assert.equal(
+		hardening.output.trim(),
+		"credential-env-absent;daemon-env-denied",
+	);
+	checks.push("workload token stripping and daemon environ denial");
 	const command = await ok(SANDBOX_EXEC_NAME, {
 		action: "start",
 		command: "printf retained-proof",

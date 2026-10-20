@@ -22,13 +22,18 @@ import {
 	ExecdClient,
 	ExecdClientError,
 } from "@/adapters/server/sandbox/execd.client";
+import { getNodeName } from "@/shared/config";
 import type { ServerEnv } from "@/shared/env";
 import type { Logger } from "@/shared/observability/server";
+import { resolveSandboxWorkspaceOrigin } from "./sandbox-workspace";
 
 export function createSandboxCapability(
 	env: Pick<
 		ServerEnv,
-		"SANDBOX_URL" | "SANDBOX_EXECD_TOKEN" | "SANDBOX_ALLOWED_ACTOR_IDS"
+		| "SANDBOX_BASE_URL"
+		| "APP_BASE_URL"
+		| "SANDBOX_EXECD_TOKEN"
+		| "SANDBOX_ALLOWED_ACTOR_IDS"
 	>,
 	log: Logger,
 ): SandboxCapability {
@@ -38,10 +43,13 @@ export function createSandboxCapability(
 			.map((s) => s.trim())
 			.filter(Boolean),
 	);
-	if (!env.SANDBOX_URL || !env.SANDBOX_EXECD_TOKEN || actors.size === 0)
+	if (!env.SANDBOX_EXECD_TOKEN || actors.size === 0)
 		return unavailableSandboxCapability;
+	const url =
+		env.SANDBOX_BASE_URL ?? resolveSandboxWorkspaceOrigin(env, getNodeName());
+	if (!url) return unavailableSandboxCapability;
 	const client = new ExecdClient({
-		url: env.SANDBOX_URL,
+		url,
 		token: env.SANDBOX_EXECD_TOKEN,
 	});
 	async function invoke(

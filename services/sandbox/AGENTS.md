@@ -25,7 +25,7 @@ committed secret values.
 
 - `Dockerfile`, `entrypoint.sh`: execd PID 1, non-root, token required
 - `validate.sh`, `validate-client.ts`: real runtime proof through ToolRunner
-- `repo-spec.fragment.yaml`: inactive proposal pending exact operator contract
+- `Caddyfile`, `execd.toml`: exact-SHA front door and upstream hardening floor
 
 ## Responsibilities
 

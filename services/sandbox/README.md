@@ -1,15 +1,20 @@
 # Red sandbox execution
 
 Red owns this toolbox and its solver policy. Operator tooling owns a **separate
-sandbox workload/lease** for the same node ID. Never add this image as an app
-`deployment.services[]` sidecar: app and sandbox must not share lease, network,
-substrate credentials, or lifecycle.
+sandbox workload/lease** for the same node ID. The ordinary private `deployment.services[]` declaration is placed in its own
+lease by the operator catalog’s `isolated_services.sandbox` policy. **Do not flight
+until that policy and control-plane support are deployed**: an older operator
+would place the service beside the app. App and sandbox must have separate lease
+lifecycles and substrate credentials.
 
 ## What this change provides
 
-- OpenSandbox execd **release-1.1.1**, pinned by the digest in its
-  [release BOM](https://github.com/opensandbox-group/OpenSandbox/blob/release-1.1.1/docs/releases/1.1.1.yaml).
-  The daemon is PID 1, runs as UID/GID 1000, and refuses a missing/short token.
+- The pinned execd **v1.1.0**, Caddy front door and hardening configuration from
+  [Red PR #25](https://github.com/Cogni-DAO/red/pull/25). The daemon is PID 1,
+  runs as UID/GID 10001, and refuses a missing/short token. Caddy exposes `/version`
+  at port 8080 with the operator-injected build SHA. Upstream’s launcher strips
+  credentials and applies its seccomp/no-new-privileges hardening floor. This is
+  not independent tenant isolation. Ptrace-based debugging is denied by that floor.
 - Python/pwntools, bash, gdb/binutils, curl, nmap, netcat, socat and jq.
 - `core__sandbox_exec`: bounded background start, status, retained logs, interrupt,
   persistent `shell`, and `close_shell`.
@@ -29,25 +34,31 @@ restart or transparently move between app replicas.
 
 ## Enablement and operator gates
 
-The app requires server-only `SANDBOX_URL` (HTTPS; HTTP is accepted only for
-loopback development), `SANDBOX_EXECD_TOKEN` (at least 32 characters), and
+The app derives its sandbox HTTPS origin from `APP_BASE_URL` using PR #25’s
+service-host convention. `SANDBOX_BASE_URL` overrides it for local development
+(HTTP is accepted only on loopback). Access also requires server-only
+`SANDBOX_EXECD_TOKEN` (at least 32 characters), and
 `SANDBOX_ALLOWED_ACTOR_IDS` (comma-separated authenticated actor UUIDs). An empty
 actor list or missing config disables access. This extra actor gate is deliberate:
 this first workload is for trusted Red operators, not every chat/API customer.
-Operator setup must deliver the actor allowlist as well as the URL/token.
+Operator setup must deliver the actor allowlist and token. Add the app-side
+secret reference only after the value exists in each environment; an absent
+referenced secret can stop the app’s entire secret sync.
 
 The sandbox container receives **only** `SANDBOX_EXECD_TOKEN`; its entrypoint
 maps that to execd's `EXECD_ACCESS_TOKEN`. Do not project LLM keys, database/Redis/
 Temporal keys, app credentials, or provider control-plane credentials into it.
 Use the operator's secret API to provision values; never commit tokens or put them
-in model context. Keep the sandbox edge private to the app's authorized callers.
+in model context. The isolated service currently uses a public HTTPS host with token authentication;
+it is not a network-private endpoint.
 
-`repo-spec.fragment.yaml` records the supplied **proposed** declaration. It is
-intentionally not active while the operator's exact schema and artifact-bundle
-support are pending. The PR builds/publishes `ghcr.io/cogni-dao/red-sandbox:sha-<sha>`
-independently. Once the operator contract lands, adopt its precise declaration,
-include that image in the immutable bundle, then flight candidate-a. Do not infer
-that a successful app-only flight created or exercised the sandbox.
+The separate top-level `sandbox:` proposal in the original attachment is superseded
+by operator [PR #2813](https://github.com/Cogni-DAO/cogni/pull/2813) and
+[PR #2814](https://github.com/Cogni-DAO/cogni/pull/2814). Reuse PR #25’s private
+service declaration and the standard immutable artifact-bundle build matrix.
+The additional CI sandbox job exercises the image through production ToolRunner;
+the required manifest check fails if that proof fails. Do not infer that a
+successful app-only flight created or exercised the sandbox.
 
 Platform prerequisite: [operator story.5093](https://cognidao.org/work/items/story.5093).
 Red outcome: [story.0002](https://red.cognidao.org/work/items/story.0002).
@@ -98,7 +109,7 @@ services/sandbox/validate.sh
 
 The fixture runs the actual image non-root, with a read-only root, tmpfs scratch,
 all capabilities dropped, no-new-privileges, and PID/memory/CPU limits. It generates
-a disposable token, binds execd only on loopback, and removes the container on
+a disposable token, binds the service front door only on loopback, and removes the container on
 exit. It exercises the **production capability through ToolRunner**: auth refusal,
 file read/write, separate thread directories, trusted graph/actor gates,
 persistent shell state, background lifecycle/logs/interrupt, signed command

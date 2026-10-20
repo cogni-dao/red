@@ -47,6 +47,18 @@ const edit = (file, from, to) => ({ read, write }) => {
 
 const CASES = [
   {
+    name: "removing sandbox proof from the manifest dependency fails closed",
+    mutate: edit(".github/workflows/pr-build.yml", "needs: [resolve, detect, build, sandbox]", "needs: [resolve, detect, build]"),
+    expectExit: 1,
+    expectMatch: /jobs.manifest.needs/,
+  },
+  {
+    name: "allowing skipped sandbox proof fails closed",
+    mutate: edit(".github/workflows/pr-build.yml", '"sandbox:$SANDBOX_RESULT:success"', '"sandbox:$SANDBOX_RESULT:success|skipped"'),
+    expectExit: 1,
+    expectMatch: /sandbox proof fail-closed gate/,
+  },
+  {
     name: "baseline tree passes",
     mutate: () => {},
     expectExit: 0,
@@ -73,8 +85,8 @@ const CASES = [
     name: "a required check gated on upstream results can skip, and skip scores as success",
     mutate: edit(
       ".github/workflows/pr-build.yml",
-      "  manifest:\n    needs: [resolve, detect, build]\n    if: always()",
-      "  manifest:\n    needs: [resolve, detect, build]\n    if: |\n      always() &&\n      needs.detect.result == 'success'"
+      "  manifest:\n    needs: [resolve, detect, build, sandbox]\n    if: always()",
+      "  manifest:\n    needs: [resolve, detect, build, sandbox]\n    if: |\n      always() &&\n      needs.detect.result == 'success'"
     ),
     expectExit: 1,
     expectMatch: /scores a skipped required check as SUCCESS/,

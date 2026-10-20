@@ -33,7 +33,7 @@ const scope: ExecutionScope = {
 	},
 };
 const env = {
-	SANDBOX_URL: "https://sandbox.example",
+	SANDBOX_BASE_URL: "https://sandbox.example",
 	SANDBOX_EXECD_TOKEN: "fixture-service-token-with-32-characters",
 	SANDBOX_ALLOWED_ACTOR_IDS: "trusted,second-trusted",
 };
@@ -115,7 +115,7 @@ describe("trusted sandbox capability", () => {
 		});
 		const records = JSON.stringify(terminal.mock.calls);
 		expect(records).not.toContain(env.SANDBOX_EXECD_TOKEN);
-		expect(records).not.toContain(env.SANDBOX_URL);
+		expect(records).not.toContain(env.SANDBOX_BASE_URL);
 		expect(records).not.toContain("sensitive fixture command");
 		expect(log.bindings().nodeId).toBe("node-fixture");
 	});
