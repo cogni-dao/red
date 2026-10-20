@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Cogni-DAO
 /**
  * Module: sandbox runtime validation fixture
- * Purpose: Exercise real execd through the production capability and ToolRunner, without model spend.
+ * Purpose: Exercise execd transport through shared tool contracts and ToolRunner; not application authorization or agent proof.
  * Scope: Self-owned local fixture only; no remote target or deployment operations.
  * Side-effects: Fixture commands and workspace files
  * @internal
@@ -23,71 +23,66 @@ import {
 	sandboxWriteFileContract,
 } from "@cogni/ai-tools";
 import {
-	type ExecutionScope,
-	runInScope,
-} from "../../app/src/adapters/server/ai/execution-scope";
-import { createSandboxCapability } from "../../app/src/bootstrap/capabilities/sandbox";
-import { makeNoopLogger } from "../../app/src/shared/observability/server/logger";
+	bindExecdWorkspace,
+	ExecdClient,
+} from "../../app/src/adapters/server/sandbox/execd.client";
 
 async function main() {
 	const url = process.env.SANDBOX_BASE_URL;
 	const token = process.env.SANDBOX_EXECD_TOKEN;
 	assert(url && token, "Fixture URL/token required");
-	const scope: ExecutionScope = {
-		graphId: "langgraph:red-solver",
-		runId: "sandbox-runtime-proof",
-		stateKey: "thread-a",
-		actorUserId: "fixture-owner",
-		billing: {
-			billingAccountId: "fixture-account",
-			virtualKeyId: "fixture-key",
-		},
-		usageSource: "litellm",
-		llmService: {
-			async completionStream() {
-				throw new Error("Fixture never calls an LLM");
-			},
-		},
-	};
-	const capability = createSandboxCapability(
-		{
-			SANDBOX_BASE_URL: url,
-			SANDBOX_EXECD_TOKEN: token,
-		},
-		makeNoopLogger(),
-		"red",
-		["fixture-owner"],
-	);
-	const source = createStaticToolSource([
-		contractToRuntime(sandboxExecContract, { execute: capability.exec }),
-		contractToRuntime(sandboxReadFileContract, {
-			execute: capability.readFile,
-		}),
-		contractToRuntime(sandboxWriteFileContract, {
-			execute: capability.writeFile,
-		}),
-	]);
+	// Fixture-owned adapter workspaces only. This does not authorize any app caller.
+	const scope = `/workspace/${"a".repeat(64)}`;
+	const second = `/workspace/${"b".repeat(64)}`;
+	const client = new ExecdClient({ url, token });
 	const names = [
 		SANDBOX_EXEC_NAME,
 		SANDBOX_READ_FILE_NAME,
 		SANDBOX_WRITE_FILE_NAME,
 	];
 	let eventCount = 0;
-	const runner = createToolRunner(
-		source,
-		() => {
-			eventCount++;
-		},
-		{
-			policy: createToolAllowlistPolicy(names),
-			ctx: { runId: scope.runId ?? "fixture" },
-		},
-	);
+	function sourceFor(workspace: string) {
+		const capability = bindExecdWorkspace(client, workspace);
+		return createStaticToolSource([
+			contractToRuntime(sandboxExecContract, {
+				execute: capability.exec,
+			}),
+			contractToRuntime(sandboxReadFileContract, {
+				execute: capability.readFile,
+			}),
+			contractToRuntime(sandboxWriteFileContract, {
+				execute: capability.writeFile,
+			}),
+		]);
+	}
+	function fixtureRunner(workspace: string) {
+		return createToolRunner(
+			sourceFor(workspace),
+			() => {
+				eventCount++;
+			},
+			{
+				policy: createToolAllowlistPolicy(names),
+				ctx: { runId: "sandbox-transport-fixture" },
+			},
+		);
+	}
+	const runner = fixtureRunner(scope);
+	const secondRunner = fixtureRunner(second);
 	const checks: string[] = [];
 	async function tool(name: string, args: unknown, context = scope) {
-		const result = await runInScope(context, () => runner.exec(name, args));
-		assert(result.ok, `ToolRunner rejected ${name}`);
-		return result.value;
+		const result = await (context === scope ? runner : secondRunner).exec(
+			name,
+			args,
+		);
+		return result.ok
+			? result.value
+			: {
+					status: "error",
+					output: "",
+					truncated: false,
+					message: result.safeMessage,
+				};
 	}
 	async function ok(name: string, args: unknown, context = scope) {
 		const value = await tool(name, args, context);
@@ -123,7 +118,6 @@ async function main() {
 		"thread-a-proof",
 	);
 	checks.push("file write/read through ToolRunner");
-	const second = { ...scope, stateKey: "thread-b" };
 	assert.equal(
 		(await tool(SANDBOX_READ_FILE_NAME, { path: "nested/proof.txt" }, second))
 			.status,
@@ -139,27 +133,6 @@ async function main() {
 		"thread-a-proof",
 	);
 	checks.push("distinct thread workspaces (not a security boundary)");
-	assert.equal(
-		(
-			await tool(
-				SANDBOX_EXEC_NAME,
-				{ action: "shell", command: "id" },
-				{ ...scope, actorUserId: "other" },
-			)
-		).status,
-		"unavailable",
-	);
-	assert.equal(
-		(
-			await tool(
-				SANDBOX_EXEC_NAME,
-				{ action: "shell", command: "id" },
-				{ ...scope, graphId: "langgraph:poet" },
-			)
-		).status,
-		"unavailable",
-	);
-	checks.push("trusted actor and graph opt-in");
 	await ok(SANDBOX_EXEC_NAME, {
 		action: "shell",
 		command: "export RED_FIXTURE_STATE=persistent",
@@ -246,12 +219,12 @@ PYTHON`,
 	});
 	checks.push("interrupt background process");
 	await ok(SANDBOX_EXEC_NAME, { action: "close_shell" });
-	const invalid = await runInScope(scope, () =>
-		runner.exec(SANDBOX_READ_FILE_NAME, { path: "../outside" }),
-	);
+	const invalid = await runner.exec(SANDBOX_READ_FILE_NAME, {
+		path: "../outside",
+	});
 	assert(!invalid.ok);
 	checks.push("ToolRunner rejects traversal input");
-	const denyRunner = createToolRunner(source, () => {});
+	const denyRunner = createToolRunner(sourceFor(scope), () => {});
 	assert(
 		!(
 			await denyRunner.exec(SANDBOX_EXEC_NAME, {

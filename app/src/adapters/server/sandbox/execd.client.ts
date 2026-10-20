@@ -13,6 +13,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { posix } from "node:path";
 import {
+	type SandboxCapability,
 	type SandboxExecInput,
 	SandboxExecInputSchema,
 	type SandboxOutput,
@@ -43,6 +44,39 @@ export class ExecdClientError extends Error {
 	) {
 		super(`Sandbox operation failed (${reasonCode}).`);
 	}
+}
+
+/**
+ * Bind transport operations to a workspace already resolved by a trusted caller.
+ * This is protocol adaptation, NOT caller authorization. The application must
+ * not inject this capability until shared authorization and containment exist.
+ */
+export function bindExecdWorkspace(
+	client: ExecdClient,
+	workspace: string,
+): SandboxCapability {
+	async function invoke(
+		fn: () => Promise<SandboxOutput>,
+	): Promise<SandboxOutput> {
+		try {
+			return await fn();
+		} catch (error) {
+			if (!(error instanceof ExecdClientError)) throw error;
+			return {
+				status: error.ambiguous ? "unknown" : "error",
+				output: "",
+				truncated: false,
+				message: error.ambiguous
+					? "Execution may already have occurred. Do not retry; reconcile existing state."
+					: `Sandbox operation failed (${error.reasonCode}).`,
+			};
+		}
+	}
+	return {
+		exec: (input) => invoke(() => client.exec(workspace, input)),
+		readFile: (input) => invoke(() => client.readFile(workspace, input)),
+		writeFile: (input) => invoke(() => client.writeFile(workspace, input)),
+	};
 }
 
 export class ExecdClient {

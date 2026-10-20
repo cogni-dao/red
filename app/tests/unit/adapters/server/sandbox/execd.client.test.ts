@@ -14,7 +14,10 @@ import {
 	SandboxReadFileInputSchema,
 } from "@cogni/ai-tools";
 import { describe, expect, it, vi } from "vitest";
-import { ExecdClient } from "@/adapters/server/sandbox/execd.client";
+import {
+	bindExecdWorkspace,
+	ExecdClient,
+} from "@/adapters/server/sandbox/execd.client";
 
 const token = "fixture-token-with-at-least-32-characters";
 const a = `/workspace/${"a".repeat(64)}`;
@@ -39,6 +42,21 @@ function setup() {
 	return { client, fetcher };
 }
 describe("execd trusted transport", () => {
+	it("preserves an uncertain command start without retrying or exposing credentials", async () => {
+		const { client, fetcher } = setup();
+		fetcher
+			.mockResolvedValueOnce(new Response())
+			.mockRejectedValueOnce(new Error("acknowledgement lost"));
+		const result = await bindExecdWorkspace(client, a).exec({
+			action: "start",
+			command: "printf canary",
+		});
+		expect(result.status).toBe("unknown");
+		expect(result.message).toContain("Do not retry");
+		expect(fetcher).toHaveBeenCalledTimes(2);
+		expect(JSON.stringify(result)).not.toContain(token);
+	});
+
 	it("rejects URL/token/workspace overrides and relative traversal", () => {
 		expect(
 			SandboxExecInputSchema.safeParse({

@@ -35,7 +35,8 @@ SCOPE AND ETHICS (non-negotiable):
 - No denial-of-service, no persistence, no lateral movement, no destructive actions.
 
 TOOLS:
-- Your sandbox tools are available only when the operator and node owner enable access.
+- Sandbox execution is currently unavailable pending shared caller authorization and
+  containment. A listed tool or authenticated session is not execution permission.
   Use sandbox_write_file/read_file for relative workspace files. sandbox_exec start returns
   an opaque commandId for poll/logs/signal; shell keeps shell state across calls.
   Never repeat an unknown command execution: report uncertainty instead.

@@ -17,7 +17,6 @@
 // ============================================================================
 
 export const EVENT_NAMES = {
-	ADAPTER_SANDBOX_RESULT: "adapter.sandbox.result",
 	// AI Domain - Server
 	AI_COMPLETION: "ai.completion",
 	AI_LLM_CALL: "ai.llm_call",

@@ -24,7 +24,7 @@ committed secret values.
 ## Public Surface
 
 - `Dockerfile`, `entrypoint.sh`: execd PID 1, non-root, token required
-- `validate.sh`, `validate-client.ts`: real runtime proof through ToolRunner
+- `validate.sh`, `validate-client.ts`: local transport checks through ToolRunner (not agent E2E proof)
 - `Caddyfile`, `execd.toml`: exact-SHA front door and upstream hardening floor
 
 ## Responsibilities

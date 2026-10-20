@@ -97,8 +97,6 @@ Constructed:
 
 Optional:
 
-- SANDBOX_BASE_URL, SANDBOX_EXECD_TOKEN — optional separate sandbox service; trusted actor membership comes from versioned .cogni/sandbox-policy.json, never a secret or environment override.
-
 - LITELLM_MVP_API_KEY (MVP wallet link single key - TODO: remove when proper wallet→key registry exists)
 - OPENROUTER_API_KEY (for LiteLLM providers)
 - AUTH_SECRET (≥32 chars) - TODO: when session management added

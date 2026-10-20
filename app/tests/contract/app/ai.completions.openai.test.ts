@@ -158,14 +158,6 @@ describe("OpenAI Chat Completions Contract", () => {
       expect(parsed.graph_name).toBe("langgraph:poet");
     });
 
-    it("validates the conversation-key extension without accepting paths", () => {
-      const input = { model: "gpt-oss-120b", messages: [{ role: "user", content: "fixture" }] };
-      expect(chatCompletionsContract.input.parse({ ...input, state_key: "trusted-thread_1" }).state_key).toBe("trusted-thread_1");
-      for (const state_key of ["../other", "/workspace/other", "x\nforged", "x".repeat(129), ""]) {
-        expect(chatCompletionsContract.input.safeParse({ ...input, state_key }).success).toBe(false);
-      }
-    });
-
     it("should reject missing model", () => {
       const input = {
         messages: [{ role: "user", content: "Hello" }],

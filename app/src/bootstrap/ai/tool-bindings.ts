@@ -7,7 +7,7 @@
  * Scope: Creates bindings record for tool source factory. Does NOT execute tools.
  * Invariants:
  *   - CAPABILITY_INJECTION: Implementations receive capabilities at construction
- *   - NO_STUB_AT_RUNTIME: All tools have real implementations with I/O
+ *   - MISSING_CAPABILITY_FAILS_CLOSED: Unavailable capabilities never perform I/O
  *   - IO_VIA_ADAPTERS: Capabilities wrap adapter ports from container
  * Side-effects: none
  * Links: TOOL_USE_SPEC.md, container.ts

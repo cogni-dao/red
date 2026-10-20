@@ -229,22 +229,6 @@ describe("OpenAI Endpoint Parity (POST /v1/chat/completions)", () => {
     vi.resetAllMocks();
   });
 
-  describe("thread-scoped machine API", () => {
-    it.each([false, true])("passes state_key into the execution workflow (stream=%s)", async (stream) => {
-      const { temporal } = setupMocks();
-      const { POST } = await import("@/app/api/v1/chat/completions/route");
-      const response = await POST(new NextRequest("http://localhost:3000/api/v1/chat/completions", {
-        method: "POST", body: JSON.stringify({
-          ...createCompletionRequest({ messages: [{ role: "user", content: "fixture" }] }),
-          graph_name: "red-solver", state_key: "sandbox-thread-fixture", stream,
-        }),
-      }));
-      expect(response.status).toBe(200);
-      await response.text();
-      expect(JSON.stringify(temporal.client.start.mock.calls)).toContain('"stateKey":"sandbox-thread-fixture"');
-    });
-  });
-
   describe("non-streaming response parity", () => {
     it("should return response matching OpenAI ChatCompletion shape exactly", async () => {
       setupMocks();

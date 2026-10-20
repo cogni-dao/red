@@ -82,7 +82,7 @@ function unavailable(): SandboxOutput {
 		output: "",
 		truncated: false,
 		message:
-			"Sandbox access is not enabled for this graph and authenticated actor.",
+			"Sandbox execution is unavailable: shared caller authorization and containment are not configured.",
 	};
 }
 
