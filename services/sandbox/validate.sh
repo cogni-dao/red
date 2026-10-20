@@ -24,6 +24,8 @@ if [[ "$ready" != true ]]; then
   echo 'Sandbox fixture did not become ready' >&2
   exit 1
 fi
+# Operator serving requires both exact /version and unauthenticated /readyz.
+curl --fail --silent --max-time 2 "$SANDBOX_BASE_URL/readyz" | python3 -c 'import json,sys; assert json.load(sys.stdin)["status"] == "ready"'
 [[ "$(docker exec "$fixture_name" id -u)" == 10001 ]]
 # The app packages are ESM-only; compile the fixture as ESM rather than using
 # tsx's CommonJS fallback for this repository's root scripts.

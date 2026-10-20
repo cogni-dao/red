@@ -114,6 +114,11 @@ docker build -t red-sandbox:story-0002 services/sandbox
 services/sandbox/validate.sh
 ```
 
+The public `/readyz` handler probes execd `/ping` without credentials and maps
+its authenticated-alive response to readiness. Execution routes remain token-gated.
+The fixture requires this readiness handler as well as exact `/version` so a
+missing handler cannot silently trigger the operator boot-close policy again.
+
 The fixture runs the actual image non-root, with a read-only root, tmpfs scratch,
 all capabilities dropped, no-new-privileges, and PID/memory/CPU limits. It generates
 a disposable token, binds the service front door only on loopback, and removes the container on
