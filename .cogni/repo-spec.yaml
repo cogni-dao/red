@@ -58,6 +58,8 @@ deployment:
       visibility: public
       runtime_profile: cogni-node-app-v1
       bindings: {}
+      secret_refs:
+        - key: SANDBOX_EXECD_TOKEN
       bind_host: 0.0.0.0
       resources:
         cpu_units: 2

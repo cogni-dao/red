@@ -32,10 +32,10 @@ const scope: ExecutionScope = {
 		},
 	},
 };
+const actors = ["trusted", "second-trusted"];
 const env = {
 	SANDBOX_BASE_URL: "https://sandbox.example",
 	SANDBOX_EXECD_TOKEN: "fixture-service-token-with-32-characters",
-	SANDBOX_ALLOWED_ACTOR_IDS: "trusted,second-trusted",
 };
 afterEach(() => vi.unstubAllGlobals());
 describe("trusted sandbox capability", () => {
@@ -52,6 +52,7 @@ describe("trusted sandbox capability", () => {
 			},
 			makeNoopLogger(),
 			"red",
+			actors,
 		);
 		await runInScope(scope, () => cap.readFile({ path: "proof.txt" }));
 		expect(String(fetcher.mock.calls[0]?.[0])).toMatch(
@@ -62,15 +63,11 @@ describe("trusted sandbox capability", () => {
 		const fetcher = vi.fn<typeof fetch>();
 		vi.stubGlobal("fetch", fetcher);
 		const log = makeNoopLogger();
-		const disabled = createSandboxCapability(
-			{ ...env, SANDBOX_ALLOWED_ACTOR_IDS: "" },
-			log,
-			"red",
-		);
+		const disabled = createSandboxCapability(env, log, "red");
 		expect(
 			(await disabled.exec({ action: "start", command: "id" })).status,
 		).toBe("unavailable");
-		const cap = createSandboxCapability(env, log, "red");
+		const cap = createSandboxCapability(env, log, "red", actors);
 		for (const override of [
 			{ actorUserId: "untrusted" },
 			{ graphId: "langgraph:poet" },
@@ -89,7 +86,7 @@ describe("trusted sandbox capability", () => {
 			.fn<typeof fetch>()
 			.mockImplementation(async () => new Response("proof"));
 		vi.stubGlobal("fetch", fetcher);
-		const cap = createSandboxCapability(env, makeNoopLogger(), "red");
+		const cap = createSandboxCapability(env, makeNoopLogger(), "red", actors);
 		for (const override of [
 			{},
 			{ actorUserId: "second-trusted" },
@@ -119,7 +116,7 @@ describe("trusted sandbox capability", () => {
 		vi.stubGlobal("fetch", fetcher);
 		const log = makeNoopLogger().child({ nodeId: "node-fixture" });
 		const terminal = vi.spyOn(log, "info");
-		const cap = createSandboxCapability(env, log, "red");
+		const cap = createSandboxCapability(env, log, "red", actors);
 		const result = await runInScope(scope, () =>
 			cap.exec({ action: "start", command: "sensitive fixture command" }),
 		);

@@ -204,8 +204,6 @@ export const serverSchema = z.object({
     z.string().min(32).optional()
   ),
   SANDBOX_BASE_URL: optionalUrl,
-  // Empty actor allowlist disables model-facing ACI access.
-  SANDBOX_ALLOWED_ACTOR_IDS: optionalString,
 
   // Tavily Web Search - Optional
   // Required for research graph web search capability

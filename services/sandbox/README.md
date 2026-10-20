@@ -37,19 +37,26 @@ restart or transparently move between app replicas.
 The app derives its sandbox HTTPS origin from `APP_BASE_URL` using PR #25’s
 service-host convention. `SANDBOX_BASE_URL` overrides it for local development
 (HTTP is accepted only on loopback). Access also requires server-only
-`SANDBOX_EXECD_TOKEN` (at least 32 characters), and
-`SANDBOX_ALLOWED_ACTOR_IDS` (comma-separated authenticated actor UUIDs). An empty
-actor list or missing config disables access. This extra actor gate is deliberate:
-this first workload is for trusted Red operators, not every chat/API customer.
-Operator setup must deliver the actor allowlist and token. Add the app-side
-secret reference only after the value exists in each environment; an absent
-referenced secret can stop the app’s entire secret sync.
+`SANDBOX_EXECD_TOKEN` (at least 32 characters). Trusted actor UUIDs are non-secret
+configuration in `.cogni/sandbox-policy.json`, keyed by deployment lane. Missing
+policy, unknown lanes, or empty actor lists disable access. Only persistent
+candidate validation identities are enabled initially; preview/production deny
+access. The environment variable SANDBOX_ALLOWED_ACTOR_IDS is no longer consumed.
+
+The node-owned `.cogni/secrets-catalog.yaml` declares the token as `source: agent`
+with a 32-byte hex generator. The owning operator materializer generates a missing
+value and preserves existing bytes. Never manually seed or rotate this generated
+credential through the vendor-value API. Verify the selected source carries the
+catalog. The app and sandbox explicitly reference the same logical credential;
+these redundant external-workload refs remain a documented platform limitation,
+not a second secret authority. Prove projection and actual consumer activation.
 
 The sandbox container receives **only** `SANDBOX_EXECD_TOKEN`; its entrypoint
 maps that to execd's `EXECD_ACCESS_TOKEN`. Do not project LLM keys, database/Redis/
 Temporal keys, app credentials, or provider control-plane credentials into it.
-Use the operator's secret API to provision values; never commit tokens or put them
-in model context. The isolated service currently uses a public HTTPS host with token authentication;
+Use the operator delivery/materialization lane; never commit tokens or put them
+in model context or command environments. A second materialization must preserve
+the generated value. A storage receipt is not runtime proof. The isolated service currently uses a public HTTPS host with token authentication;
 it is not a network-private endpoint.
 
 The separate top-level `sandbox:` proposal in the original attachment is superseded

@@ -32,20 +32,13 @@ import type { Logger } from "@/shared/observability/server";
 export function createSandboxCapability(
 	env: Pick<
 		ServerEnv,
-		| "SANDBOX_BASE_URL"
-		| "APP_BASE_URL"
-		| "SANDBOX_EXECD_TOKEN"
-		| "SANDBOX_ALLOWED_ACTOR_IDS"
+		"SANDBOX_BASE_URL" | "APP_BASE_URL" | "SANDBOX_EXECD_TOKEN"
 	>,
 	log: Logger,
 	nodeSlug: string,
+	allowedActorIds: readonly string[] = [],
 ): SandboxCapability {
-	const actors = new Set(
-		(env.SANDBOX_ALLOWED_ACTOR_IDS ?? "")
-			.split(",")
-			.map((s) => s.trim())
-			.filter(Boolean),
-	);
+	const actors = new Set(allowedActorIds);
 	if (!env.SANDBOX_EXECD_TOKEN || actors.size === 0)
 		return unavailableSandboxCapability;
 	const url =

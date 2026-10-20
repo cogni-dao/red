@@ -136,6 +136,7 @@ import {
 } from "@/bootstrap/capabilities/metrics";
 import { createRepoCapability } from "@/bootstrap/capabilities/repo";
 import { createSandboxCapability } from "@/bootstrap/capabilities/sandbox";
+import { loadSandboxAllowedActors } from "@/bootstrap/capabilities/sandbox-policy";
 import { createScheduleCapability } from "@/bootstrap/capabilities/schedule";
 import { stubVcsCapability } from "@/bootstrap/capabilities/vcs";
 import { createWebSearchCapability } from "@/bootstrap/capabilities/web-search";
@@ -193,7 +194,9 @@ export type UnhandledErrorPolicy = "rethrow" | "respond_500";
 
 class DoltgresNotConfiguredError extends Error {
 	constructor() {
-		super("Doltgres is not configured for this node. Set DOLTGRES_URL to enable the work-items API.");
+		super(
+			"Doltgres is not configured for this node. Set DOLTGRES_URL to enable the work-items API.",
+		);
 		this.name = "DoltgresNotConfiguredError";
 	}
 }
@@ -819,6 +822,7 @@ function createContainer(): Container {
 			env,
 			log.child({ component: "sandbox" }),
 			getNodeName(),
+			loadSandboxAllowedActors(env.COGNI_REPO_ROOT, env.DEPLOY_ENVIRONMENT),
 		),
 		knowledgeCapability,
 		edoCapability,
