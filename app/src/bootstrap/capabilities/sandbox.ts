@@ -22,10 +22,12 @@ import {
 	ExecdClient,
 	ExecdClientError,
 } from "@/adapters/server/sandbox/execd.client";
-import { getNodeName } from "@/shared/config";
+import {
+	deriveIsolatedServiceOrigin,
+	SANDBOX_SERVICE_NAME,
+} from "@/adapters/server/sandbox-workspace";
 import type { ServerEnv } from "@/shared/env";
 import type { Logger } from "@/shared/observability/server";
-import { resolveSandboxWorkspaceOrigin } from "./sandbox-workspace";
 
 export function createSandboxCapability(
 	env: Pick<
@@ -36,6 +38,7 @@ export function createSandboxCapability(
 		| "SANDBOX_ALLOWED_ACTOR_IDS"
 	>,
 	log: Logger,
+	nodeSlug: string,
 ): SandboxCapability {
 	const actors = new Set(
 		(env.SANDBOX_ALLOWED_ACTOR_IDS ?? "")
@@ -46,7 +49,14 @@ export function createSandboxCapability(
 	if (!env.SANDBOX_EXECD_TOKEN || actors.size === 0)
 		return unavailableSandboxCapability;
 	const url =
-		env.SANDBOX_BASE_URL ?? resolveSandboxWorkspaceOrigin(env, getNodeName());
+		env.SANDBOX_BASE_URL ??
+		(env.APP_BASE_URL
+			? deriveIsolatedServiceOrigin({
+					appBaseUrl: env.APP_BASE_URL,
+					nodeSlug,
+					service: SANDBOX_SERVICE_NAME,
+				})
+			: null);
 	if (!url) return unavailableSandboxCapability;
 	const client = new ExecdClient({
 		url,

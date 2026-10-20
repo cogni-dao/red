@@ -177,6 +177,7 @@ import {
 	getEmissionsHolderAddress,
 	getLedgerConfig,
 	getNodeId,
+	getNodeName,
 	getNodeTokenomicsConfig,
 	getOperatorWalletConfig,
 	getPaymentConfig,
@@ -817,6 +818,7 @@ function createContainer(): Container {
 		sandboxCapability: createSandboxCapability(
 			env,
 			log.child({ component: "sandbox" }),
+			getNodeName(),
 		),
 		knowledgeCapability,
 		edoCapability,

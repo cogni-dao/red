@@ -39,6 +39,25 @@ const env = {
 };
 afterEach(() => vi.unstubAllGlobals());
 describe("trusted sandbox capability", () => {
+	it("uses the isolated-service host from authenticated app configuration", async () => {
+		const fetcher = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(new Response("proof"));
+		vi.stubGlobal("fetch", fetcher);
+		const cap = createSandboxCapability(
+			{
+				...env,
+				SANDBOX_BASE_URL: undefined,
+				APP_BASE_URL: "https://red-test.cognidao.org",
+			},
+			makeNoopLogger(),
+			"red",
+		);
+		await runInScope(scope, () => cap.readFile({ path: "proof.txt" }));
+		expect(String(fetcher.mock.calls[0]?.[0])).toMatch(
+			/^https:\/\/red-sandbox-test\.cognidao\.org\//,
+		);
+	});
 	it("requires explicit actor allowlist, graph opt-in and thread context", async () => {
 		const fetcher = vi.fn<typeof fetch>();
 		vi.stubGlobal("fetch", fetcher);
@@ -46,11 +65,12 @@ describe("trusted sandbox capability", () => {
 		const disabled = createSandboxCapability(
 			{ ...env, SANDBOX_ALLOWED_ACTOR_IDS: "" },
 			log,
+			"red",
 		);
 		expect(
 			(await disabled.exec({ action: "start", command: "id" })).status,
 		).toBe("unavailable");
-		const cap = createSandboxCapability(env, log);
+		const cap = createSandboxCapability(env, log, "red");
 		for (const override of [
 			{ actorUserId: "untrusted" },
 			{ graphId: "langgraph:poet" },
@@ -69,7 +89,7 @@ describe("trusted sandbox capability", () => {
 			.fn<typeof fetch>()
 			.mockImplementation(async () => new Response("proof"));
 		vi.stubGlobal("fetch", fetcher);
-		const cap = createSandboxCapability(env, makeNoopLogger());
+		const cap = createSandboxCapability(env, makeNoopLogger(), "red");
 		for (const override of [
 			{},
 			{ actorUserId: "second-trusted" },
@@ -99,7 +119,7 @@ describe("trusted sandbox capability", () => {
 		vi.stubGlobal("fetch", fetcher);
 		const log = makeNoopLogger().child({ nodeId: "node-fixture" });
 		const terminal = vi.spyOn(log, "info");
-		const cap = createSandboxCapability(env, log);
+		const cap = createSandboxCapability(env, log, "red");
 		const result = await runInScope(scope, () =>
 			cap.exec({ action: "start", command: "sensitive fixture command" }),
 		);

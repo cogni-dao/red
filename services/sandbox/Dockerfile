@@ -40,6 +40,10 @@ COPY --from=execd /execd /usr/local/bin/execd
 # Hardening-floor launcher; must stay root-owned and not group/world-writable.
 COPY --from=execd /opt/opensandbox/opensandbox-launcher /opt/opensandbox/opensandbox-launcher
 COPY --from=caddy /usr/bin/caddy /usr/local/bin/caddy
+# Upstream Caddy carries cap_net_bind_service. Its file capability prevents exec
+# under a dropped capability bounding set; port 8080 needs no privileged bind.
+RUN install -m 0755 /usr/local/bin/caddy /usr/local/bin/caddy.unprivileged \
+  && mv /usr/local/bin/caddy.unprivileged /usr/local/bin/caddy
 COPY Caddyfile /etc/sandbox/Caddyfile
 COPY execd.toml /etc/sandbox/execd.toml
 COPY entrypoint.sh /usr/local/bin/sandbox-entrypoint

@@ -56,6 +56,7 @@ async function main() {
 			SANDBOX_ALLOWED_ACTOR_IDS: "fixture-owner",
 		},
 		makeNoopLogger(),
+		"red",
 	);
 	const source = createStaticToolSource([
 		contractToRuntime(sandboxExecContract, { execute: capability.exec }),

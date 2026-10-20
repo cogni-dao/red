@@ -17,7 +17,7 @@ fixture_port="$(docker port "$fixture_name" 8080/tcp | awk -F: 'NR==1 {print $NF
 export SANDBOX_BASE_URL="http://127.0.0.1:$fixture_port"
 ready=false
 for ((attempt=0;attempt<30;attempt++)); do
-  if curl --fail --silent "$SANDBOX_BASE_URL/ready" >/dev/null; then ready=true; break; fi
+  if curl --fail --silent --max-time 2 "$SANDBOX_BASE_URL/version" >/dev/null; then ready=true; break; fi
   sleep 1
 done
 if [[ "$ready" != true ]]; then
