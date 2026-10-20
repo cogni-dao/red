@@ -36,6 +36,8 @@ Shared Zod route contracts and HTTP router definitions for all node apps. PURE_L
 
 ## Public Surface
 
+Chat completions optionally accepts `state_key` using the chat contract's safe conversation-key schema; sandbox paths and credentials are never wire arguments.
+
 All contract files re-exported via `src/index.ts`. Selective re-export for `ai.chat.v1.contract` to avoid `ChatMessage` name collision with `ai.completions.v1.contract`.
 
 - `identity.attestation.v1.contract` — frozen operator↔node identity protocol, canonical HTTPS-origin schema, and cross-repository protocol fingerprint

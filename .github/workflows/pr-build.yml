@@ -361,3 +361,45 @@ jobs:
           retention-days: 7
           if-no-files-found: error
           overwrite: true
+
+  # Build the separate execd artifact without pretending the pending operator
+  # sandbox declaration is already part of the app workload bundle.
+  sandbox:
+    needs: resolve
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          repository: ${{ needs.resolve.outputs.checkout_repo }}
+          ref: ${{ needs.resolve.outputs.checkout_ref }}
+      - uses: pnpm/action-setup@c5ba7f7862a0f64c1b1a05fbac13e0b8e86ba08c # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm packages:build
+      - name: Build pinned sandbox runtime
+        env:
+          IMAGE_NAME: ${{ needs.resolve.outputs.image_name }}-sandbox
+          IMAGE_TAG: ${{ needs.resolve.outputs.image_tag }}
+          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+        run: docker build --build-arg BUILD_SHA="$SOURCE_SHA" -t "$IMAGE_NAME:$IMAGE_TAG" services/sandbox
+      - name: Validate real sandbox through ToolRunner
+        env:
+          IMAGE_NAME: ${{ needs.resolve.outputs.image_name }}-sandbox
+          IMAGE_TAG: ${{ needs.resolve.outputs.image_tag }}
+        run: services/sandbox/validate.sh "$IMAGE_NAME:$IMAGE_TAG"
+      - name: Login to GHCR
+        if: needs.resolve.outputs.should_push == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish sandbox artifact after runtime proof
+        if: needs.resolve.outputs.should_push == 'true'
+        env:
+          IMAGE_NAME: ${{ needs.resolve.outputs.image_name }}-sandbox
+          IMAGE_TAG: ${{ needs.resolve.outputs.image_tag }}
+        run: docker push "$IMAGE_NAME:$IMAGE_TAG"

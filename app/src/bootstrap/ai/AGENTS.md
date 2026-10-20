@@ -44,6 +44,7 @@ AI tool bindings and tool source factory. Wires tool implementations with inject
 
 ## Standards
 
+- Sandbox tool implementations use the injected `sandboxCapability`; the default returns unavailable. Only explicitly opted-in graphs list these tools.
 - Per CAPABILITY_INJECTION: implementations receive capabilities at construction
 
 ## Dependencies

@@ -74,6 +74,8 @@ Pure tool definitions for AI agent execution. Defines `ToolContract`, `ToolImple
   - `ToolCapabilities`, `AuthCapability`, `ClockCapability`, `MetricsCapability`, `RepoCapability` - Capability interfaces
 - **Files considered API:** `index.ts`, `types.ts`, `schema.ts`, `catalog.ts`, `runtime-adapter.ts`, `capabilities/*.ts`, `tools/*.ts`
 
+- Sandbox contracts: `core__sandbox_exec`, `core__sandbox_read_file`, `core__sandbox_write_file`; `SandboxCapability` and `createSandboxImplementations`. Credentials and authenticated workspace context are supplied by the app, never model arguments.
+
 ## Ports
 
 - **Uses ports:** none

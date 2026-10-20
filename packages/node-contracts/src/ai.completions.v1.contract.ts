@@ -16,6 +16,7 @@
  */
 
 import { z } from "zod";
+import { AssistantUiInputSchema } from "./ai.chat.v1.contract";
 
 /** Input message length limit — caps client-submitted messages */
 const MAX_INPUT_MESSAGE_CHARS = 4_000;
@@ -167,6 +168,8 @@ const ChatCompletionInputSchema = z.object({
   // ── Extension fields (not in OpenAI spec) ────────────────────────────
   /** Graph name or fully-qualified graphId for routing (extension) */
   graph_name: z.string().optional(),
+  /** Tenant/actor-scoped conversation key; never a sandbox path or provider handle. */
+  state_key: AssistantUiInputSchema.shape.stateKey,
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

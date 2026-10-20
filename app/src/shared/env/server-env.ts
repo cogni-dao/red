@@ -198,6 +198,10 @@ export const serverSchema = z.object({
   // Tavily Web Search - Optional
   // Required for research graph web search capability
   TAVILY_API_KEY: optionalString,
+  // Optional operator-managed sandbox; empty actor allowlist disables access.
+  SANDBOX_URL: z.string().url().optional(),
+  SANDBOX_EXECD_TOKEN: z.string().min(32).optional(),
+  SANDBOX_ALLOWED_ACTOR_IDS: optionalString,
 
   // Market Provider: Kalshi - Optional
   // Required for Kalshi market data in poly-brain. Polymarket works without credentials.

@@ -26,6 +26,9 @@ import { metricsQueryBoundTool } from "./tools/metrics-query";
 import { repoListBoundTool } from "./tools/repo-list";
 import { repoOpenBoundTool } from "./tools/repo-open";
 import { repoSearchBoundTool } from "./tools/repo-search";
+import {
+  sandboxExecBoundTool, sandboxReadFileBoundTool, sandboxWriteFileBoundTool,
+} from "./tools/sandbox";
 import { scheduleListBoundTool } from "./tools/schedule-list";
 import { scheduleManageBoundTool } from "./tools/schedule-manage";
 import { vcsCreateBranchBoundTool } from "./tools/vcs-create-branch";
@@ -112,6 +115,9 @@ export const CORE_TOOL_BUNDLE: readonly CatalogBoundTool[] = [
   edoRecordOutcomeBoundTool as CatalogBoundTool,
   getCurrentTimeBoundTool as CatalogBoundTool,
   httpRequestBoundTool as CatalogBoundTool,
+  sandboxExecBoundTool as CatalogBoundTool,
+  sandboxReadFileBoundTool as CatalogBoundTool,
+  sandboxWriteFileBoundTool as CatalogBoundTool,
   knowledgeReadBoundTool as CatalogBoundTool,
   knowledgeSearchBoundTool as CatalogBoundTool,
   knowledgeWriteBoundTool as CatalogBoundTool,

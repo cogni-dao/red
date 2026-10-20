@@ -135,6 +135,7 @@ import {
 	derivePrometheusQueryUrl,
 } from "@/bootstrap/capabilities/metrics";
 import { createRepoCapability } from "@/bootstrap/capabilities/repo";
+import { createSandboxCapability } from "@/bootstrap/capabilities/sandbox";
 import { createScheduleCapability } from "@/bootstrap/capabilities/schedule";
 import { stubVcsCapability } from "@/bootstrap/capabilities/vcs";
 import { createWebSearchCapability } from "@/bootstrap/capabilities/web-search";
@@ -813,6 +814,10 @@ function createContainer(): Container {
 
 	// ToolSource with real implementations (per CAPABILITY_INJECTION)
 	const toolBindings = createToolBindings({
+		sandboxCapability: createSandboxCapability(
+			env,
+			log.child({ component: "sandbox" }),
+		),
 		knowledgeCapability,
 		edoCapability,
 		metricsCapability,

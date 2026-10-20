@@ -467,6 +467,7 @@ export const POST = wrapRouteHandlerWithLogging(
             modelRef,
             sessionUser,
             ...(graphName ? { graphName } : {}),
+            ...(input.state_key ? { stateKey: input.state_key } : {}),
             abortSignal: request.signal,
             ...(idempotencyKey ? { idempotencyKey } : {}),
           },
@@ -509,6 +510,7 @@ export const POST = wrapRouteHandlerWithLogging(
           modelRef,
           sessionUser,
           ...(graphName ? { graphName } : {}),
+          ...(input.state_key ? { stateKey: input.state_key } : {}),
           ...(idempotencyKey ? { idempotencyKey } : {}),
         },
         ctx

@@ -30,6 +30,7 @@ Capability factories bridging ai-tools interfaces to adapters. Creates environme
 
 - **Exports:** `createMetricsCapability()`, `stubMetricsCapability`, `createRepoCapability()`, `stubRepoCapability`, `createWebSearchCapability()`
 - **Env/Config keys:** PROMETHEUS_REMOTE_WRITE_URL, PROMETHEUS_QUERY_URL, PROMETHEUS_READ_USERNAME, PROMETHEUS_READ_PASSWORD, COGNI_REPO_PATH, COGNI_REPO_ROOT, TAVILY_API_KEY via ServerEnv
+- **Sandbox:** `createSandboxCapability(env, logger)` binds execd to an explicitly allowed actor, red-solver graph, and authenticated billing/thread scope. Missing config or actor list disables access.
 - **Files considered API:** `metrics.ts`, `repo.ts`, `web-search.ts`
 
 ## Responsibilities

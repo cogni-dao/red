@@ -33,6 +33,8 @@ Sandbox adapter for AI agent execution via **ephemeral** containers (`network=no
 - **Env/Config keys:** litellmMasterKey via constructor; image per-run via SandboxRunSpec
 - **Files considered API:** index.ts barrel export (not re-exported from parent server barrel — consumers use subpath imports to avoid Turbopack bundling dockerode native addon chain)
 
+`execd.client.ts` additionally exposes `ExecdClient` and `ExecdClientError` for the separate operator-managed sandbox workload. This HTTP adapter never provisions containers or uses dockerode. It supports bounded commands, persistent shells, files, signed workspace-bound command handles, and no automatic retry. Workspace directories are not a security boundary.
+
 ## Ports
 
 - **Uses ports:** none (SandboxGraphProvider uses SandboxRunnerPort internally)

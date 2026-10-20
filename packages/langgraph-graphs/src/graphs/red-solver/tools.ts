@@ -13,13 +13,17 @@
  * @public
  */
 
-import { HTTP_REQUEST_NAME } from "@cogni/ai-tools";
+import {
+  HTTP_REQUEST_NAME, SANDBOX_EXEC_NAME, SANDBOX_READ_FILE_NAME, SANDBOX_WRITE_FILE_NAME,
+} from "@cogni/ai-tools";
 
 /**
  * Tool IDs for red-solver graph.
  * Single source of truth - imported by server.ts, cogni-exec.ts, and catalog.ts.
  */
-export const RED_SOLVER_TOOL_IDS = [HTTP_REQUEST_NAME] as const;
+export const RED_SOLVER_TOOL_IDS = [
+  HTTP_REQUEST_NAME, SANDBOX_EXEC_NAME, SANDBOX_READ_FILE_NAME, SANDBOX_WRITE_FILE_NAME,
+] as const;
 
 /**
  * Type for red-solver tool IDs.
