@@ -83,6 +83,7 @@ export class ExecdClient {
 	private readonly base: URL;
 	private readonly shells = new Map<string, Promise<string>>();
 	private readonly shellBusy = new Set<string>();
+	private readonly shellUncertain = new Set<string>();
 	constructor(
 		private readonly options: {
 			url: string;
@@ -205,7 +206,8 @@ export class ExecdClient {
 	}
 	private async read(
 		response: Response,
-	): Promise<{ text: string; truncated: boolean }> {
+		retainPrefix = false,
+	): Promise<{ text: string; truncated: boolean; interrupted?: boolean }> {
 		if (!response.body) return { text: "", truncated: false };
 		const reader = response.body.getReader();
 		const chunks: Uint8Array[] = [];
@@ -214,17 +216,27 @@ export class ExecdClient {
 			while (true) {
 				const { done, value } = await reader.read();
 				if (done) break;
-				length += value.length;
-				if (length > MAX_BYTES) {
-					await reader.cancel();
+				if (value.length > MAX_BYTES - length) {
+					if (retainPrefix) chunks.push(value.subarray(0, MAX_BYTES - length));
+					await reader.cancel().catch(() => {});
 					return {
-						text: "[output limit reached; narrow the command or file]",
+						text: retainPrefix
+							? Buffer.concat(chunks).toString("utf8")
+							: "[output limit reached; narrow the command or file]",
 						truncated: true,
 					};
 				}
 				chunks.push(value);
+				length += value.length;
 			}
 		} catch {
+			if (retainPrefix) {
+				return {
+					text: Buffer.concat(chunks).toString("utf8"),
+					truncated: false,
+					interrupted: true,
+				};
+			}
 			throw new ExecdClientError("transport", true);
 		}
 		const text = Buffer.concat(chunks).toString("utf8");
@@ -269,17 +281,13 @@ export class ExecdClient {
 			timeoutMs + 2000,
 			true,
 		);
-		const result = await this.read(response);
-		if (result.truncated)
-			return {
-				status: "unknown",
-				output: result.text,
-				truncated: true,
-				message: "Execution may have occurred. Do not retry the command.",
-			};
+		// Keep a bounded protocol prefix so an observed init ID survives lost
+		// delivery. Never return an incomplete output prefix (it may split a secret).
+		const result = await this.read(response, true);
 		let id: string | undefined;
 		let complete = false;
 		let failed = false;
+		let malformed = false;
 		const output: string[] = [];
 		try {
 			for (const line of result.text.split(/\r?\n/)) {
@@ -291,17 +299,36 @@ export class ExecdClient {
 					: line.trim();
 				if (!record.startsWith("{")) continue;
 				const event = eventSchema.parse(JSON.parse(record));
-				if (event.type === "init") id = event.text;
+				if (event.type === "init")
+					id = z.string().min(1).max(512).parse(event.text);
 				if (event.type === "stdout" || event.type === "stderr")
 					output.push(event.text ?? "");
 				if (event.type === "execution_complete") complete = true;
 				if (event.type === "error") failed = true;
 			}
 		} catch {
+			malformed = true;
+		}
+		if (
+			result.truncated ||
+			result.interrupted ||
+			malformed ||
+			((!complete || (path === "/command" && !id)) && !failed)
+		) {
+			if (result.truncated || (id && path === "/command")) {
+				return {
+					status: "unknown",
+					output: "[incomplete command output withheld]",
+					truncated: result.truncated,
+					...(id && path === "/command"
+						? { commandId: this.handle(workspace, id) }
+						: {}),
+					message:
+						"Execution may already have occurred. Do not retry; inspect the command handle when available.",
+				};
+			}
 			throw new ExecdClientError("protocol", true);
 		}
-		if ((!complete || (path === "/command" && !id)) && !failed)
-			throw new ExecdClientError("protocol", true);
 		return {
 			status: failed ? "error" : "ok",
 			output: this.safe(output.join("")),
@@ -321,9 +348,9 @@ export class ExecdClient {
 		this.path(workspace, "check");
 		if (input.action === "start" || input.action === "shell") {
 			if (!input.command) throw new ExecdClientError("scope");
-			await this.mkdir(workspace);
 			const timeout = input.timeoutMs ?? 30000;
-			if (input.action === "start")
+			if (input.action === "start") {
+				await this.mkdir(workspace);
 				return this.stream(
 					"/command",
 					{
@@ -335,24 +362,38 @@ export class ExecdClient {
 					timeout,
 					workspace,
 				);
+			}
+			if (this.shellUncertain.has(workspace))
+				throw new ExecdClientError("protocol", true);
 			if (this.shellBusy.has(workspace)) throw new ExecdClientError("busy");
 			this.shellBusy.add(workspace);
 			try {
+				await this.mkdir(workspace);
 				let shell = this.shells.get(workspace);
 				if (!shell) {
 					if (this.shells.size >= 64) throw new ExecdClientError("busy");
 					shell = this.json("/session", "POST", { cwd: workspace }, true).then(
-						(v) => sessionSchema.parse(v).session_id,
+						(v) => {
+							const parsed = sessionSchema.safeParse(v);
+							if (!parsed.success) throw new ExecdClientError("protocol", true);
+							return parsed.data.session_id;
+						},
 					);
 					this.shells.set(workspace, shell);
 				}
 				const id = await shell;
-				return await this.stream(
+				const result = await this.stream(
 					`/session/${encodeURIComponent(id)}/run`,
 					{ command: input.command, timeout },
 					timeout,
 					workspace,
 				);
+				if (result.status === "unknown") this.shellUncertain.add(workspace);
+				return result;
+			} catch (error) {
+				if (error instanceof ExecdClientError && error.ambiguous)
+					this.shellUncertain.add(workspace);
+				throw error;
 			} finally {
 				this.shellBusy.delete(workspace);
 			}
@@ -366,10 +407,13 @@ export class ExecdClient {
 					let id: string;
 					try {
 						id = await shell;
-					} catch {
-						// Explicit close releases a failed local allocation. Its upstream
-						// identity is unknown, so never claim that an orphan was cleaned up.
-						this.shells.delete(workspace);
+					} catch (error) {
+						if (error instanceof ExecdClientError && !error.ambiguous) {
+							this.shells.delete(workspace);
+							throw error;
+						}
+						// Retain allocation/capacity until upstream closure is proven.
+						this.shellUncertain.add(workspace);
 						throw new ExecdClientError("protocol", true);
 					}
 					const response = await this.request(
@@ -380,8 +424,13 @@ export class ExecdClient {
 					);
 					await response.body?.cancel();
 					this.shells.delete(workspace);
+					this.shellUncertain.delete(workspace);
 				}
 				return { status: "ok", output: "", truncated: false };
+			} catch (error) {
+				if (error instanceof ExecdClientError && error.ambiguous)
+					this.shellUncertain.add(workspace);
+				throw error;
 			} finally {
 				this.shellBusy.delete(workspace);
 			}
@@ -401,7 +450,13 @@ export class ExecdClient {
 			const response = await this.request(`/command/status/${id}`);
 			const data = await this.read(response);
 			if (data.truncated) throw new ExecdClientError("protocol");
-			const parsed = statusSchema.safeParse(JSON.parse(data.text));
+			let value: unknown;
+			try {
+				value = JSON.parse(data.text);
+			} catch {
+				throw new ExecdClientError("protocol");
+			}
+			const parsed = statusSchema.safeParse(value);
 			if (!parsed.success) throw new ExecdClientError("protocol");
 			return {
 				status: "ok",
@@ -415,7 +470,11 @@ export class ExecdClient {
 			`/command/${id}/logs${input.cursor === undefined ? "" : `?cursor=${input.cursor}`}`,
 		);
 		const result = await this.read(response);
-		const cursor = Number(response.headers.get("EXECD-COMMANDS-TAIL-CURSOR"));
+		const cursorHeader = response.headers.get("EXECD-COMMANDS-TAIL-CURSOR");
+		const cursor =
+			cursorHeader === null || !/^\d+$/.test(cursorHeader)
+				? Number.NaN
+				: Number(cursorHeader);
 		return {
 			status: "ok",
 			output: this.safe(result.text),

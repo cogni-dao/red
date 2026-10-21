@@ -75,7 +75,12 @@ generation fencing, per-operation ownership, cancellation and cleanup.
 `bindExecdWorkspace` adapts a trusted workspace binding to `SandboxCapability` and
 preserves ambiguous-execution results as `unknown`; it makes no permission
 decision. Do not retry an ambiguous command. The app does not construct this
-binding. Shell mappings are process-local and do not survive an app restart.
+binding. Shell mappings are process-local and do not survive an app restart. An uncertain
+shell is fenced until a confirmed close. An unknown allocation retains its local
+capacity record; an explicit close cannot silently forget an upstream orphan.
+Lost/truncated command responses preserve an already observed opaque handle for
+status/log/cancel reconciliation, while incomplete output is withheld. These
+transport protections do not replace the shared durable lifecycle owner.
 
 The image retains execd as non-root PID 1, the upstream hardening launcher,
 credential stripping from child environments and Caddy's exact `/version` and
@@ -119,31 +124,17 @@ Directory separation and signed API handles do not establish hostile filesystem,
 process or tenant isolation. Keep arbitrary/untrusted sessions disabled until the
 runtime trust boundary and containment are qualified.
 
-## Live agent exercise
+## Live agent proof
 
-`validate-agent.py` calls the canonical authenticated `/api/v1/ai/chat` surface
-and reuses its server-returned `X-State-Key`. It never supplies a workspace owner,
-runtime credential or completions-only thread extension. It requires exact app
-and runtime SHAs, captures server run IDs and actual streamed tool input/output,
-and refuses to count an assistant's claim as tool evidence. Its random non-web
-XOR fixture supplies only ciphertext to the agent; the recovered answer must
-appear in an observed file read. A second turn must reuse files and shell state,
-start a background command, poll it and read retained logs.
-
-```sh
-# Keys belong in the gitignored credential file, never command arguments.
-python3 services/sandbox/validate-agent.py --sha <PR-head-SHA> --preflight-only
-python3 services/sandbox/validate-agent.py --sha <PR-head-SHA> \
-  --credentials-file .env.cogni --availability-only
-# Run after ordinary authorization and isolated session allocation qualify:
-python3 services/sandbox/validate-agent.py --sha <PR-head-SHA> \
-  --credentials-file .env.cogni
-```
-
-Receipts go under `.context/`; an interrupted/unknown execution is never retried.
-This exercise does not grant permission, qualify hostile isolation/egress or
-replace the grant/revoke/outage/cross-owner/node/expiry checks above. Correlate
-its run IDs with Loki and the exact build before posting a candidate scorecard.
+Use the canonical authenticated `/api/v1/ai/chat` API and its server-returned
+`X-State-Key`/`X-Run-Id`; inspect actual streamed tool results. Follow the owning
+[validate-candidate contract](https://cognidao.org/knowledge/validate-candidate)
+without a per-PR runner or local validation artifacts. One self-owned non-web
+fixture must require write -> execute -> observed answer-file read; another turn
+must reuse files/shell state and inspect background status/logs. Assistant claims
+and a runtime curl do not establish these behaviors. Correlate the real run IDs
+with Loki at the exact app/runtime builds; prove the separate denial, lifetime,
+isolation and target-egress boundaries above before approval.
 
 ## Local transport fixture
 

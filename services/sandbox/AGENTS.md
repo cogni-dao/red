@@ -25,7 +25,6 @@ committed secret values.
 
 - `Dockerfile`, `entrypoint.sh`: execd PID 1, non-root, token required
 - `validate.sh`, `validate-client.ts`: local transport checks through ToolRunner (not agent E2E proof)
-- `validate-agent.py`: canonical live agent chat exercise, exact build/run/tool receipts under `.context/`; no authority issuance or acceptance bypass
 - `Caddyfile`, `execd.toml`: exact-SHA front door and upstream hardening floor
 
 ## Responsibilities

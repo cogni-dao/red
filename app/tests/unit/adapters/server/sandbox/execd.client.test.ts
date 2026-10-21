@@ -3,7 +3,7 @@
 /**
  * Module: sandbox execd protocol tests
  * Purpose: Prove credential containment, command ownership, bounded responses and no retries.
- * Scope: Adapter against injected HTTP responses; real runtime proof lives in services/sandbox/smoke.py.
+ * Scope: Adapter against injected HTTP responses; real runtime exercise lives in services/sandbox/validate.sh.
  * Invariants: NO_AUTOMATIC_RETRY; SIGNED_COMMAND_OWNERSHIP; MODEL_CANNOT_OVERRIDE_SCOPE.
  * Side-effects: none
  * @internal
@@ -227,7 +227,7 @@ describe("execd trusted transport", () => {
 		).rejects.toMatchObject({ ambiguous: true });
 		expect(fetcher).toHaveBeenCalledTimes(3);
 	});
-	it("allows an explicit close to release a failed local allocation without claiming cleanup", async () => {
+	it("retains an unknown allocation until upstream cleanup is proven", async () => {
 		const { client, fetcher } = setup();
 		fetcher
 			.mockResolvedValueOnce(new Response())
@@ -238,18 +238,109 @@ describe("execd trusted transport", () => {
 		await expect(
 			client.exec(a, { action: "close_shell" }),
 		).rejects.toMatchObject({ ambiguous: true });
+		await expect(
+			client.exec(a, { action: "shell", command: "replacement" }),
+		).rejects.toMatchObject({ ambiguous: true });
+		expect(fetcher).toHaveBeenCalledTimes(2);
+	});
+
+	it("classifies a malformed allocation as unknown and refuses another allocation", async () => {
+		const { client, fetcher } = setup();
+		fetcher
+			.mockResolvedValueOnce(new Response())
+			.mockResolvedValueOnce(Response.json({}));
+		const capability = bindExecdWorkspace(client, a);
+		expect(
+			(await capability.exec({ action: "shell", command: "once" })).status,
+		).toBe("unknown");
+		expect(
+			(await capability.exec({ action: "shell", command: "again" })).status,
+		).toBe("unknown");
+		expect(fetcher).toHaveBeenCalledTimes(2);
+	});
+
+	it("fences an uncertain shell until an explicit successful close", async () => {
+		const { client, fetcher } = setup();
+		fetcher
+			.mockResolvedValueOnce(new Response())
+			.mockResolvedValueOnce(Response.json({ session_id: "uncertain-shell" }))
+			.mockRejectedValueOnce(new Error("lost command acknowledgement"));
+		await expect(
+			client.exec(a, { action: "shell", command: "once" }),
+		).rejects.toMatchObject({ ambiguous: true });
+		await expect(
+			client.exec(a, { action: "shell", command: "again" }),
+		).rejects.toMatchObject({ ambiguous: true });
+		expect(fetcher).toHaveBeenCalledTimes(3);
+		fetcher.mockResolvedValueOnce(new Response());
+		expect((await client.exec(a, { action: "close_shell" })).status).toBe("ok");
+		expect(String(fetcher.mock.calls[3]?.[0])).toContain(
+			"/session/uncertain-shell",
+		);
 		fetcher
 			.mockResolvedValueOnce(new Response())
 			.mockResolvedValueOnce(Response.json({ session_id: "replacement-shell" }))
 			.mockResolvedValueOnce(sse());
 		expect(
-			(
-				await client.exec(a, {
-					action: "shell",
-					command: "new explicitly requested command",
-				})
-			).status,
+			(await client.exec(a, { action: "shell", command: "new command" }))
+				.status,
 		).toBe("ok");
+	});
+
+	it("retains the command handle when output exceeds the cap without exposing a partial secret", async () => {
+		const { client, fetcher } = setup();
+		fetcher
+			.mockResolvedValueOnce(new Response())
+			.mockResolvedValueOnce(sse("large-command", "x".repeat(32700) + token));
+		const result = await client.exec(a, {
+			action: "start",
+			command: "large output",
+		});
+		expect(result).toMatchObject({ status: "unknown", truncated: true });
+		expect(result.commandId).toBeTruthy();
+		expect(result.output).not.toContain(token.slice(0, 8));
+		fetcher.mockResolvedValueOnce(
+			Response.json({ running: false, exit_code: 0 }),
+		);
+		expect(
+			await client.exec(a, { action: "poll", commandId: result.commandId }),
+		).toMatchObject({ status: "ok", running: false, exitCode: 0 });
+		expect(String(fetcher.mock.calls[2]?.[0])).toContain(
+			"/command/status/large-command",
+		);
+	});
+
+	it("retains an observed init handle across stream failure without repeating the start", async () => {
+		const { client, fetcher } = setup();
+		let delivered = false;
+		const body = new ReadableStream<Uint8Array>({
+			pull(controller) {
+				if (delivered) controller.error(new Error("lost stream"));
+				else {
+					delivered = true;
+					controller.enqueue(
+						new TextEncoder().encode(
+							'data: {"type":"init","text":"lost-stream-command"}\n\n',
+						),
+					);
+				}
+			},
+		});
+		fetcher
+			.mockResolvedValueOnce(new Response())
+			.mockResolvedValueOnce(new Response(body));
+		const result = await client.exec(a, { action: "start", command: "once" });
+		expect(result.status).toBe("unknown");
+		expect(result.commandId).toBeTruthy();
+		expect(fetcher).toHaveBeenCalledTimes(2);
+		fetcher.mockResolvedValueOnce(Response.json({ running: true }));
+		expect(
+			(await client.exec(a, { action: "poll", commandId: result.commandId }))
+				.running,
+		).toBe(true);
+		expect(String(fetcher.mock.calls[2]?.[0])).toContain(
+			"/command/status/lost-stream-command",
+		);
 	});
 
 	it("polls and reads retained logs without repeating command content", async () => {
