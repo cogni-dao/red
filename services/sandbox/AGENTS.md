@@ -25,6 +25,7 @@ committed secret values.
 
 - `Dockerfile`, `entrypoint.sh`: execd PID 1, non-root, token required
 - `validate.sh`, `validate-client.ts`: local transport checks through ToolRunner (not agent E2E proof)
+- `validate-agent.py`: canonical live agent chat exercise, exact build/run/tool receipts under `.context/`; no authority issuance or acceptance bypass
 - `Caddyfile`, `execd.toml`: exact-SHA front door and upstream hardening floor
 
 ## Responsibilities
@@ -32,3 +33,6 @@ committed secret values.
 Pin upstream execd by release digest. Keep app/substrate keys outside the lease.
 Document workspace-directory and egress limitations accurately. Never retry an
 ambiguous command. Do not equate a local fixture pass with candidate validation.
+Shared identity/OpenFGA/ToolRunner adoption is approved in story.0002; Operator
+extends its existing facade for execution. Never reopen that decision, copy its
+private package, project raw OpenFGA authority, or enable a local caller allowlist.

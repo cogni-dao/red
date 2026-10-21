@@ -19,7 +19,7 @@ restricted-egress result, or non-web solve.
 A graph's tool list determines visibility; capability injection supplies an
 implementation. Neither establishes the caller's permission to execute commands.
 
-## Blocking shared authorization decision
+## Approved shared authorization adoption
 
 Current `ToolPolicyContext` carries only `runId`. The in-process provider derives
 its policy from graph tool IDs; it does not resolve caller permissions. Scheduler
@@ -28,19 +28,38 @@ permission for interactive callers. Ledger approvers govern attribution, not
 shell execution. Red has no OpenFGA authorization integration. None can safely be
 reinterpreted as shell permission merely to enable this feature.
 
-**Recommended decision:** use the existing ToolRunner policy enforcement point
-with a shared, authoritative caller/action authorization decision, supplied through
-trusted execution context. Define controlled permission issuance, revocation and
-node/environment/tenant binding there. Do not implement another Red-only role
-framework or assume every authenticated caller is authorized. The platform must
-select/approve that authority before a real sandbox capability is injected.
+**The decision is approved in story.0002:** the AI uses its own identity,
+OpenFGA supplies permissions, and the canonical ToolRunner enforces `tool.execute`.
+Operator extends its existing node-authenticated authorization facade for execution;
+Red adopts that shared client through a reviewed release. There is no outstanding
+CEO authorization-design decision.
+
+The existing upstream delivery stack is [package publication #2666],
+[semantic facade #2672] and [credential projection #2676]. At inspection, the
+remote adapter supports billing-account checks/grants only; its `tool.execute`
+extension and a consumable release are still required. Source on an open branch
+is not a published dependency or live authority. Do not copy the private package,
+invent a release URL, or substitute a local permission table.
+
+Red must not receive raw `OPENFGA_*` configuration or the operator's mutation
+credential. One environment-shared OpenFGA store stays behind the facade. The
+facade derives node/lane scope from its workload credential and must support
+ordinary execution grants/revocation with node/tenant-qualified resources.
+Merely adding a node ID to logs does not scope `tool:<toolId>` permissions.
+
+Adopt trusted actor/subject, tenant, node, graph and execution identity through
+canonical execution context. An on-behalf-of subject must be server-bound.
+ToolRunner must refuse protected tools before side effects when authority is
+missing, denied or unavailable, including its legacy optional-authz path.
+Authentication, developer/flight grants and scheduler grants remain distinct
+from tool permission. No environment-specific bypass is permitted.
 
 Separately, the shared workspace binding must resolve authenticated owner/thread
 plus node, environment, tenant and generation, with expiry, ownership validation
 per operation and acquisition/concurrency rules. A client-supplied thread key,
 workspace directory, graph ID or transport credential is not that authority.
 
-Until those decisions are implemented, all three sandbox bindings return
+Until those shared prerequisites are implemented, all three sandbox bindings return
 `unavailable`, including for validation accounts and callers holding valid node
 sessions. No candidate-only bypass is provided.
 
@@ -49,7 +68,9 @@ sessions. No candidate-only bypass is provided.
 `ExecdClient` implements the execd HTTP/SSE/file/session protocol, bounded output,
 timeouts, retained command logs, signal/cancel and persistent shells. Its
 workspace-bound command handles are signed and expire after 24 hours. These are
-protocol protections, not hostile-session isolation or a durable workspace broker.
+protocol protections, not hostile-session isolation, session expiry, or a durable
+workspace broker. The shared session owner must independently enforce lifetime,
+generation fencing, per-operation ownership, cancellation and cleanup.
 
 `bindExecdWorkspace` adapts a trusted workspace binding to `SandboxCapability` and
 preserves ambiguous-execution results as `unknown`; it makes no permission
@@ -90,10 +111,39 @@ The original story.0002 acceptance remains unchanged:
    enforce sandbox destination scope.
 4. The agent solves a tool-requiring non-web challenge on the live environment,
    with feature evidence in Loki at the deployed build.
+5. An authenticated agent is denied before an ordinary execution grant, allowed
+   after it and denied after revocation. Prove cross-node and expired-session
+   refusal and authorization-outage failure separately from runtime cleanup.
 
 Directory separation and signed API handles do not establish hostile filesystem,
 process or tenant isolation. Keep arbitrary/untrusted sessions disabled until the
 runtime trust boundary and containment are qualified.
+
+## Live agent exercise
+
+`validate-agent.py` calls the canonical authenticated `/api/v1/ai/chat` surface
+and reuses its server-returned `X-State-Key`. It never supplies a workspace owner,
+runtime credential or completions-only thread extension. It requires exact app
+and runtime SHAs, captures server run IDs and actual streamed tool input/output,
+and refuses to count an assistant's claim as tool evidence. Its random non-web
+XOR fixture supplies only ciphertext to the agent; the recovered answer must
+appear in an observed file read. A second turn must reuse files and shell state,
+start a background command, poll it and read retained logs.
+
+```sh
+# Keys belong in the gitignored credential file, never command arguments.
+python3 services/sandbox/validate-agent.py --sha <PR-head-SHA> --preflight-only
+python3 services/sandbox/validate-agent.py --sha <PR-head-SHA> \
+  --credentials-file .env.cogni --availability-only
+# Run after ordinary authorization and isolated session allocation qualify:
+python3 services/sandbox/validate-agent.py --sha <PR-head-SHA> \
+  --credentials-file .env.cogni
+```
+
+Receipts go under `.context/`; an interrupted/unknown execution is never retried.
+This exercise does not grant permission, qualify hostile isolation/egress or
+replace the grant/revoke/outage/cross-owner/node/expiry checks above. Correlate
+its run IDs with Loki and the exact build before posting a candidate scorecard.
 
 ## Local transport fixture
 
@@ -109,3 +159,7 @@ application authorization because it is not an application caller. It proves
 neither authorized live agent functionality nor the acceptance above.
 
 Work: https://red.cognidao.org/work/items/story.0002
+
+[package publication #2666]: https://github.com/Cogni-DAO/cogni/pull/2666
+[semantic facade #2672]: https://github.com/Cogni-DAO/cogni/pull/2672
+[credential projection #2676]: https://github.com/Cogni-DAO/cogni/pull/2676
