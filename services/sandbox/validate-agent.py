@@ -50,21 +50,23 @@ def main():
             raw = raw.replace(key, "[redacted]")
         (root / "receipt.json").write_text(raw + "\n")
 
-    def request(url, body=None):
+    def request(url, body=None, authenticated=False):
         headers = {"User-Agent": "curl/8.7.1", "Accept": "application/json"}
+        if body is not None or authenticated:
+            headers["Authorization"] = "Bearer " + key
         if body is not None:
-            headers.update({"Authorization": "Bearer " + key,
-                            "Content-Type": "application/json"})
+            headers["Content-Type"] = "application/json"
         return urllib.request.Request(url, headers=headers,
                                       data=json.dumps(body).encode() if body else None)
 
     def turn(label, message, state=None):
         body = {"message": message, "messageId": uuid.uuid4().hex,
                 "graphName": "red-solver",
-                "modelRef": {"providerKey": "platform", "modelId": args.model}}
-        if state:
-            body["stateKey"] = state
-        record = {"label": label, "messageId": body["messageId"], "events": []}
+                "modelRef": {"providerKey": "platform", "modelId": args.model},
+                # Conversation routing only; this does not assert workspace authority.
+                "stateKey": state or "aci-" + uuid.uuid4().hex}
+        record = {"label": label, "messageId": body["messageId"],
+                  "requestedStateKey": body["stateKey"], "events": []}
         receipt["turns"].append(record)
         save()  # Persist intent before the potentially side-effecting request.
         with opener.open(request(APP + "/api/v1/ai/chat", body), timeout=45) as response:
@@ -74,7 +76,7 @@ def main():
                            "requestId": response.headers.get("X-Request-Id")})
             save()  # Preserve the authoritative run ID if delivery is interrupted.
             assert record["runId"] and record["stateKey"], "Missing run/thread identity"
-            assert state is None or record["stateKey"] == state, "Thread binding changed"
+            assert record["stateKey"] == body["stateKey"], "Thread binding changed"
             assert "text/event-stream" in response.headers.get("Content-Type", ""), "Not SSE"
             deadline, size = time.monotonic() + 240, 0
             for line in response:
@@ -181,6 +183,20 @@ def main():
             "cfRay": error.headers.get("CF-Ray"),
             "body": error.read(4096).decode(errors="replace"),
         }
+        # Recover a persisted admission identity through a read, never replay POST.
+        # A recovered envelope alone does not prove workflow acceptance/execution.
+        if key and receipt["turns"]:
+            last = receipt["turns"][-1]
+            try:
+                url = APP + "/api/v1/ai/threads/" + last["requestedStateKey"]
+                with opener.open(request(url, authenticated=True), timeout=15) as response:
+                    thread = json.loads(response.read(2_000_000))
+                for message in thread.get("messages", []):
+                    if message.get("id") == last["messageId"]:
+                        envelope = message.get("metadata", {}).get("chatTurn", {})
+                        last["recoveredServerRunId"] = envelope.get("serverRunId")
+            except Exception as recovery_error:
+                receipt["reconciliationFailure"] = type(recovery_error).__name__
         raise SystemExit(1) from None
     except Exception as error:
         receipt["verdict"] = "FAIL_OR_UNKNOWN_DO_NOT_RETRY"
