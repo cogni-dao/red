@@ -812,6 +812,9 @@ function createContainer(): Container {
 	}
 
 	// ToolSource with real implementations (per CAPABILITY_INJECTION)
+	// Sandbox deliberately uses the existing unavailable binding in every environment.
+	// Capability injection and authentication do not grant shell permission. Shared
+	// caller/tool authorization must be resolved before injecting an execd adapter.
 	const toolBindings = createToolBindings({
 		knowledgeCapability,
 		edoCapability,

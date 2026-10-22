@@ -33,15 +33,21 @@ RUN apt-get update \
     python3 \
     python3-pip \
     python3-venv \
+    python3-pwntools gdb binutils file nmap netcat-openbsd socat jq \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=execd /execd /usr/local/bin/execd
 # Hardening-floor launcher; must stay root-owned and not group/world-writable.
 COPY --from=execd /opt/opensandbox/opensandbox-launcher /opt/opensandbox/opensandbox-launcher
 COPY --from=caddy /usr/bin/caddy /usr/local/bin/caddy
+# Upstream Caddy carries cap_net_bind_service. Its file capability prevents exec
+# under a dropped capability bounding set; port 8080 needs no privileged bind.
+RUN install -m 0755 /usr/local/bin/caddy /usr/local/bin/caddy.unprivileged \
+  && mv /usr/local/bin/caddy.unprivileged /usr/local/bin/caddy
 COPY Caddyfile /etc/sandbox/Caddyfile
 COPY execd.toml /etc/sandbox/execd.toml
 COPY entrypoint.sh /usr/local/bin/sandbox-entrypoint
+COPY LICENSE.execd /usr/share/doc/opensandbox/LICENSE
 
 RUN chmod 0755 /etc/sandbox /usr/local/bin/sandbox-entrypoint /opt/opensandbox /opt/opensandbox/opensandbox-launcher \
   && chmod 0644 /etc/sandbox/Caddyfile /etc/sandbox/execd.toml \

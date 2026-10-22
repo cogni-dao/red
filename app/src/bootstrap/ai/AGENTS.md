@@ -44,6 +44,7 @@ AI tool bindings and tool source factory. Wires tool implementations with inject
 
 ## Standards
 
+- Sandbox contracts use existing capability injection and ToolRunner. The production container deliberately supplies no sandbox capability: the existing unavailable binding applies in every environment until shared caller/tool authorization is implemented. Graph visibility and capability wiring are not execution permission.
 - Per CAPABILITY_INJECTION: implementations receive capabilities at construction
 
 ## Dependencies

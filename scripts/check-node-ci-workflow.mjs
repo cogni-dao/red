@@ -322,10 +322,13 @@ expectStep(PR_BUILD_WORKFLOW_PATH, buildSteps, "Upload build fragment");
 
 const manifestJob = prBuildWorkflow?.jobs?.manifest;
 if (!manifestJob) fail(PR_BUILD_WORKFLOW_PATH, "jobs must include manifest");
-if (!Array.isArray(manifestJob?.needs) || manifestJob.needs.join(",") !== "resolve,detect,build") {
-  fail(PR_BUILD_WORKFLOW_PATH, "jobs.manifest.needs must be [\"resolve\", \"detect\", \"build\"]");
+if (!Array.isArray(manifestJob?.needs) || manifestJob.needs.join(",") !== "resolve,detect,build,sandbox") {
+  fail(PR_BUILD_WORKFLOW_PATH, "jobs.manifest.needs must be [\"resolve\", \"detect\", \"build\", \"sandbox\"]");
 }
 const manifestSteps = Array.isArray(manifestJob?.steps) ? manifestJob.steps : [];
+const proofGuard = expectStep(PR_BUILD_WORKFLOW_PATH, manifestSteps, "Assert upstream build succeeded");
+expectEqual(PR_BUILD_WORKFLOW_PATH, proofGuard?.env?.SANDBOX_RESULT, "${{ needs.sandbox.result }}", "sandbox proof verdict");
+expectIncludes(PR_BUILD_WORKFLOW_PATH, String(proofGuard?.run ?? ""), '"sandbox:$SANDBOX_RESULT:success"', "sandbox proof fail-closed gate");
 expectStep(PR_BUILD_WORKFLOW_PATH, manifestSteps, "Download build fragments");
 expectStep(PR_BUILD_WORKFLOW_PATH, manifestSteps, "Build repo-spec contract");
 const setupOrasStep = expectStep(PR_BUILD_WORKFLOW_PATH, manifestSteps, "Set up ORAS");

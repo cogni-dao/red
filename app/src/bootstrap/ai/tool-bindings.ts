@@ -7,7 +7,7 @@
  * Scope: Creates bindings record for tool source factory. Does NOT execute tools.
  * Invariants:
  *   - CAPABILITY_INJECTION: Implementations receive capabilities at construction
- *   - NO_STUB_AT_RUNTIME: All tools have real implementations with I/O
+ *   - MISSING_CAPABILITY_FAILS_CLOSED: Unavailable capabilities never perform I/O
  *   - IO_VIA_ADAPTERS: Capabilities wrap adapter ports from container
  * Side-effects: none
  * Links: TOOL_USE_SPEC.md, container.ts
@@ -19,6 +19,7 @@ import type {
   KnowledgeCapability,
   MetricsCapability,
   RepoCapability,
+  SandboxCapability,
   ScheduleCapability,
   ToolImplementation,
   VcsCapability,
@@ -34,6 +35,8 @@ import {
   createKnowledgeWriteImplementation,
   createMetricsQueryImplementation,
   createRepoListImplementation,
+  createSandboxImplementations,
+  unavailableSandboxCapability,
   createRepoOpenImplementation,
   createRepoSearchImplementation,
   createScheduleListImplementation,
@@ -77,6 +80,7 @@ import {
  * These are resolved from the container at bootstrap time.
  */
 export interface ToolBindingDeps {
+  readonly sandboxCapability?: SandboxCapability;
   readonly knowledgeCapability: KnowledgeCapability;
   readonly edoCapability: EdoCapability;
   readonly metricsCapability: MetricsCapability;
@@ -112,6 +116,7 @@ export function createToolBindings(deps: ToolBindingDeps): ToolBindings {
   // cast to the base type. This is safe because contractToRuntime validates
   // at runtime via Zod schemas.
   return {
+    ...(createSandboxImplementations(deps.sandboxCapability ?? unavailableSandboxCapability) as ToolBindings),
     // Pure tools (no I/O dependencies)
     [GET_CURRENT_TIME_NAME]:
       getCurrentTimeImplementation as AnyToolImplementation,
