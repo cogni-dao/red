@@ -20,6 +20,7 @@ import { NextResponse } from "next/server";
 
 import {
   getWorkItem,
+  isWorkItemRevisionConflictError,
   patchWorkItem,
   WorkItemForbiddenError,
   WorkItemNotFoundError,
@@ -128,6 +129,12 @@ export const PATCH = wrapRouteHandlerWithLogging<{
       }
       if (e instanceof WorkItemForbiddenError) {
         return NextResponse.json({ error: e.message }, { status: 403 });
+      }
+      if (isWorkItemRevisionConflictError(e)) {
+        return NextResponse.json(
+          { error: "revision_conflict", currentRevision: e.currentRevision },
+          { status: 409 }
+        );
       }
       if (e instanceof WorkItemWriteOutcomeUnknownError) {
         return NextResponse.json(
