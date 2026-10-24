@@ -26,6 +26,8 @@ import type {
   WorkItemCapability,
 } from "@cogni/ai-tools";
 import {
+  createGoalListImplementation,
+  GOAL_LIST_NAME,
   createEdoDecideImplementation,
   createEdoHypothesizeImplementation,
   createEdoRecordOutcomeImplementation,
@@ -77,6 +79,7 @@ import {
  * These are resolved from the container at bootstrap time.
  */
 export interface ToolBindingDeps {
+  readonly nodePublicOrigin?: string | undefined;
   readonly knowledgeCapability: KnowledgeCapability;
   readonly edoCapability: EdoCapability;
   readonly metricsCapability: MetricsCapability;
@@ -117,9 +120,15 @@ export function createToolBindings(deps: ToolBindingDeps): ToolBindings {
       getCurrentTimeImplementation as AnyToolImplementation,
     [HTTP_REQUEST_NAME]: httpRequestImplementation as AnyToolImplementation,
 
+    [GOAL_LIST_NAME]: createGoalListImplementation({
+      knowledgeCapability: deps.knowledgeCapability,
+      nodePublicOrigin: deps.nodePublicOrigin,
+    }) as AnyToolImplementation,
+
     // Knowledge tools (Doltgres-backed knowledge store)
     [KNOWLEDGE_SEARCH_NAME]: createKnowledgeSearchImplementation({
       knowledgeCapability: deps.knowledgeCapability,
+      nodePublicOrigin: deps.nodePublicOrigin,
     }) as AnyToolImplementation,
     [KNOWLEDGE_READ_NAME]: createKnowledgeReadImplementation({
       knowledgeCapability: deps.knowledgeCapability,
@@ -191,6 +200,7 @@ export function createToolBindings(deps: ToolBindingDeps): ToolBindings {
 
     [WORK_ITEM_QUERY_NAME]: createWorkItemQueryImplementation({
       workItemCapability: deps.workItemCapability,
+      nodePublicOrigin: deps.nodePublicOrigin,
     }) as AnyToolImplementation,
 
     [WORK_ITEM_TRANSITION_NAME]: createWorkItemTransitionImplementation({

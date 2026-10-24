@@ -14,6 +14,7 @@
  * @public
  */
 
+import { goalListBoundTool } from "@cogni/shared-ai-tools";
 import { edoDecideBoundTool } from "./tools/edo-decide";
 import { edoHypothesizeBoundTool } from "./tools/edo-hypothesize";
 import { edoRecordOutcomeBoundTool } from "./tools/edo-record-outcome";
@@ -111,6 +112,7 @@ export const CORE_TOOL_BUNDLE: readonly CatalogBoundTool[] = [
   edoHypothesizeBoundTool as CatalogBoundTool,
   edoRecordOutcomeBoundTool as CatalogBoundTool,
   getCurrentTimeBoundTool as CatalogBoundTool,
+  goalListBoundTool as CatalogBoundTool,
   httpRequestBoundTool as CatalogBoundTool,
   knowledgeReadBoundTool as CatalogBoundTool,
   knowledgeSearchBoundTool as CatalogBoundTool,

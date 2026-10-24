@@ -395,3 +395,12 @@ export type {
   ToolImplementation,
   ToolResult,
 } from "./types";
+
+// Shared evaluation contract and goal-reader facade; RED tools remain local.
+export {
+  createGoalListImplementation,
+  GOAL_LIST_NAME,
+  goalListBoundTool,
+  goalListContract,
+  WorkItemPatchConflictError,
+} from "@cogni/shared-ai-tools";

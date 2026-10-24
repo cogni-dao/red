@@ -17,7 +17,7 @@
  */
 
 import type { ToolExecFn } from "@cogni/ai-core";
-import type { ToolContract } from "@cogni/ai-tools";
+import type { ToolContract } from "@cogni/red-ai-tools";
 import type { RunnableConfig } from "@langchain/core/runnables";
 import {
   DynamicStructuredTool,
@@ -132,8 +132,11 @@ export function makeLangChainTool(
       }
       // Discriminated union guarantees errorCode and safeMessage exist when ok=false
       return JSON.stringify({
-        error: result.errorCode,
+        error: result.receipt?.code ?? result.errorCode,
         message: result.safeMessage,
+        ...(result.receipt
+          ? { retryable: false, lookup: result.receipt.lookup }
+          : {}),
       });
     },
   });
