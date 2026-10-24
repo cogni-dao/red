@@ -14,14 +14,13 @@
  * @public
  */
 
-import { goalListBoundTool } from "@cogni/shared-ai-tools";
+import { CORE_TOOL_BUNDLE as SHARED_CORE_TOOL_BUNDLE } from "@cogni/shared-ai-tools";
 import { edoDecideBoundTool } from "./tools/edo-decide";
 import { edoHypothesizeBoundTool } from "./tools/edo-hypothesize";
 import { edoRecordOutcomeBoundTool } from "./tools/edo-record-outcome";
 import { getCurrentTimeBoundTool } from "./tools/get-current-time";
 import { httpRequestBoundTool } from "./tools/http-request";
 import { knowledgeReadBoundTool } from "./tools/knowledge-read";
-import { knowledgeSearchBoundTool } from "./tools/knowledge-search";
 import { knowledgeWriteBoundTool } from "./tools/knowledge-write";
 import { metricsQueryBoundTool } from "./tools/metrics-query";
 import { repoListBoundTool } from "./tools/repo-list";
@@ -35,8 +34,6 @@ import { vcsGetCiStatusBoundTool } from "./tools/vcs-get-ci-status";
 import { vcsListPrsBoundTool } from "./tools/vcs-list-prs";
 import { vcsMergePrBoundTool } from "./tools/vcs-merge-pr";
 import { webSearchBoundTool } from "./tools/web-search";
-import { workItemQueryBoundTool } from "./tools/work-item-query";
-import { workItemTransitionBoundTool } from "./tools/work-item-transition";
 import type { BoundTool } from "./types";
 
 /**
@@ -107,15 +104,23 @@ export function createToolCatalog(
  * Adding a node-only tool (e.g. poly-only): add it to that node's
  * `nodes/<node>/packages/ai-tools/` package instead — never here.
  */
+// The release catalog already erases concrete schemas at its typed boundary.
+// Reuse those entries rather than casting literal allowlists to keyof unknown.
+function sharedTool(id: string): CatalogBoundTool {
+  const tool = SHARED_CORE_TOOL_BUNDLE.find((entry) => entry.contract.name === id);
+  if (!tool) throw new Error(`Shared baseline tool missing: ${id}`);
+  return tool;
+}
+
 export const CORE_TOOL_BUNDLE: readonly CatalogBoundTool[] = [
   edoDecideBoundTool as CatalogBoundTool,
   edoHypothesizeBoundTool as CatalogBoundTool,
   edoRecordOutcomeBoundTool as CatalogBoundTool,
   getCurrentTimeBoundTool as CatalogBoundTool,
-  goalListBoundTool as CatalogBoundTool,
+  sharedTool("core__goal_list"),
   httpRequestBoundTool as CatalogBoundTool,
   knowledgeReadBoundTool as CatalogBoundTool,
-  knowledgeSearchBoundTool as CatalogBoundTool,
+  sharedTool("core__knowledge_search"),
   knowledgeWriteBoundTool as CatalogBoundTool,
   metricsQueryBoundTool as CatalogBoundTool,
   repoListBoundTool as CatalogBoundTool,
@@ -129,8 +134,8 @@ export const CORE_TOOL_BUNDLE: readonly CatalogBoundTool[] = [
   vcsListPrsBoundTool as CatalogBoundTool,
   vcsMergePrBoundTool as CatalogBoundTool,
   webSearchBoundTool as CatalogBoundTool,
-  workItemQueryBoundTool as CatalogBoundTool,
-  workItemTransitionBoundTool as CatalogBoundTool,
+  sharedTool("core__work_item_query"),
+  sharedTool("core__work_item_transition"),
 ];
 
 /**

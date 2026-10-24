@@ -4,7 +4,6 @@
 /** Node facade: shared release implementation; RED policy stays in host composition. */
 export {
   KnowledgeSearchInputSchema,
-  KnowledgeSearchResultSchema,
   KnowledgeSearchOutputSchema,
   KNOWLEDGE_SEARCH_NAME,
   knowledgeSearchContract,
