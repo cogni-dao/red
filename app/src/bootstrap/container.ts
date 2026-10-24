@@ -13,9 +13,9 @@
  */
 
 import type { ToolSourcePort } from "@cogni/ai-core";
+import type { KnowledgeCapability } from "@cogni/shared-ai-tools";
 import type {
 	EdoCapability,
-	KnowledgeCapability,
 	MetricsCapability,
 	RepoCapability,
 	WebSearchCapability,

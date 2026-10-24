@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: 2026 Cogni-DAO
 
 /** RED's tool capability uses the live backlog and released score/rank contracts. */
-import type { WorkItemCapability, WorkItemInfo } from "@cogni/ai-tools";
-import { WorkItemPatchConflictError } from "@cogni/ai-tools";
+import type { WorkItemCapability, WorkItemInfo } from "@cogni/shared-ai-tools";
+import { WorkItemPatchConflictError } from "@cogni/shared-ai-tools";
 import { isPrivilegedPriority } from "@cogni/knowledge-store";
 import type {
   WorkItem,
