@@ -19,7 +19,11 @@ import type {
   WorkItemsListInput,
   WorkItemsListOutput,
 } from "@cogni/node-contracts";
-import type { WorkItem, WorkItemId } from "@cogni/work-items";
+import type {
+  WorkItem,
+  WorkItemId,
+  WorkItemScoresIssue,
+} from "@cogni/work-items";
 import { toWorkItemId } from "@cogni/work-items";
 
 import { getContainer } from "@/bootstrap/container";
@@ -67,6 +71,49 @@ export class WorkItemsBackendNotReadyError extends Error {
   }
 }
 
+export class WorkItemWriteOutcomeUnknownError extends Error {
+  readonly code = "work_item_write_outcome_unknown";
+  readonly retryable = false;
+  get receipt() {
+    return {
+      code: this.code,
+      retryable: false as const,
+      lookup: {
+        operationId: this.operationId,
+        branch: this.branch,
+        commitHash: this.commitHash ?? null,
+        itemId: this.itemId ?? null,
+      },
+    };
+  }
+  constructor(
+    readonly operationId: string,
+    readonly branch: string,
+    readonly commitHash?: string,
+    readonly itemId?: string
+  ) {
+    super("Work item write outcome requires inspection before retry");
+    this.name = "WorkItemWriteOutcomeUnknownError";
+  }
+}
+
+export class WorkItemScoresInvalidError extends Error {
+  readonly code = "work_item_scores_invalid";
+  constructor(readonly issues: readonly WorkItemScoresIssue[]) {
+    super("Invalid work item scores");
+    this.name = "WorkItemScoresInvalidError";
+  }
+}
+export class WorkItemRevisionConflictError extends Error {
+  constructor(
+    readonly expectedRevision: number,
+    readonly currentRevision: number
+  ) {
+    super("revision_conflict");
+    this.name = "WorkItemRevisionConflictError";
+  }
+}
+
 function toDto(item: WorkItem): WorkItemDto {
   return {
     id: item.id as string,
@@ -77,6 +124,7 @@ function toDto(item: WorkItem): WorkItemDto {
     priority: item.priority,
     rank: item.rank,
     estimate: item.estimate,
+    scores: item.scores,
     summary: item.summary,
     outcome: item.outcome,
     projectId: item.projectId as string | undefined,
@@ -138,6 +186,34 @@ function dropUndefined<T extends Record<string, unknown>>(
 }
 
 function rethrowBackendError(error: unknown): never {
+  if ((error as Error)?.name === "WorkItemWriteOutcomeUnknownError") {
+    const receipt = error as {
+      operationId: string;
+      branch: string;
+      commitHash?: string;
+      itemId?: string;
+    };
+    throw new WorkItemWriteOutcomeUnknownError(
+      receipt.operationId,
+      receipt.branch,
+      receipt.commitHash,
+      receipt.itemId
+    );
+  }
+  if ((error as Error)?.name === "WorkItemScoresInvalidError")
+    throw new WorkItemScoresInvalidError(
+      (error as { issues: readonly WorkItemScoresIssue[] }).issues
+    );
+  if ((error as Error)?.name === "WorkItemRevisionConflictError") {
+    const conflict = error as {
+      expectedRevision: number;
+      currentRevision: number;
+    };
+    throw new WorkItemRevisionConflictError(
+      conflict.expectedRevision,
+      conflict.currentRevision
+    );
+  }
   const message = (error as Error)?.message ?? "";
   const notFound = /^Work item not found: (.+)$/.exec(message);
   if (notFound?.[1]) throw new WorkItemNotFoundError(notFound[1]);
@@ -267,6 +343,7 @@ export async function createWorkItem(
         ...(input.priority !== undefined && { priority: input.priority }),
         ...(input.rank !== undefined && { rank: input.rank }),
         ...(input.estimate !== undefined && { estimate: input.estimate }),
+        ...(input.scores !== undefined && { scores: input.scores }),
       },
       sessionUser.id
     );
@@ -286,6 +363,9 @@ export async function patchWorkItem(
       {
         id: toWorkItemId(input.id),
         set: dropUndefined(input.set),
+        ...(input.expectedRevision !== undefined && {
+          expectedRevision: input.expectedRevision,
+        }),
       },
       sessionUser.id
     );

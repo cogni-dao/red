@@ -60,3 +60,5 @@ Capability factories bridging ai-tools interfaces to adapters. Creates environme
 ## Notes
 
 - Pattern: test mode uses fake adapter, prod requires env vars or returns stub
+
+`createWorkItemCapability` binds live score writes to the current execution actor. `composeWorkItemContent` retains legacy v1 lease/delete methods and overlays only claim metadata over current scored content.

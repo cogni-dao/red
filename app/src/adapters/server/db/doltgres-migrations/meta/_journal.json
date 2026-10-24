@@ -22,6 +22,13 @@
       "when": 1791510121337,
       "tag": "0002_pale_green_goblin",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792799827899,
+      "tag": "0003_work_item_scores",
+      "breakpoints": true
     }
   ]
 }

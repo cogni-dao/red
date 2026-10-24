@@ -13,7 +13,7 @@
  * @public
  */
 
-import { HTTP_REQUEST_NAME } from "@cogni/ai-tools";
+import { HTTP_REQUEST_NAME } from "@cogni/red-ai-tools";
 
 /**
  * Tool IDs for red-solver graph.
