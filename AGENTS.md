@@ -69,3 +69,12 @@ Pointers: [contributor contract](.claude/skills/contribute-to-cogni/SKILL.md) ·
 [knowledge design](docs/spec/knowledge-syntropy.md) ·
 [cognition design](https://github.com/Cogni-DAO/cogni/blob/main/docs/spec/node-baas-architecture.md#cognition-substrate) ·
 [operator discovery](https://cognidao.org/.well-known/agent.json)
+
+## Local agent development
+
+Run this node from its own repository with `pnpm dev:stack` (app + LangGraph dev) and prove it
+with `pnpm dev:verify`. See [README.md](README.md) for the full flow and
+[.env.local.example](.env.local.example) for local bindings. The shared local substrate is an
+explicit prerequisite; this repository provisions no infrastructure. The fast path to improving
+an agent is the hub guide
+[Improve a Cogni agent locally](https://cognidao.org/knowledge/local-agent-development).
