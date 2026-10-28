@@ -783,7 +783,7 @@ function createContainer(): Container {
 		const knowledgeWriter = new DoltBranchSessionRunner(
 			createKnowledgeBranchClient(),
 			{
-				writerProtocol: "bridge",
+				writerProtocol: "database",
 				logger: log,
 				recreateClient: createKnowledgeBranchClient,
 			}
