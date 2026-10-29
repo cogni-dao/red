@@ -38,6 +38,7 @@ Shared Zod route contracts and HTTP router definitions for all node apps. PURE_L
 
 All contract files re-exported via `src/index.ts`. Selective re-export for `ai.chat.v1.contract` to avoid `ChatMessage` name collision with `ai.completions.v1.contract`.
 
+- `knowledge.domains.v1.contract` — domain collection and item GET/PATCH/DELETE schemas; immutable id, typed errors, strict partial updates
 - `identity.attestation.v1.contract` — frozen operator↔node identity protocol, canonical HTTPS-origin schema, and cross-repository protocol fingerprint
 
 **Attribution lifecycle contracts:**
