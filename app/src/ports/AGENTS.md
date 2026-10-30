@@ -117,4 +117,4 @@ These tests are separate from edge tests for src/contracts/\*\*
 - recordChargeReceipt is non-blocking (never throws InsufficientCredits post-call per ACTIVITY_METRICS.md)
 - Activity dashboard reads from charge_receipts + llm_charge_details (no external API dependency); LiteLLM usage service removed
 
-`WorkItemsDoltgresPort` combines published content with node-owned v1 lease compatibility; it adds no PostgreSQL lease authority or lease-token conversion.
+`WorkItemsDoltgresPort` combines published content with node-owned v1 lease compatibility; lease inputs retain v1 compatibility while composed results use the current content type. It adds no PostgreSQL lease authority or lease-token conversion.

@@ -14,6 +14,9 @@
  * @internal
  */
 
+// Match the Next server runtime before loading the real route harness.
+import "next/dist/server/node-environment";
+
 import {
   KnowledgeBusyError,
   KnowledgeWriteOutcomeUnknownError,
@@ -139,6 +142,16 @@ function expectTypedError(body: unknown, errorCode: string) {
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  vi.mocked(getContainer).mockReset();
+  vi.mocked(getContainer).mockImplementation(
+    () =>
+      ({
+        log,
+        clock: { now: vi.fn(() => new Date("2026-01-01T00:00:00Z")) },
+        config: { unhandledErrorPolicy },
+        knowledgeStorePort: mockStore,
+      }) as ReturnType<typeof getContainer>
+  );
   log.child.mockImplementation(() => log);
   currentUser = BEARER_AGENT;
   unhandledErrorPolicy = "rethrow";
