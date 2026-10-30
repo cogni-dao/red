@@ -264,6 +264,8 @@ describe("Red released read-envelope and wrapper compatibility", () => {
     const toolSearch =
       knowledgeSearchContract.outputSchema.parse(search).results[0];
     for (const row of [http, toolRead, toolSearch]) {
+      // No exclusions: every canonical HTTP field must survive tool validation.
+      for (const key of Object.keys(http)) expect(row).toHaveProperty(key);
       expect(row).toMatchObject({
         useWhen: "consumer proof",
         evaluateAt: knowledgeRow.evaluateAt,
@@ -296,6 +298,7 @@ describe("Red released read-envelope and wrapper compatibility", () => {
     }).execute({});
     const http = WorkItemDtoSchema.parse(dto);
     const tool = workItemQueryContract.outputSchema.parse(result).items[0];
+    for (const key of Object.keys(http)) expect(tool).toHaveProperty(key);
     expect(http.assignees).toEqual([
       { kind: "agent", agentId: "red-consumer" },
     ]);
