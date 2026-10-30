@@ -20,7 +20,6 @@ import { edoHypothesizeBoundTool } from "./tools/edo-hypothesize";
 import { edoRecordOutcomeBoundTool } from "./tools/edo-record-outcome";
 import { getCurrentTimeBoundTool } from "./tools/get-current-time";
 import { httpRequestBoundTool } from "./tools/http-request";
-import { knowledgeReadBoundTool } from "./tools/knowledge-read";
 import { knowledgeWriteBoundTool } from "./tools/knowledge-write";
 import { metricsQueryBoundTool } from "./tools/metrics-query";
 import { repoListBoundTool } from "./tools/repo-list";
@@ -107,7 +106,9 @@ export function createToolCatalog(
 // The release catalog already erases concrete schemas at its typed boundary.
 // Reuse those entries rather than casting literal allowlists to keyof unknown.
 function sharedTool(id: string): CatalogBoundTool {
-  const tool = SHARED_CORE_TOOL_BUNDLE.find((entry) => entry.contract.name === id);
+  const tool = SHARED_CORE_TOOL_BUNDLE.find(
+    (entry) => entry.contract.name === id
+  );
   if (!tool) throw new Error(`Shared baseline tool missing: ${id}`);
   return tool;
 }
@@ -119,7 +120,7 @@ export const CORE_TOOL_BUNDLE: readonly CatalogBoundTool[] = [
   getCurrentTimeBoundTool as CatalogBoundTool,
   sharedTool("core__goal_list"),
   httpRequestBoundTool as CatalogBoundTool,
-  knowledgeReadBoundTool as CatalogBoundTool,
+  sharedTool("core__knowledge_read"),
   sharedTool("core__knowledge_search"),
   knowledgeWriteBoundTool as CatalogBoundTool,
   metricsQueryBoundTool as CatalogBoundTool,
