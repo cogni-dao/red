@@ -14,13 +14,13 @@
  * @internal
  */
 
-import { KnowledgeRowSchema } from "@cogni-dao/read-contracts/knowledge";
+import { KnowledgeRowSchema } from "@cogni/knowledge-store/contracts";
 import { z } from "zod";
 
 export {
   type KnowledgeRow,
   KnowledgeRowSchema,
-} from "@cogni-dao/read-contracts/knowledge";
+} from "@cogni/knowledge-store/contracts";
 
 export const KnowledgeListQuerySchema = z.object({
   domain: z.string().min(1).max(64).optional(),

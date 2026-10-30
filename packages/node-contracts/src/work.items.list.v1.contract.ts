@@ -13,10 +13,10 @@
  * @internal
  */
 
-import { WorkItemDtoSchema } from "@cogni-dao/read-contracts/work-items";
+import { WorkItemDtoSchema } from "@cogni/work-items";
 import { z } from "zod";
 
-export { WorkItemDtoSchema } from "@cogni-dao/read-contracts/work-items";
+export { WorkItemDtoSchema } from "@cogni/work-items";
 
 /** Outline only; the released work-items adapter owns score validation. */
 export const WorkItemScoresInputSchema = z.record(
