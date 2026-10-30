@@ -77,4 +77,4 @@ with `pnpm dev:verify`. See [README.md](README.md) for the full flow and
 [.env.local.example](.env.local.example) for local bindings. The shared local substrate is an
 explicit prerequisite; this repository provisions no infrastructure. The fast path to improving
 an agent is the hub guide
-[Improve a Cogni agent locally](https://cognidao.org/knowledge/local-agent-development).
+[local development guide](https://cognidao.org/knowledge/local-agent-development).
