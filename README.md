@@ -44,6 +44,6 @@ pnpm dev:verify --identity .context/local-dev-identity.json   # → { "ok": true
 and LangGraph dev until Ctrl-C; it never provisions or seeds. `dev:verify`'s authenticated
 checks need the minted identity; body reads skip on a fresh empty node while deep readiness and
 authenticated graph discovery still prove the stack. The fast path for iterating on an agent is
-the hub guide [current local development guide replacement](https://cognidao.org/knowledge/inbox/contrib-flock-leader-conductor-32ab8994), pending human review.
+the hub guide [local development guide](https://cognidao.org/knowledge/local-agent-development).
 
 [PolyForm Shield license](LICENSE.md)
