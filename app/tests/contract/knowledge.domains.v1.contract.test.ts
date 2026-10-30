@@ -189,3 +189,163 @@ describe("DomainsErrorResponseSchema", () => {
     ).toBe(false);
   });
 });
+
+import {
+  createKnowledgeReadImplementation,
+  createKnowledgeSearchImplementation,
+  createWorkItemQueryImplementation,
+  type KnowledgeCapability,
+  type WorkItemCapability,
+} from "@cogni/shared-ai-tools";
+// Consumer conformance uses actual release imports, never a copied shared implementation.
+// These examples intentionally await immutable release installation before execution.
+import { toWorkItemDto, toWorkItemId, type WorkItem } from "@cogni/work-items";
+import { getToolById } from "../../../packages/ai-tools/src/catalog";
+import { toToolSpec } from "../../../packages/ai-tools/src/schema";
+import { knowledgeReadContract } from "../../../packages/ai-tools/src/tools/knowledge-read";
+import { knowledgeSearchContract } from "../../../packages/ai-tools/src/tools/knowledge-search";
+import { workItemQueryContract } from "../../../packages/ai-tools/src/tools/work-item-query";
+import { makeLangChainTool } from "../../../packages/langgraph-graphs/src/runtime/core/langchain-tools";
+import { KnowledgeRowSchema } from "../../../packages/node-contracts/src/knowledge.list.v1.contract";
+import { WorkItemDtoSchema } from "../../../packages/node-contracts/src/work.items.list.v1.contract";
+
+const knowledgeRow = {
+  id: "red-read-proof",
+  domain: "build-agents",
+  entityId: null,
+  title: "Read proof",
+  content: "Read envelope inheritance",
+  useWhen: "consumer proof",
+  entryType: "finding",
+  confidencePct: 40,
+  sourceType: "agent",
+  sourceRef: null,
+  tags: ["red"],
+  evaluateAt: "2026-11-01T00:00:00.000Z",
+  resolutionStrategy: "manual",
+  createdAt: "2026-10-29T00:00:00.000Z",
+};
+const workItem: WorkItem = {
+  id: toWorkItemId("task.0009"),
+  type: "task",
+  status: "needs_implement",
+  title: "Red adoption",
+  node: "red",
+  actor: "ai",
+  revision: 3,
+  assignees: [{ kind: "agent", agentId: "red-consumer" }],
+  externalRefs: [],
+  labels: ["red"],
+  specRefs: [],
+  deployVerified: false,
+  createdAt: "2026-10-29T00:00:00.000Z",
+  updatedAt: "2026-10-29T00:00:00.000Z",
+};
+
+describe("Red released read-envelope and wrapper compatibility", () => {
+  it("preserves public knowledge fields through read/search execution and validation", async () => {
+    const knowledgeCapability: KnowledgeCapability = {
+      get: async () => knowledgeRow,
+      list: async () => [knowledgeRow],
+      search: async () => [knowledgeRow],
+      write: async () => {
+        throw new Error("read proof must not write");
+      },
+    };
+    const read = await createKnowledgeReadImplementation({
+      knowledgeCapability,
+    }).execute({ id: knowledgeRow.id });
+    const search = await createKnowledgeSearchImplementation({
+      knowledgeCapability,
+      nodePublicOrigin: "https://red.cognidao.org",
+    }).execute({ domain: knowledgeRow.domain, query: "proof" });
+    const http = KnowledgeRowSchema.parse(knowledgeRow);
+    const toolRead = knowledgeReadContract.outputSchema.parse(read).entries[0];
+    const toolSearch =
+      knowledgeSearchContract.outputSchema.parse(search).results[0];
+    for (const row of [http, toolRead, toolSearch]) {
+      expect(row).toMatchObject({
+        useWhen: "consumer proof",
+        evaluateAt: knowledgeRow.evaluateAt,
+        resolutionStrategy: "manual",
+        createdAt: knowledgeRow.createdAt,
+      });
+    }
+    expect(
+      KnowledgeRowSchema.safeParse({ ...knowledgeRow, confidencePct: "40" })
+        .success
+    ).toBe(false);
+    expect(
+      knowledgeReadContract.outputSchema.safeParse({
+        ...read,
+        entries: [{ ...knowledgeRow, evaluateAt: 42 }],
+      }).success
+    ).toBe(false);
+  });
+
+  it("keeps canonical assignees in HTTP and the legacy id alias only in tool output", async () => {
+    const dto = toWorkItemDto(workItem);
+    const workItemCapability: WorkItemCapability = {
+      query: async () => [dto],
+      transitionStatus: async () => {
+        throw new Error("read proof must not transition");
+      },
+    };
+    const result = await createWorkItemQueryImplementation({
+      workItemCapability,
+    }).execute({});
+    const http = WorkItemDtoSchema.parse(dto);
+    const tool = workItemQueryContract.outputSchema.parse(result).items[0];
+    expect(http.assignees).toEqual([
+      { kind: "agent", agentId: "red-consumer" },
+    ]);
+    expect(tool?.assignees).toEqual([
+      { kind: "agent", agentId: "red-consumer", id: "red-consumer" },
+    ]);
+    expect(
+      WorkItemDtoSchema.safeParse({
+        ...dto,
+        assignees: [{ kind: "agent", id: "red-consumer" }],
+      }).success
+    ).toBe(false);
+    expect(
+      workItemQueryContract.outputSchema.safeParse({
+        ...result,
+        items: [{ ...tool, revision: "3" }],
+      }).success
+    ).toBe(false);
+  });
+
+  it("compiles Red's own HTTP tool and preserves deny-by-default execution", async () => {
+    const redHttp = getToolById("core__http_request");
+    if (!redHttp) throw new Error("Red scope-bound HTTP tool missing");
+    const { spec } = toToolSpec(redHttp.contract);
+    expect(spec.name).toBe("core__http_request");
+    expect(spec.inputSchema).toMatchObject({ type: "object" });
+    let executions = 0;
+    const wrapped = makeLangChainTool({
+      contract: redHttp.contract,
+      execResolver: () => async () => {
+        executions++;
+        return { ok: true, value: { red: true } };
+      },
+    });
+    const args = {
+      targetBaseUrl: "https://red.cognidao.org",
+      path: "/version",
+      method: "GET",
+    };
+    expect(JSON.parse(await wrapped.invoke(args))).toMatchObject({
+      error: "policy_denied",
+    });
+    expect(executions).toBe(0);
+    expect(
+      JSON.parse(
+        await wrapped.invoke(args, {
+          configurable: { toolIds: ["core__http_request"] },
+        })
+      )
+    ).toEqual({ red: true });
+    expect(executions).toBe(1);
+  });
+});

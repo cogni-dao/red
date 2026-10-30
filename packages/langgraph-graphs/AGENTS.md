@@ -124,3 +124,5 @@ pnpm --filter @cogni/langgraph-graphs test
 - **Dual tsconfig:** LangGraph CLI generates runtime `.ts` files (`__langgraph__*.ts`) that break `composite` mode. This package uses `tsconfig.json` (noEmit, for CLI) + `tsconfig.build.json` (composite, for `tsc -b`). Root tsconfig.json references the build config explicitly. This is not proper form, but a valid workaround.
 
 The work-prioritizer entry imports the exact published graph factory. RED Solver and local catalog helpers retain the RED tool facade; the released graph has its own public ai-tools peer.
+
+Core tool wrappers delegate to the released runtime; Red graph composition and local ALS execution context remain node-owned.

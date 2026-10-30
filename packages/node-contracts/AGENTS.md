@@ -70,3 +70,5 @@ All require `Authorization: Bearer ${SCHEDULER_API_TOKEN}`.
 
 - Extracted from `apps/operator/src/contracts/` (task.0248 Phase 1)
 - `ChatMessage` exported from `ai.completions.v1.contract` (OpenAI-compatible format); chat contract's `ChatMessage` excluded from barrel to avoid TS2308
+
+WorkItemDtoSchema and KnowledgeRowSchema re-export the pure read-contracts leaf; HTTP contracts inherit its fields.

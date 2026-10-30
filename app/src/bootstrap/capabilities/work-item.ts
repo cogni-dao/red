@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 // SPDX-FileCopyrightText: 2026 Cogni-DAO
 
+import { isPrivilegedPriority } from "@cogni/knowledge-store";
 /** RED's tool capability uses the live backlog and released score/rank contracts. */
 import type { WorkItemCapability, WorkItemInfo } from "@cogni/shared-ai-tools";
 import { WorkItemPatchConflictError } from "@cogni/shared-ai-tools";
-import { isPrivilegedPriority } from "@cogni/knowledge-store";
 import type {
   WorkItem,
   WorkItemCommandPort,
@@ -12,7 +12,7 @@ import type {
   WorkItemsContentPort,
   WorkQuery,
 } from "@cogni/work-items";
-import { rankScore, toWorkItemId } from "@cogni/work-items";
+import { toWorkItemDto, toWorkItemId } from "@cogni/work-items";
 
 export interface WorkItemCapabilityDeps {
   readonly workItemQuery: WorkItemQueryPort;
@@ -23,22 +23,7 @@ export interface WorkItemCapabilityDeps {
     readonly principalId: () => string;
   };
 }
-function toInfo(item: WorkItem): WorkItemInfo {
-  const rank = rankScore(item.scores);
-  return {
-    ...item,
-    assignees: item.assignees.map((a) => ({
-      kind: a.kind,
-      id:
-        a.kind === "user"
-          ? a.userId
-          : a.kind === "agent"
-            ? a.agentId
-            : a.serviceId,
-    })),
-    ...(rank !== undefined && { rankScore: rank }),
-  };
-}
+const toInfo: (item: WorkItem) => WorkItemInfo = toWorkItemDto;
 export function createWorkItemCapability(
   deps: WorkItemCapabilityDeps
 ): WorkItemCapability {
