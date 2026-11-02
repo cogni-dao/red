@@ -30,7 +30,7 @@
     "@cogni/db-schema": "workspace:*",
     "@cogni/financial-ledger": "workspace:*",
     "@cogni/graph-execution-core": "workspace:*",
-    "@cogni/graph-execution-host": "workspace:*",
+    "@cogni/graph-execution-host": "https://github.com/cogni-dao/node-template/releases/download/graph-execution-v0.1.1/cogni-dao-graph-execution-0.1.1.tgz",
     "@cogni/ids": "workspace:*",
     "@cogni/ingestion-core": "workspace:*",
     "@cogni/knowledge-base-ui": "https://github.com/cogni-dao/node-template/releases/download/knowledge-base-ui-v0.2.2/cogni-dao-knowledge-base-ui-0.2.2.tgz",
