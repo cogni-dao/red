@@ -38,6 +38,10 @@ vi.mock("@/features/layout/components/AppTopBar", () => ({
   AppTopBar: () => <div data-testid="app-topbar" />,
 }));
 
+vi.mock("@/features/layout", async () => ({
+  AppShell: (await import("@/features/layout/components/AppShell")).AppShell,
+}));
+
 describe("AppLayout Shell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
