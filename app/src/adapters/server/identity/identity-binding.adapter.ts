@@ -6,6 +6,7 @@
 import type { Database } from "@cogni/db-client";
 import { and, eq, gt, isNull } from "drizzle-orm";
 
+import { classifyIdentityLinkWriteError } from "@/adapters/server/identity/identity-link-errors";
 import { createBindingInTransaction } from "@/adapters/server/identity/create-binding";
 import type {
 	AttestedGithubBindingEvidence,
@@ -92,19 +93,17 @@ export class DrizzleIdentityBindingRepository
 		userId: string;
 		expiresAt: Date;
 	}): Promise<void> {
-		await this.db.insert(linkTransactions).values({
-			id: params.nonce,
-			userId: params.userId,
-			provider: "github",
-			expiresAt: params.expiresAt,
-		});
+        try {
+            await this.db.insert(linkTransactions).values({
+                id: params.nonce, userId: params.userId, provider: "github", expiresAt: params.expiresAt,
+            });
+        } catch (error) { throw classifyIdentityLinkWriteError(error, true); }
 	}
 
 	transaction<T>(
 		run: (tx: IdentityBindingTransactionPort) => Promise<T>,
 	): Promise<T> {
-		return this.db.transaction((tx) =>
-			run(new DrizzleIdentityBindingTransaction(tx)),
-		);
+        return this.db.transaction((tx) => run(new DrizzleIdentityBindingTransaction(tx)))
+            .catch((error: unknown) => { throw classifyIdentityLinkWriteError(error); });
 	}
 }

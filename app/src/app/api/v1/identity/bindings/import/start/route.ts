@@ -23,6 +23,8 @@ import {
 	createIdentityAttestationNonce,
 	createSigninChallenge,
 } from "@/app/_facades/identity/operator-attested-binding.server";
+import { identityLinkFailure, invalidLocalSession } from "@/app/_facades/identity/identity-link-response.server";
+import { effectiveSessionCredential } from "@/app/_lib/auth/link-session.server";
 import { getOperatorIssuerUrl } from "@/app/_lib/auth/operator-attestation";
 import { wrapRouteHandlerWithLogging } from "@/bootstrap/http";
 import { getServerSessionUser } from "@/lib/auth/server";
@@ -51,9 +53,19 @@ export const POST = wrapRouteHandlerWithLogging(
 		// user; a signed-out caller is SIGNING IN with it. Gating this leg on a session is
 		// what made a wallet the only door onto a node (task.5042) — the attestation could
 		// only ever attach to a user who had already arrived some other way.
-		auth: { mode: "optional", getSessionUser: getServerSessionUser },
+		auth: { mode: "none" },
 	},
-	async (_ctx, _request, sessionUser) => {
+	async (ctx, request) => {
+        try {
+        const intent = request.headers.get("X-Cogni-Identity-Intent");
+        if (intent !== null && intent !== "link") return NextResponse.json({ errorCode: "invalid_identity_intent" }, { status: 400 });
+        let credential;
+        try { credential = await effectiveSessionCredential(); } catch { return NextResponse.json({ errorCode: "local_session_unavailable" }, { status: 503 }); }
+        const sessionUser = await getServerSessionUser();
+        if (credential.invalidName || (!sessionUser && (intent === "link" || credential.present))) {
+          ctx.log.info({ event: "identity.link_start_result", operation: "broker_link", outcome: "invalid_session", status: 401 }, "identity.link_start_result");
+          return invalidLocalSession();
+        }
 		const nodeOrigin = configuredNodeOrigin();
 		if (!nodeOrigin) {
 			return NextResponse.json(
@@ -106,10 +118,12 @@ export const POST = wrapRouteHandlerWithLogging(
 		authorizeUrl.searchParams.set("target_origin", nodeOrigin);
 		authorizeUrl.searchParams.set("return_to", `${nodeOrigin}${returnPath}`);
 
-		return NextResponse.json(
-			identityAttestationStartOperation.output.parse({
-				authorizeUrl: authorizeUrl.toString(),
-			}),
-		);
+        ctx.log.info({ event: "identity.link_start_result", operation: sessionUser ? "broker_link" : "anonymous_signin", outcome: "started", status: 200 }, "identity.link_start_result");
+		return NextResponse.json(identityAttestationStartOperation.output.parse({ authorizeUrl: authorizeUrl.toString() }));
+        } catch (error) {
+            const response = identityLinkFailure(error);
+            ctx.log.info({ event: "identity.link_start_result", operation: "broker_link", outcome: response.status === 401 ? "invalid_session" : response.status === 503 ? "unavailable" : "failed", status: response.status }, "identity.link_start_result");
+            return response;
+        }
 	},
 );

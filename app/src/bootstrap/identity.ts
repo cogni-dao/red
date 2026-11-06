@@ -6,6 +6,7 @@
 import { randomUUID } from "node:crypto";
 
 import { getServiceDb } from "@/adapters/server/db/drizzle.service-client";
+import { classifyIdentityLinkWriteError } from "@/adapters/server/identity/identity-link-errors";
 import { DrizzleIdentityBindingRepository } from "@/adapters/server/identity/identity-binding.adapter";
 import { getContainer } from "@/bootstrap/container";
 
@@ -16,3 +17,5 @@ export function resolveIdentityBindingDependencies() {
 		createNonceId: randomUUID,
 	};
 }
+
+export const normalizeIdentityWriteError = classifyIdentityLinkWriteError;

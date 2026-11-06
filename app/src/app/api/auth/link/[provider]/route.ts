@@ -17,7 +17,9 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { encode } from "next-auth/jwt";
 
+import { identityLinkFailure, invalidLocalSession } from "@/app/_facades/identity/identity-link-response.server";
 import { authSecret, createLinkTransaction } from "@/auth";
+import { wrapRouteHandlerWithLogging } from "@/bootstrap/http";
 import { getServerSessionUser } from "@/lib/auth/server";
 
 export const runtime = "nodejs";
@@ -27,20 +29,22 @@ const LINK_INTENT_COOKIE = "link_intent";
 const LINK_INTENT_SALT = "link-intent";
 const LINK_INTENT_TTL = 5 * 60; // 5 minutes
 
-export async function POST(
-  _request: Request,
-  { params }: { params: Promise<{ provider: string }> }
-) {
-  const { provider } = await params;
+export const POST = wrapRouteHandlerWithLogging<{ params: Promise<{ provider: string }> }>(
+  { routeId: "identity.direct_link", auth: { mode: "none" } },
+  async (ctx, _request, _session, context) => {
+  if (!context) return NextResponse.json({ errorCode: "identity_link_failed" }, { status: 500 });
+  const { provider } = await context.params;
 
   if (!ALLOWED_PROVIDERS.has(provider)) {
     return NextResponse.json({ error: "Unknown provider" }, { status: 400 });
   }
 
+  try {
   // Require existing session
   const session = await getServerSessionUser();
   if (!session) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    ctx.log.info({ event: "identity.link_start_result", operation: "direct_link", outcome: "invalid_session", status: 401 }, "identity.link_start_result");
+    return invalidLocalSession();
   }
 
   // Create DB-backed link transaction (the authority for fail-closed verification)
@@ -69,5 +73,11 @@ export async function POST(
     maxAge: LINK_INTENT_TTL,
   });
 
+  ctx.log.info({ event: "identity.link_start_result", operation: "direct_link", outcome: "started", status: 200 }, "identity.link_start_result");
   return NextResponse.json({ ok: true });
-}
+  } catch (error) {
+    const response = identityLinkFailure(error);
+    ctx.log.info({ event: "identity.link_start_result", operation: "direct_link", outcome: response.status === 401 ? "invalid_session" : response.status === 503 ? "unavailable" : "failed", status: response.status }, "identity.link_start_result");
+    return response;
+  }
+});
