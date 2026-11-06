@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { getSeedDb } from "@tests/_fixtures/db/seed-client";
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { identityEvents, linkTransactions, users } from "@/shared/db/schema";
+import { identityEvents, linkTransactions, userBindings, users } from "@/shared/db/schema";
 import { DrizzleIdentityBindingRepository } from "@/adapters/server/identity/identity-binding.adapter";
 
 describe("identity link nonce persistence", () => {
@@ -33,6 +33,47 @@ describe("identity link nonce persistence", () => {
     expect(failure).toBeDefined();
     expect((failure as { cause?: { code?: string; constraint_name?: string } }).cause).toMatchObject({ code: "23503", constraint_name: "identity_events_user_id_users_id_fk" });
     expect(classifyIdentityLinkWriteError(failure, true).kind).toBe("unexpected");
+  });
+  it("serializes concurrent nonce redemption and preserves another binding owner", async () => {
+    const db = getSeedDb();
+    const caller = randomUUID(), owner = randomUUID(), nonce = randomUUID(), binding = randomUUID(), githubId = randomUUID();
+    await db.insert(users).values([{ id: caller }, { id: owner }]);
+    await db.insert(userBindings).values({ id: binding, userId: owner, provider: "github", externalId: githubId });
+    const repository = new DrizzleIdentityBindingRepository(db);
+    await repository.insertNonce({ nonce, userId: caller, expiresAt: new Date(Date.now() + 60_000) });
+    let started!: () => void, release!: () => void;
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const first = repository.transaction(async (tx) => {
+      const consumed = await tx.consumeNonce({ nonce, userId: caller, now: new Date() });
+      started();
+      await gate;
+      const existing = await tx.findGithubBinding(githubId);
+      return { consumed, owner: existing?.userId };
+    });
+    let second: Promise<boolean> | undefined;
+    try {
+      await entered;
+      let secondStarted!: () => void;
+      const secondEntered = new Promise<void>((resolve) => { secondStarted = resolve; });
+      second = repository.transaction((tx) => {
+        secondStarted();
+        return tx.consumeNonce({ nonce, userId: caller, now: new Date() });
+      });
+      await secondEntered;
+      release();
+      const [winner, replay] = await Promise.all([first, second]);
+      expect(winner).toEqual({ consumed: true, owner });
+      expect(replay).toBe(false);
+      expect(await db.query.userBindings.findFirst({ where: eq(userBindings.id, binding) })).toMatchObject({ userId: owner });
+    } finally {
+      release();
+      await Promise.allSettled(second ? [first, second] : [first]);
+      await db.delete(linkTransactions).where(eq(linkTransactions.id, nonce));
+      await db.delete(userBindings).where(eq(userBindings.id, binding));
+      await db.delete(users).where(eq(users.id, caller));
+      await db.delete(users).where(eq(users.id, owner));
+    }
   });
   it("retains the parent while an inserted nonce exists", async () => {
     const db = getSeedDb();

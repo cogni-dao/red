@@ -55,4 +55,14 @@ describe("explicit recovery gates", () => {
     expect(effects.signOut).not.toHaveBeenCalled();
     expect(effects.disconnect).not.toHaveBeenCalled();
   });
+  it("does not offer fresh sign-in while the wallet is reconnecting", async () => {
+    effects.status = "reconnecting";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ effectiveSessionCredentialPresent: false }) }));
+    render(<Recovery />);
+    expect(await screen.findByRole("button", { name: "Continue recovery" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Continue recovery" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not finish recovery");
+    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
+  });
+
 });

@@ -152,6 +152,7 @@ const FEEDBACK_MESSAGES: Record<
 > = {
   local_session_invalid: { text: "Your session cannot access an account here. Sign in again to continue.", variant: "error" },
   local_session_unavailable: { text: "Account service is temporarily unavailable. Try again.", variant: "error" },
+  import_uncertain: { text: "The result could not be confirmed. Check your linked accounts before trying again.", variant: "error" },
   readback_failed: { text: "Could not confirm the linked account. Refresh and try again.", variant: "error" },
   already_linked: {
     text: "That account is already linked to a different user.",
@@ -536,31 +537,57 @@ export function ProfileView(): ReactElement {
   const [feedback, setFeedback] = useState<{ linkedProvider: string | null; linkedLogin: string | null; error: string | null }>({ linkedProvider: null, linkedLogin: null, error: null });
   const [providerPending, setProviderPending] = useState<string | null>(null);
   const [readbackPending, setReadbackPending] = useState(false);
+  const [uncertainImport, setUncertainImport] = useState(false);
+  const [readbackProvider, setReadbackProvider] = useState("github");
   const [expectedGithubLogin, setExpectedGithubLogin] = useState<string | null>(null);
   const profileSequence = useRef(0);
+  const initialProfileRequested = useRef(false);
+  const operationSequence = useRef(0);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const linkedProvider = searchParams.get("linked");
   const linkedLogin = searchParams.get("login");
   const error = searchParams.get("error");
 
-  const refreshProfile = useCallback(async (expectedLogin?: string | null) => {
+  const refreshProfile = useCallback(async (expectedLogin?: string | null, expectedProvider = "github") => {
     const sequence = ++profileSequence.current;
     const response = await fetch("/api/v1/users/me", { cache: "no-store" });
     if (!response.ok) throw new Error("profile unavailable");
     const data = (await response.json()) as ProfileData;
+    if (!mounted.current || sequence !== profileSequence.current) throw new Error("profile request superseded");
     if (!Array.isArray(data.linkedProviders)) throw new Error("invalid profile");
-    if (expectedLogin !== undefined && !data.linkedProviders.some((binding) => binding.provider === "github" && (!expectedLogin || binding.providerLogin === expectedLogin))) throw new Error("binding not confirmed");
-    if (sequence !== profileSequence.current) throw new Error("profile request superseded");
+    if (expectedLogin !== undefined && !data.linkedProviders.some((binding) => binding.provider === expectedProvider && (!expectedLogin || binding.providerLogin === expectedLogin))) throw new Error("binding not confirmed");
+    if (!mounted.current || sequence !== profileSequence.current) throw new Error("profile request superseded");
     setProfile(data);
     setSelectedColor(data.avatarColor ?? "#6366f1");
+    return data;
   }, []);
 
   useEffect(() => {
-    if (linkedProvider || error) {
-      setFeedback({ linkedProvider, linkedLogin, error });
-      if (linkedProvider) void updateSession();
+    if (!linkedProvider && !error) return;
+    const operation = ++operationSequence.current;
+    if (error) {
+      setFeedback({ linkedProvider: null, linkedLogin: null, error });
       router.replace("/profile");
+      return;
     }
-  }, [linkedProvider, linkedLogin, error, router, updateSession]);
+    if (!linkedProvider) return;
+    setReadbackProvider(linkedProvider.toLowerCase());
+    setExpectedGithubLogin(linkedLogin);
+    setUncertainImport(false);
+    setReadbackPending(true);
+    router.replace("/profile");
+    void refreshProfile(linkedLogin, linkedProvider.toLowerCase()).then((data) => {
+      if (!mounted.current || operation !== operationSequence.current) return;
+      // The callback query is not proof. The profile list supplies the result.
+      const binding = data.linkedProviders.find((entry) => entry.provider === linkedProvider.toLowerCase() && (!linkedLogin || entry.providerLogin === linkedLogin));
+      if (!binding) throw new Error("binding not confirmed");
+      setFeedback({ linkedProvider, linkedLogin: binding.providerLogin, error: null });
+      void updateSession();
+    }).catch(() => {
+      if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: "readback_failed" });
+    }).finally(() => { if (mounted.current && operation === operationSequence.current) setReadbackPending(false); });
+  }, [linkedProvider, linkedLogin, error, router, updateSession, refreshProfile]);
 
   const [attestationImporting, setAttestationImporting] = useState(false);
   const attestationHandled = useRef(false);
@@ -571,31 +598,49 @@ export function ProfileView(): ReactElement {
     attestationHandled.current = true;
     window.history.replaceState(null, "", window.location.pathname + window.location.search);
     setAttestationImporting(true);
+    const operation = ++operationSequence.current;
     void (async () => {
+      let expectedLogin: string | null | undefined;
+      let uncertain = false;
       try {
         const token = decodeURIComponent(hash.slice("#attestation=".length));
-        const res = await fetch("/api/v1/identity/bindings/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) });
-        const body = await res.json().catch(() => null) as { bound?: boolean; githubLogin?: string | null; errorCode?: string } | null;
-        if (!res.ok) {
-          const code = body?.errorCode ?? (res.status === 401 ? "local_session_invalid" : res.status === 503 ? "local_session_unavailable" : "link_failed");
-          setFeedback({ linkedProvider: null, linkedLogin: null, error: ATTESTATION_ERROR_CODES.has(code) ? code : "link_failed" });
-          return;
+        let res: Response;
+        try { res = await fetch("/api/v1/identity/bindings/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) }); }
+        catch { uncertain = true; res = null as never; }
+        if (!uncertain) {
+          const body = await res.json().catch(() => null) as { bound?: boolean; githubLogin?: string | null; errorCode?: string } | null;
+          const refusal = body?.errorCode ?? (res.status === 401 ? "local_session_invalid" : "");
+          if (!res.ok && ATTESTATION_ERROR_CODES.has(refusal)) {
+            if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: refusal });
+            return;
+          }
+          if (!res.ok || !body || body.bound !== true) uncertain = true;
+          else expectedLogin = body.githubLogin ?? null;
         }
-        if (!body?.bound) throw new Error("invalid response");
-        setExpectedGithubLogin(body.githubLogin ?? null);
+        if (!mounted.current || operation !== operationSequence.current) return;
+        setReadbackProvider("github");
+        setExpectedGithubLogin(expectedLogin ?? null);
+        setUncertainImport(uncertain);
         setReadbackPending(true);
         try {
-          await refreshProfile(body.githubLogin ?? null);
-          setFeedback({ linkedProvider: "GitHub", linkedLogin: body.githubLogin ?? null, error: null });
-        } catch { setFeedback({ linkedProvider: null, linkedLogin: null, error: "readback_failed" }); }
-        finally { setReadbackPending(false); }
-      } catch { setFeedback({ linkedProvider: null, linkedLogin: null, error: "link_failed" }); }
-      finally { setAttestationImporting(false); }
+          await refreshProfile(uncertain ? undefined : expectedLogin);
+          if (mounted.current && operation === operationSequence.current) setFeedback(uncertain
+            ? { linkedProvider: null, linkedLogin: null, error: "import_uncertain" }
+            : { linkedProvider: "GitHub", linkedLogin: expectedLogin ?? null, error: null });
+        } catch {
+          if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: "readback_failed" });
+        } finally { if (mounted.current && operation === operationSequence.current) setReadbackPending(false); }
+      } catch {
+        if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: "readback_failed" });
+      } finally { if (mounted.current && operation === operationSequence.current) setAttestationImporting(false); }
     })();
   }, [refreshProfile]);
 
   useEffect(() => {
-    void refreshProfile().catch(() => {});
+    if (!initialProfileRequested.current) {
+      initialProfileRequested.current = true;
+      if (!linkedProvider) void refreshProfile().catch(() => {});
+    }
 
     fetch("/api/auth/providers")
       .then((res) => res.json())
@@ -625,7 +670,7 @@ export function ProfileView(): ReactElement {
         if (data) setOllamaConnected(data.connected);
       })
       .catch(() => {});
-  }, [refreshProfile]);
+  }, [refreshProfile, linkedProvider]);
 
   const walletAddress = session?.user?.walletAddress ?? null;
   const displayName =
@@ -643,6 +688,7 @@ export function ProfileView(): ReactElement {
       ?.providerLogin ?? null;
 
   const initiateProviderLink = async (providerId: string) => {
+    const operation = ++operationSequence.current;
     setProviderPending(providerId);
     setFeedback({ linkedProvider: null, linkedLogin: null, error: null });
     try {
@@ -650,12 +696,16 @@ export function ProfileView(): ReactElement {
       const data = await res.json().catch(() => null) as { ok?: boolean; errorCode?: string } | null;
       if (!res.ok || data?.ok !== true) {
         const code = data?.errorCode ?? (res.status === 401 ? "local_session_invalid" : res.status === 503 ? "local_session_unavailable" : "link_failed");
-        setFeedback({ linkedProvider: null, linkedLogin: null, error: ATTESTATION_ERROR_CODES.has(code) ? code : "link_failed" });
+        if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: ATTESTATION_ERROR_CODES.has(code) ? code : "link_failed" });
         return;
       }
-      await signIn(providerId, { callbackUrl: `/profile?linked=${providerId}` });
-    } catch { setFeedback({ linkedProvider: null, linkedLogin: null, error: "link_failed" }); }
-    finally { setProviderPending(null); }
+      if (!mounted.current || operation !== operationSequence.current) return;
+      // NextAuth OAuth signIn redirects even with redirect:false and returns undefined
+      // on that path; a structured result, when supplied, may still signal refusal.
+      const result = await signIn(providerId, { callbackUrl: `/profile?linked=${providerId}` });
+      if (result && (!result.ok || result.error)) throw new Error("provider sign-in refused");
+    } catch { if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: "link_failed" }); }
+    finally { if (mounted.current && operation === operationSequence.current) setProviderPending(null); }
   };
 
   // Return leg from the operator identity broker: the page would otherwise render
@@ -690,7 +740,12 @@ export function ProfileView(): ReactElement {
       {(feedback.error || feedback.linkedProvider) && feedback.error !== "readback_failed" && <Button variant="ghost" size="sm" onClick={() => setFeedback({ linkedProvider: null, linkedLogin: null, error: null })}>Dismiss</Button>}
       {feedback.error === "readback_failed" && <Button disabled={readbackPending} onClick={() => {
         setReadbackPending(true);
-        void refreshProfile(expectedGithubLogin).then(() => setFeedback({ linkedProvider: "GitHub", linkedLogin: expectedGithubLogin, error: null })).catch(() => {}).finally(() => setReadbackPending(false));
+        const operation = ++operationSequence.current;
+        void refreshProfile(uncertainImport ? undefined : expectedGithubLogin, readbackProvider).then((data) => {
+          if (!mounted.current || operation !== operationSequence.current) return;
+          const binding = data.linkedProviders.find((entry) => entry.provider === readbackProvider);
+          setFeedback(uncertainImport ? { linkedProvider: null, linkedLogin: null, error: "import_uncertain" } : { linkedProvider: readbackProvider, linkedLogin: binding?.providerLogin ?? null, error: null });
+        }).catch(() => {}).finally(() => { if (mounted.current && operation === operationSequence.current) setReadbackPending(false); });
       }}>Retry account readback</Button>}
 
       {/* ── Profile section (display name + avatar color, no divider between) ── */}
@@ -775,7 +830,7 @@ export function ProfileView(): ReactElement {
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={providerPending !== null || readbackPending || (id === "github" && feedback.error === "readback_failed")}
+                    disabled={providerPending !== null || readbackPending || (id === readbackProvider && feedback.error === "readback_failed")}
                     onClick={() => void initiateProviderLink(id)}
                   >
                     Link another GitHub
@@ -786,7 +841,7 @@ export function ProfileView(): ReactElement {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={providerPending !== null || readbackPending || (id === "github" && feedback.error === "readback_failed")}
+                disabled={providerPending !== null || readbackPending || (id === readbackProvider && feedback.error === "readback_failed")}
                     onClick={() => void initiateProviderLink(id)}
               >
                 Link
@@ -815,6 +870,7 @@ export function ProfileView(): ReactElement {
               size="sm"
               disabled={attestationStarting}
               onClick={() => {
+                const operation = ++operationSequence.current;
                 setAttestationStarting(true);
                 setFeedback({ linkedProvider: null, linkedLogin: null, error: null });
                 void (async () => {
@@ -823,12 +879,12 @@ export function ProfileView(): ReactElement {
                     const data = await res.json().catch(() => null) as { authorizeUrl?: string; errorCode?: string } | null;
                     if (!res.ok || typeof data?.authorizeUrl !== "string") {
                       const code = data?.errorCode ?? (res.status === 401 ? "local_session_invalid" : res.status === 503 ? "local_session_unavailable" : "link_failed");
-                      setFeedback({ linkedProvider: null, linkedLogin: null, error: ATTESTATION_ERROR_CODES.has(code) ? code : "link_failed" });
+                      if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: ATTESTATION_ERROR_CODES.has(code) ? code : "link_failed" });
                       return;
                     }
-                    window.location.assign(data.authorizeUrl);
-                  } catch { setFeedback({ linkedProvider: null, linkedLogin: null, error: "link_failed" }); }
-                  finally { setAttestationStarting(false); }
+                    if (mounted.current && operation === operationSequence.current) window.location.assign(data.authorizeUrl);
+                  } catch { if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: "link_failed" }); }
+                  finally { if (mounted.current && operation === operationSequence.current) setAttestationStarting(false); }
                 })();
               }}
             >

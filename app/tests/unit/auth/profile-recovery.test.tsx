@@ -1,0 +1,107 @@
+// SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+// SPDX-FileCopyrightText: 2026 Cogni-DAO
+// @vitest-environment happy-dom
+import "@testing-library/jest-dom/vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mock = vi.hoisted(() => { const replace = vi.fn(); return { signIn: vi.fn(), update: vi.fn(), replace, router: { replace } }; });
+vi.mock("next-auth/react", () => ({ useSession: () => ({ data: { user: {} }, update: mock.update }), signIn: mock.signIn }));
+vi.mock("next/navigation", () => ({ useRouter: () => mock.router, useSearchParams: () => new URLSearchParams(window.location.search) }));
+vi.mock("next/link", () => ({ default: ({ children }: { children: ReactNode }) => <span>{children}</span> }));
+vi.mock("@rainbow-me/rainbowkit", () => ({ useConnectModal: () => ({}) }));
+vi.mock("@/components", () => ({
+  Button: ({ children, variant: _v, size: _s, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: string; size?: string }) => <button {...props}>{children}</button>,
+  Avatar: ({ children }: HTMLAttributes<HTMLDivElement>) => <div>{children}</div>, AvatarFallback: ({ children }: HTMLAttributes<HTMLDivElement>) => <span>{children}</span>,
+  PageContainer: ({ children }: { children: ReactNode }) => <div>{children}</div>, DiscordIcon: () => null, EthereumIcon: () => null, GitHubIcon: () => null, GoogleIcon: () => null,
+}));
+vi.mock("@cogni/node-ui-kit/shadcn/spinner", () => ({ Spinner: () => <span>Loading</span> }));
+import { ProfileView } from "@/app/(app)/profile/view";
+const profile = (bindings: { provider: string; providerLogin: string | null }[]) => ({ displayName: null, avatarColor: null, resolvedDisplayName: "Test", linkedProviders: bindings });
+const reply = (body: unknown, ok = true, status = ok ? 200 : 500) => ({ ok, status, json: async () => body });
+
+describe("profile import readback", () => {
+  beforeEach(() => { vi.clearAllMocks(); mock.replace.mockImplementation((path: string) => window.history.replaceState(null, "", path)); window.history.replaceState(null, "", "/profile#attestation=fixture"); });
+  afterEach(() => { vi.unstubAllGlobals(); window.history.replaceState(null, "", "/"); });
+  it("reads profile after a lost import receipt before offering a link", async () => {
+    let reads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/v1/identity/bindings/import") throw new Error("receipt lost");
+      if (url === "/api/v1/users/me") return reply(profile(++reads === 1 ? [] : [{ provider: "github", providerLogin: "octocat" }]));
+      if (url === "/api/auth/providers") return reply({});
+      return reply({ connected: false });
+    }));
+    render(<ProfileView />);
+    expect(await screen.findByText("The result could not be confirmed. Check your linked accounts before trying again.")).toBeInTheDocument();
+    expect(screen.getByText("octocat")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Link" })).not.toBeInTheDocument();
+    expect(reads).toBeGreaterThanOrEqual(2);
+  });
+  it("keeps a newer confirmed binding when an initial profile request finishes late", async () => {
+    let release!: (value: ReturnType<typeof reply>) => void;
+    let reads = 0;
+    const delayed = new Promise<ReturnType<typeof reply>>((resolve) => { release = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/v1/identity/bindings/import") return reply({ bound: true, githubLogin: "octocat" });
+      if (url === "/api/v1/users/me") return ++reads === 1 ? delayed : reply(profile([{ provider: "github", providerLogin: "octocat" }]));
+      if (url === "/api/auth/providers") return reply({});
+      return reply({ connected: false });
+    }));
+    render(<ProfileView />);
+    expect(await screen.findByText("octocat")).toBeInTheDocument();
+    release(reply(profile([])));
+    await waitFor(() => expect(screen.getByText("octocat")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Link" })).not.toBeInTheDocument();
+  });
+  it("blocks retry when the import receipt and readback both fail", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/v1/identity/bindings/import") throw new Error("receipt lost");
+      if (url === "/api/v1/users/me") return reply(null, false);
+      if (url === "/api/auth/providers") return reply({});
+      return reply({ connected: false });
+    }));
+    render(<ProfileView />);
+    expect(await screen.findByText("Could not confirm the linked account. Refresh and try again.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry account readback" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Link" })).not.toBeInTheDocument();
+  });
+  it("keeps a provider pending until signIn refusal is visible", async () => {
+    window.history.replaceState(null, "", "/profile");
+    let finish!: (value: { ok: boolean; error: string; status: number; url: null }) => void;
+    mock.signIn.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/v1/users/me") return reply(profile([]));
+      if (url === "/api/auth/providers") return reply({ discord: { id: "discord" } });
+      if (url === "/api/auth/link/discord") return reply({ ok: true });
+      return reply({ connected: false });
+    }));
+    render(<ProfileView />);
+    const label = await screen.findByText("Discord");
+    const row = label.parentElement?.parentElement?.parentElement;
+    if (!row) throw new Error("Discord row missing");
+    const button = within(row).getByRole("button", { name: "Link" });
+    fireEvent.click(button);
+    await waitFor(() => expect(button).toBeDisabled());
+    finish({ ok: false, error: "refused", status: 400, url: null });
+    expect(await screen.findByText("Unable to start linking. Try again.")).toBeInTheDocument();
+    await waitFor(() => expect(button).toBeEnabled());
+  });
+
+  it("does not trust a direct callback query until profile readback confirms the provider", async () => {
+    window.history.replaceState(null, "", "/profile?linked=discord&login=alice");
+    let finish!: (value: ReturnType<typeof reply>) => void;
+    const delayed = new Promise<ReturnType<typeof reply>>((resolve) => { finish = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/v1/users/me") return delayed;
+      if (url === "/api/auth/providers") return reply({ discord: { id: "discord" } });
+      return reply({ connected: false });
+    }));
+    render(<ProfileView />);
+    expect(screen.queryByText(/Verified/)).not.toBeInTheDocument();
+    finish(reply(profile([{ provider: "discord", providerLogin: "alice" }])));
+    expect(await screen.findByText("alice")).toBeInTheDocument();
+    expect(await screen.findByText(/Verified/)).toBeInTheDocument();
+  });
+
+});
