@@ -6,7 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { getServiceDb } from "@/adapters/server/db/drizzle.service-client";
-import { resolveIdentityBindingDependencies } from "@/bootstrap/identity";
+import { normalizeIdentityWriteError, resolveIdentityBindingDependencies } from "@/bootstrap/identity";
 import {
 	createIdentityBindingService,
 	type RedeemAttestedBindingResult,
@@ -53,13 +53,13 @@ export type { RedeemAttestedBindingResult };
  */
 export async function createSigninChallenge(): Promise<{ nonce: string }> {
 	const nonce = randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "");
-	await getServiceDb()
+    try { await getServiceDb()
 		.insert(identitySigninChallenges)
 		.values({
 			id: randomUUID(),
 			nonceHash: hashSigninNonce(nonce),
 			expiresAt: new Date(Date.now() + SIGNIN_CHALLENGE_TTL_SECONDS * 1000),
-		});
+		}); } catch (error) { throw normalizeIdentityWriteError(error); }
 	return { nonce };
 }
 

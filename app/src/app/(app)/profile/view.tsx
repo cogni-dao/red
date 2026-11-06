@@ -150,12 +150,16 @@ const FEEDBACK_MESSAGES: Record<
   string,
   { text: string; variant: "success" | "error" }
 > = {
+  local_session_invalid: { text: "Your session cannot access an account here. Sign in again to continue.", variant: "error" },
+  local_session_unavailable: { text: "Account service is temporarily unavailable. Try again.", variant: "error" },
+  import_uncertain: { text: "The result could not be confirmed. Check your linked accounts before trying again.", variant: "error" },
+  readback_failed: { text: "Could not confirm the linked account. Refresh and try again.", variant: "error" },
   already_linked: {
     text: "That account is already linked to a different user.",
     variant: "error",
   },
   link_failed: {
-    text: "Account linking failed. Please try again.",
+    text: "Unable to start linking. Try again.",
     variant: "error",
   },
   invalid_token: {
@@ -172,7 +176,7 @@ const FEEDBACK_MESSAGES: Record<
 const ATTESTATION_ERROR_CODES = new Set([
   "invalid_token",
   "jwks_unavailable",
-  "already_linked",
+  "already_linked", "local_session_invalid", "local_session_unavailable",
 ]);
 
 function FeedbackBanner({
@@ -202,8 +206,8 @@ function FeedbackBanner({
     const msg = FEEDBACK_MESSAGES[error];
     if (msg) {
       return (
-        <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-foreground text-sm">
-          {msg.text}
+        <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-foreground text-sm">
+          {msg.text} {error === "local_session_invalid" && <Link href="/session-recovery">Recover session</Link>}
         </div>
       );
     }
@@ -509,7 +513,7 @@ function ChatGptConnectFlow({
 /* ─── View ─────────────────────────────────────────────────────────── */
 
 export function ProfileView(): ReactElement {
-  const { data: session, update: updateSession } = useSession();
+  const { data: session, status: sessionStatus, update: updateSession } = useSession();
   const { openConnectModal } = useConnectModal();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -530,83 +534,181 @@ export function ProfileView(): ReactElement {
   const [ollamaError, setOllamaError] = useState("");
   const [attestationStarting, setAttestationStarting] = useState(false);
 
-  // Read feedback query params and strip them to prevent re-display on refresh
+  const [feedback, setFeedback] = useState<{ linkedProvider: string | null; linkedLogin: string | null; error: string | null }>({ linkedProvider: null, linkedLogin: null, error: null });
+  const [providerPending, setProviderPending] = useState<string | null>(null);
+  const [readbackPending, setReadbackPending] = useState(false);
+  const [readbackIntent, setReadbackIntent] = useState<
+    | { kind: "none" }
+    | { kind: "uncertain"; feedback: "import_uncertain" | "local_session_unavailable" }
+    | { kind: "expected"; provider: string; login: string | null }
+  >({ kind: "none" });
+  const [attestationImporting, setAttestationImporting] = useState(false);
+  const [importGate, setImportGate] = useState<"idle" | "pending" | "failed">("idle");
+  const importOwner = useRef(0);
+  const startInFlight = useRef(false);
+  const profileSequence = useRef(0);
+  const queryReadback = useRef<Promise<void> | null>(null);
+  const initialProfileRequested = useRef(false);
+  const operationSequence = useRef(0);
+  const mounted = useRef(true);
+  const sessionIdentity = session?.user?.id ?? null;
+  const observedIdentity = useRef(sessionIdentity);
+  const profileOwner = useRef(sessionIdentity);
+  if (observedIdentity.current !== sessionIdentity) {
+    observedIdentity.current = sessionIdentity;
+    profileSequence.current++;
+    operationSequence.current++;
+    importOwner.current++;
+  }
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const linkedProvider = searchParams.get("linked");
   const linkedLogin = searchParams.get("login");
   const error = searchParams.get("error");
 
-  useEffect(() => {
-    if (linkedProvider || error) {
-      if (linkedProvider) {
-        // Re-validate session so RainbowKit picks up the still-valid SIWE auth
-        void updateSession();
-      }
-      // Strip query params after reading — prevents re-display on refresh/back
-      router.replace("/profile");
-    }
-  }, [linkedProvider, error, router, updateSession]);
+  const refreshProfile = useCallback(async (expectedLogin?: string | null, expectedProvider = "github") => {
+    const sequence = ++profileSequence.current;
+    const response = await fetch("/api/v1/users/me", { cache: "no-store" });
+    if (!response.ok) throw new Error("profile unavailable");
+    const data = (await response.json()) as ProfileData;
+    if (!mounted.current || sequence !== profileSequence.current) throw new Error("profile request superseded");
+    if (!Array.isArray(data.linkedProviders)) throw new Error("invalid profile");
+    if (expectedLogin !== undefined && !data.linkedProviders.some((binding) => binding.provider === expectedProvider && (!expectedLogin || binding.providerLogin === expectedLogin))) throw new Error("binding not confirmed");
+    if (!mounted.current || sequence !== profileSequence.current) throw new Error("profile request superseded");
+    setProfile(data);
+    setSelectedColor(data.avatarColor ?? "#6366f1");
+    return data;
+  }, []);
 
-  // Operator attestation return leg (task.5024): the hub redirects back with
-  // #attestation=<jwt>. Auto-POST it to the import route, then replace the
-  // URL (full navigation) so the token never lingers in history and the
-  // existing ?linked= / ?error= feedback + profile refetch path is reused.
-  const [attestationImporting, setAttestationImporting] = useState(false);
+  useEffect(() => {
+    if (profileOwner.current === sessionIdentity) return;
+    profileOwner.current = sessionIdentity;
+    setImportGate("idle");
+    setProfile(null);
+    setSelectedColor("#6366f1");
+    setFeedback({ linkedProvider: null, linkedLogin: null, error: null });
+    setReadbackIntent({ kind: "none" });
+    setAttestationImporting(false);
+    setReadbackPending(false);
+    if (sessionIdentity) void refreshProfile().catch(() => {});
+  }, [sessionIdentity, refreshProfile]);
+
+  useEffect(() => {
+    if (sessionStatus === "loading" || (!linkedProvider && !error)) return;
+    const operation = ++operationSequence.current;
+    // This navigation owns the UI now. Retire the old operation's pending state.
+    profileSequence.current++;
+    setAttestationImporting(false);
+    setReadbackPending(false);
+    if (error) {
+      setReadbackIntent({ kind: "none" });
+      setFeedback({ linkedProvider: null, linkedLogin: null, error });
+      router.replace("/profile");
+      return;
+    }
+    if (!linkedProvider) return;
+    setReadbackIntent({ kind: "expected", provider: linkedProvider.toLowerCase(), login: linkedLogin });
+    setReadbackPending(true);
+    router.replace("/profile");
+    const query = refreshProfile(linkedLogin, linkedProvider.toLowerCase()).then((data) => {
+      if (!mounted.current || operation !== operationSequence.current) return;
+      // The callback query is not proof. The profile list supplies the result.
+      const binding = data.linkedProviders.find((entry) => entry.provider === linkedProvider.toLowerCase() && (!linkedLogin || entry.providerLogin === linkedLogin));
+      if (!binding) throw new Error("binding not confirmed");
+      setFeedback({ linkedProvider, linkedLogin: binding.providerLogin, error: null });
+      void updateSession();
+    }).catch(() => {
+      if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: "readback_failed" });
+    }).finally(() => { if (mounted.current && operation === operationSequence.current) setReadbackPending(false); });
+    queryReadback.current = query;
+    void query.finally(() => { if (queryReadback.current === query) queryReadback.current = null; });
+  }, [linkedProvider, linkedLogin, error, router, updateSession, refreshProfile, sessionStatus]);
+
   const attestationHandled = useRef(false);
   useEffect(() => {
-    if (attestationHandled.current) return;
+    if (sessionStatus === "loading" || attestationHandled.current) return;
     const hash = window.location.hash;
     if (!hash.startsWith("#attestation=")) return;
     attestationHandled.current = true;
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
     setAttestationImporting(true);
-
+    const operation = ++operationSequence.current;
+    const owner = ++importOwner.current;
     void (async () => {
+      let submitted = false;
+      let expectedLogin: string | null | undefined;
+      let uncertain = false;
+      let uncertainCode: "import_uncertain" | "local_session_unavailable" = "import_uncertain";
       try {
-        const token = decodeURIComponent(hash.slice("#attestation=".length));
-        const res = await fetch("/api/v1/identity/bindings/import", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token }),
-        });
-        if (res.ok) {
-          // Name the account that was actually bound — a generic "verified" is
-          // exactly what hid the wrong-account bug on the 2026-08-19 candidate.
-          const bound: { githubLogin?: string | null } | null = await res
-            .json()
-            .catch(() => null);
-          const login = bound?.githubLogin;
-          window.location.replace(
-            login
-              ? `/profile?linked=GitHub&login=${encodeURIComponent(login)}`
-              : "/profile?linked=GitHub"
-          );
+        let token: string;
+        try { token = decodeURIComponent(hash.slice("#attestation=".length)); }
+        catch {
+          if (mounted.current && operation === operationSequence.current) {
+            setReadbackIntent({ kind: "none" });
+            setFeedback({ linkedProvider: null, linkedLogin: null, error: "link_failed" });
+          }
           return;
         }
-        const data: { errorCode?: string } | null = await res
-          .json()
-          .catch(() => null);
-        const code = data?.errorCode ?? "";
-        window.location.replace(
-          `/profile?error=${ATTESTATION_ERROR_CODES.has(code) ? code : "link_failed"}`
-        );
+        submitted = true;
+        setImportGate("pending");
+        let res: Response;
+        try { res = await fetch("/api/v1/identity/bindings/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) }); }
+        catch { uncertain = true; res = null as never; }
+        if (!uncertain) {
+          const body = await res.json().catch(() => null) as { bound?: boolean; githubLogin?: string | null; errorCode?: string } | null;
+          const refusal = body?.errorCode ?? (res.status === 401 ? "local_session_invalid" : "");
+          if (!res.ok && refusal === "local_session_unavailable") {
+            uncertain = true;
+            uncertainCode = "local_session_unavailable";
+          } else if (!res.ok && ATTESTATION_ERROR_CODES.has(refusal)) {
+            if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: refusal });
+            return;
+          }
+          if (!res.ok || !body || body.bound !== true || !Object.hasOwn(body, "githubLogin") || (typeof body.githubLogin !== "string" && body.githubLogin !== null)) uncertain = true;
+          else expectedLogin = body.githubLogin;
+        }
+        if (!mounted.current || operation !== operationSequence.current) return;
+        const intent = uncertain
+          ? { kind: "uncertain" as const, feedback: uncertainCode }
+          : { kind: "expected" as const, provider: "github", login: expectedLogin ?? null };
+        setReadbackIntent(intent);
+        setReadbackPending(true);
+        try {
+          await refreshProfile(uncertain ? undefined : expectedLogin);
+          if (mounted.current && operation === operationSequence.current) setFeedback(uncertain
+            ? { linkedProvider: null, linkedLogin: null, error: uncertainCode }
+            : { linkedProvider: "GitHub", linkedLogin: expectedLogin ?? null, error: null });
+        } catch {
+          if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: "readback_failed" });
+        } finally { if (mounted.current && operation === operationSequence.current) setReadbackPending(false); }
       } catch {
-        window.location.replace("/profile?error=link_failed");
+        if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: "readback_failed" });
+      } finally {
+        if (mounted.current && owner === importOwner.current) {
+          if (submitted && operation !== operationSequence.current) {
+            // A query can replace feedback, but cannot settle an in-flight import.
+            // Read again only after that operation has stopped producing results.
+            try {
+              if (queryReadback.current) await queryReadback.current;
+              if (!mounted.current || owner !== importOwner.current) return;
+              await refreshProfile();
+              if (mounted.current && owner === importOwner.current) setImportGate("idle");
+            } catch {
+              if (mounted.current && owner === importOwner.current) setImportGate("failed");
+            }
+          } else {
+            setImportGate("idle");
+          }
+          if (operation === operationSequence.current) setAttestationImporting(false);
+        }
       }
     })();
-  }, []);
+  }, [refreshProfile, sessionStatus]);
 
-  // Fetch profile data + configured providers in parallel
   useEffect(() => {
-    fetch("/api/v1/users/me")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: ProfileData | null) => {
-        if (data) {
-          setProfile(data);
-          setSelectedColor(data.avatarColor ?? "#6366f1");
-        }
-      })
-      .catch(() => {
-        // Profile fetch failed — page still renders with session data
-      });
+    if (sessionStatus !== "loading" && !initialProfileRequested.current) {
+      initialProfileRequested.current = true;
+      if (!linkedProvider) void refreshProfile().catch(() => {});
+    }
 
     fetch("/api/auth/providers")
       .then((res) => res.json())
@@ -636,31 +738,45 @@ export function ProfileView(): ReactElement {
         if (data) setOllamaConnected(data.connected);
       })
       .catch(() => {});
-  }, []);
+  }, [refreshProfile, linkedProvider, sessionStatus]);
 
   const walletAddress = session?.user?.walletAddress ?? null;
+  const visibleProfile = profileOwner.current === sessionIdentity ? profile : null;
   const displayName =
-    profile?.resolvedDisplayName ?? session?.user?.displayName ?? "User";
+    visibleProfile?.resolvedDisplayName ?? session?.user?.displayName ?? "User";
   const avatarLetter = displayName.charAt(0).toUpperCase();
 
   // Build set of linked provider IDs for quick lookup
   const linkedProviderIds = new Set(
-    profile?.linkedProviders.map((p) => p.provider) ?? []
+    visibleProfile?.linkedProviders.map((p) => p.provider) ?? []
   );
 
   // Get provider login by provider ID
   const getProviderLogin = (providerId: string): string | null =>
-    profile?.linkedProviders.find((p) => p.provider === providerId)
+    visibleProfile?.linkedProviders.find((p) => p.provider === providerId)
       ?.providerLogin ?? null;
 
   const initiateProviderLink = async (providerId: string) => {
-    const res = await fetch(`/api/auth/link/${providerId}`, {
-      method: "POST",
-    });
-    if (!res.ok) return;
-    signIn(providerId, {
-      callbackUrl: `/profile?linked=${providerId}`,
-    });
+    if (startInFlight.current) return;
+    startInFlight.current = true;
+    const operation = ++operationSequence.current;
+    setProviderPending(providerId);
+    setFeedback({ linkedProvider: null, linkedLogin: null, error: null });
+    try {
+      const res = await fetch(`/api/auth/link/${providerId}`, { method: "POST" });
+      const data = await res.json().catch(() => null) as { ok?: boolean; errorCode?: string } | null;
+      if (!res.ok || data?.ok !== true) {
+        const code = data?.errorCode ?? (res.status === 401 ? "local_session_invalid" : res.status === 503 ? "local_session_unavailable" : "link_failed");
+        if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: ATTESTATION_ERROR_CODES.has(code) ? code : "link_failed" });
+        return;
+      }
+      if (!mounted.current || operation !== operationSequence.current) return;
+      // NextAuth OAuth signIn redirects even with redirect:false and returns undefined
+      // on that path; a structured result, when supplied, may still signal refusal.
+      const result = await signIn(providerId, { callbackUrl: `/profile?linked=${providerId}` });
+      if (result && (!result.ok || result.error)) throw new Error("provider sign-in refused");
+    } catch { if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: "link_failed" }); }
+    finally { startInFlight.current = false; if (mounted.current) setProviderPending(null); }
   };
 
   // Return leg from the operator identity broker: the page would otherwise render
@@ -687,10 +803,36 @@ export function ProfileView(): ReactElement {
 
       {/* Feedback banner for linking results */}
       <FeedbackBanner
-        error={error}
-        linkedLogin={linkedLogin}
-        linkedProvider={linkedProvider}
+        error={feedback.error}
+        linkedLogin={feedback.linkedLogin}
+        linkedProvider={feedback.linkedProvider}
       />
+
+      {feedback.error === "readback_failed" && readbackIntent.kind === "uncertain" && readbackIntent.feedback === "local_session_unavailable" && <p role="alert">Account service is temporarily unavailable. Try again.</p>}
+      {(feedback.error || feedback.linkedProvider) && feedback.error !== "readback_failed" && <Button variant="ghost" size="sm" onClick={() => setFeedback({ linkedProvider: null, linkedLogin: null, error: null })}>Dismiss</Button>}
+      {feedback.error === "readback_failed" && readbackIntent.kind !== "none" && <Button disabled={readbackPending} onClick={() => {
+        setReadbackPending(true);
+        const operation = ++operationSequence.current;
+        const intent = readbackIntent;
+        void refreshProfile(intent.kind === "uncertain" ? undefined : intent.login, intent.kind === "expected" ? intent.provider : "github").then((data) => {
+          if (!mounted.current || operation !== operationSequence.current) return;
+          if (intent.kind === "uncertain") {
+            setFeedback({ linkedProvider: null, linkedLogin: null, error: intent.feedback });
+            return;
+          }
+          const binding = data.linkedProviders.find((entry) => entry.provider === intent.provider && (intent.login === null || entry.providerLogin === intent.login));
+          if (!binding) throw new Error("binding not confirmed");
+          setFeedback({ linkedProvider: intent.provider, linkedLogin: intent.login, error: null });
+        }).catch(() => {}).finally(() => { if (mounted.current && operation === operationSequence.current) setReadbackPending(false); });
+      }}>Retry account readback</Button>}
+
+      {importGate === "failed" && <Button onClick={() => {
+        const owner = importOwner.current;
+        setImportGate("pending");
+        void refreshProfile().then(() => {
+          if (mounted.current && owner === importOwner.current) setImportGate("idle");
+        }).catch(() => { if (mounted.current && owner === importOwner.current) setImportGate("failed"); });
+      }}>Retry account readback</Button>}
 
       {/* ── Profile section (display name + avatar color, no divider between) ── */}
 
@@ -774,7 +916,8 @@ export function ProfileView(): ReactElement {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => initiateProviderLink(id)}
+                    disabled={importGate !== "idle" || providerPending !== null || attestationStarting || readbackPending || (feedback.error === "readback_failed" && (readbackIntent.kind === "uncertain" || (readbackIntent.kind === "expected" && id === readbackIntent.provider)))}
+                    onClick={() => void initiateProviderLink(id)}
                   >
                     Link another GitHub
                   </Button>
@@ -784,7 +927,8 @@ export function ProfileView(): ReactElement {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => initiateProviderLink(id)}
+                disabled={importGate !== "idle" || providerPending !== null || attestationStarting || readbackPending || (feedback.error === "readback_failed" && (readbackIntent.kind === "uncertain" || (readbackIntent.kind === "expected" && id === readbackIntent.provider)))}
+                    onClick={() => void initiateProviderLink(id)}
               >
                 Link
               </Button>
@@ -801,7 +945,7 @@ export function ProfileView(): ReactElement {
           that leaks it ("verify via this environment's operator hub") is a bug. */}
       {providersLoaded &&
         !configuredProviders.has("github") &&
-        !linkedProviderIds.has("github") && (
+        !linkedProviderIds.has("github") && importGate === "idle" && feedback.error !== "readback_failed" && !readbackPending && (
           <SettingRow
             icon={<GitHubIcon className="size-5" />}
             label="GitHub"
@@ -810,21 +954,26 @@ export function ProfileView(): ReactElement {
             <Button
               variant="outline"
               size="sm"
-              disabled={attestationStarting}
+              disabled={attestationStarting || providerPending !== null || readbackPending}
               onClick={() => {
+                if (startInFlight.current) return;
+                startInFlight.current = true;
+                const operation = ++operationSequence.current;
                 setAttestationStarting(true);
-                void fetch("/api/v1/identity/bindings/import/start", {
-                  method: "POST",
-                })
-                  .then(async (res) => {
-                    if (!res.ok) throw new Error("start failed");
-                    const data = (await res.json()) as { authorizeUrl: string };
-                    window.location.assign(data.authorizeUrl);
-                  })
-                  .catch(() => {
-                    setAttestationStarting(false);
-                    window.location.assign("/profile?error=link_failed");
-                  });
+                setFeedback({ linkedProvider: null, linkedLogin: null, error: null });
+                void (async () => {
+                  try {
+                    const res = await fetch("/api/v1/identity/bindings/import/start", { method: "POST", headers: { "X-Cogni-Identity-Intent": "link" } });
+                    const data = await res.json().catch(() => null) as { authorizeUrl?: string; errorCode?: string } | null;
+                    if (!res.ok || typeof data?.authorizeUrl !== "string") {
+                      const code = data?.errorCode ?? (res.status === 401 ? "local_session_invalid" : res.status === 503 ? "local_session_unavailable" : "link_failed");
+                      if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: ATTESTATION_ERROR_CODES.has(code) ? code : "link_failed" });
+                      return;
+                    }
+                    if (mounted.current && operation === operationSequence.current) window.location.assign(data.authorizeUrl);
+                  } catch { if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: "link_failed" }); }
+                  finally { startInFlight.current = false; if (mounted.current) setAttestationStarting(false); }
+                })();
               }}
             >
               {attestationStarting ? (

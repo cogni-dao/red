@@ -28,6 +28,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { redeemAttestedGithubBinding } from "@/app/_facades/identity/operator-attested-binding.server";
+import { identityLinkFailure, invalidLocalSession } from "@/app/_facades/identity/identity-link-response.server";
 import { verifyOperatorAttestation } from "@/app/_lib/auth/operator-attestation";
 import { wrapRouteHandlerWithLogging } from "@/bootstrap/http";
 import { getServerSessionUser } from "@/lib/auth/server";
@@ -43,9 +44,17 @@ const importBindingBodySchema = z.object({
 export const POST = wrapRouteHandlerWithLogging(
 	{
 		routeId: "identity.bindings.import",
-		auth: { mode: "required", getSessionUser: getServerSessionUser },
+		auth: { mode: "none" },
 	},
-	async (ctx, request, sessionUser) => {
+	async (ctx, request) => {
+        let missingSession = false;
+        const response = await (async () => {
+        try {
+        const sessionUser = await getServerSessionUser();
+        if (!sessionUser) {
+          missingSession = true;
+          return invalidLocalSession();
+        }
 		let body: unknown;
 		try {
 			body = await request.json();
@@ -101,8 +110,6 @@ export const POST = wrapRouteHandlerWithLogging(
 			{
 				event: "identity.binding_imported",
 				result,
-				issuer: verified.claims.issuer,
-				jti: verified.claims.jti,
 				nodeId,
 			},
 			"Operator-attested github binding imported",
@@ -126,5 +133,11 @@ export const POST = wrapRouteHandlerWithLogging(
 			{ bound: true, githubLogin: verified.claims.github.login },
 			{ status: 201 },
 		);
+        } catch (error) {
+            return identityLinkFailure(error);
+        }
+        })();
+        ctx.log.info({ event: "identity.link_start_result", operation: "import", outcome: missingSession ? "invalid_session" : response.status === 503 ? "unavailable" : response.ok ? "started" : "failed", status: response.status }, "identity.link_start_result");
+        return response;
 	},
 );

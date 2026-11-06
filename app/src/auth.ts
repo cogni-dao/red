@@ -30,6 +30,7 @@ import Google from "next-auth/providers/google";
 import { getCsrfToken } from "next-auth/react";
 import { SiweMessage } from "siwe";
 import { getServiceDb } from "@/adapters/server/db/drizzle.service-client";
+import { classifyIdentityLinkWriteError } from "@/adapters/server/identity/identity-link-errors";
 import { createBinding } from "@/adapters/server/identity/create-binding";
 import {
 	consumeSigninChallenge,
@@ -90,12 +91,9 @@ export async function createLinkTransaction(
 	const db = getServiceDb();
 	const txId = randomUUID();
 	const expiresAt = new Date(Date.now() + LINK_INTENT_TTL * 1000);
-	await db.insert(linkTransactions).values({
-		id: txId,
-		userId,
-		provider,
-		expiresAt,
-	});
+    try {
+        await db.insert(linkTransactions).values({ id: txId, userId, provider, expiresAt });
+    } catch (error) { throw classifyIdentityLinkWriteError(error, true); }
 	return txId;
 }
 
