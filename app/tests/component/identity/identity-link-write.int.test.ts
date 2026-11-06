@@ -6,6 +6,7 @@ import { getSeedDb } from "@tests/_fixtures/db/seed-client";
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { identityEvents, linkTransactions, userBindings, users } from "@/shared/db/schema";
+import { createIdentityBindingService } from "@/features/identity/services/operator-attested-binding";
 import { DrizzleIdentityBindingRepository } from "@/adapters/server/identity/identity-binding.adapter";
 
 describe("identity link nonce persistence", () => {
@@ -99,5 +100,71 @@ describe("identity error classification", () => {
     expect(classifyIdentityLinkWriteError({ cause: { code: "ECONNRESET" } }).kind).toBe("unavailable");
     const cycle: { cause?: unknown } = {}; cycle.cause = cycle;
     expect(classifyIdentityLinkWriteError(cycle, true).kind).toBe("unexpected");
+  });
+});
+
+// Deliberately exercise the feature and real repository together: ownership and
+// nonce consumption are one application operation, not just adapter primitives.
+describe("attested GitHub import on migrated PostgreSQL", () => {
+  function fixture(nonce: string) {
+    const repository = new DrizzleIdentityBindingRepository(getSeedDb());
+    return createIdentityBindingService({
+      repository,
+      clock: { now: () => new Date().toISOString() },
+      createNonceId: () => nonce,
+    });
+  }
+  function claims(userId: string, nonce: string, githubId: string) {
+    return { userId, nonce, githubId, githubLogin: "fixture-login", issuer: "https://issuer.example", jti: randomUUID(), iat: 1_700_000_000 };
+  }
+
+  it("rejects another session and an existing other owner without repointing", async () => {
+    const db = getSeedDb();
+    const caller = randomUUID(), stranger = randomUUID(), owner = randomUUID();
+    const nonce = randomUUID(), binding = randomUUID(), githubId = randomUUID();
+    await db.insert(users).values([{ id: caller }, { id: stranger }, { id: owner }]);
+    await db.insert(userBindings).values({ id: binding, userId: owner, provider: "github", externalId: githubId, providerLogin: "original" });
+    const service = fixture(nonce);
+    await service.createNonce(caller);
+    expect(await service.redeemGithubBinding(claims(stranger, nonce, githubId))).toBe("invalid_nonce");
+    expect((await db.query.linkTransactions.findFirst({ where: eq(linkTransactions.id, nonce) }))?.consumedAt).toBeNull();
+    expect(await service.redeemGithubBinding(claims(caller, nonce, githubId))).toBe("already_linked");
+    expect(await db.query.userBindings.findFirst({ where: eq(userBindings.id, binding) })).toMatchObject({ userId: owner, providerLogin: "original" });
+    expect((await db.query.linkTransactions.findFirst({ where: eq(linkTransactions.id, nonce) }))?.consumedAt).toBeInstanceOf(Date);
+    expect(await db.query.identityEvents.findMany({ where: eq(identityEvents.userId, caller) })).toEqual([]);
+    expect(await service.redeemGithubBinding(claims(caller, nonce, githubId))).toBe("invalid_nonce");
+  });
+
+  it("commits one binding and evidence for concurrent redemption, then refuses replay", async () => {
+    const db = getSeedDb();
+    const caller = randomUUID(), nonce = randomUUID(), githubId = randomUUID();
+    await db.insert(users).values({ id: caller });
+    const service = fixture(nonce);
+    await service.createNonce(caller);
+    const params = claims(caller, nonce, githubId);
+    const results = await Promise.all([service.redeemGithubBinding(params), service.redeemGithubBinding(params)]);
+    expect(results.sort()).toEqual(["created", "invalid_nonce"]);
+    expect(await service.redeemGithubBinding(params)).toBe("invalid_nonce");
+    const bindings = await db.query.userBindings.findMany({ where: eq(userBindings.userId, caller) });
+    const events = await db.query.identityEvents.findMany({ where: eq(identityEvents.userId, caller) });
+    expect(bindings).toHaveLength(1);
+    expect(bindings[0]).toMatchObject({ provider: "github", externalId: githubId, userId: caller, providerLogin: "fixture-login" });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ userId: caller, eventType: "bind", payload: { external_id: githubId, method: "operator_attestation" } });
+    expect((await db.query.linkTransactions.findFirst({ where: eq(linkTransactions.id, nonce) }))?.consumedAt).toBeInstanceOf(Date);
+  });
+
+  it("rolls back nonce consumption when a binding write fails before commit", async () => {
+    const db = getSeedDb();
+    const caller = randomUUID(), nonce = randomUUID();
+    await db.insert(users).values({ id: caller });
+    const service = fixture(nonce);
+    await service.createNonce(caller);
+    // Test-only malformed persistence input provokes a real NOT NULL constraint;
+    // it does not represent an accepted verified attestation.
+    await expect(service.redeemGithubBinding(claims(caller, nonce, null as unknown as string))).rejects.toMatchObject({ kind: "unexpected" });
+    expect((await db.query.linkTransactions.findFirst({ where: eq(linkTransactions.id, nonce) }))?.consumedAt).toBeNull();
+    expect(await db.query.userBindings.findMany({ where: eq(userBindings.userId, caller) })).toEqual([]);
+    expect(await db.query.identityEvents.findMany({ where: eq(identityEvents.userId, caller) })).toEqual([]);
   });
 });
