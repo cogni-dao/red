@@ -513,7 +513,7 @@ function ChatGptConnectFlow({
 /* ─── View ─────────────────────────────────────────────────────────── */
 
 export function ProfileView(): ReactElement {
-  const { data: session, update: updateSession } = useSession();
+  const { data: session, status: sessionStatus, update: updateSession } = useSession();
   const { openConnectModal } = useConnectModal();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -548,6 +548,14 @@ export function ProfileView(): ReactElement {
   const initialProfileRequested = useRef(false);
   const operationSequence = useRef(0);
   const mounted = useRef(true);
+  const sessionIdentity = session?.user?.id ?? null;
+  const observedIdentity = useRef(sessionIdentity);
+  const profileOwner = useRef(sessionIdentity);
+  if (observedIdentity.current !== sessionIdentity) {
+    observedIdentity.current = sessionIdentity;
+    profileSequence.current++;
+    operationSequence.current++;
+  }
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const linkedProvider = searchParams.get("linked");
   const linkedLogin = searchParams.get("login");
@@ -568,7 +576,19 @@ export function ProfileView(): ReactElement {
   }, []);
 
   useEffect(() => {
-    if (!linkedProvider && !error) return;
+    if (profileOwner.current === sessionIdentity) return;
+    profileOwner.current = sessionIdentity;
+    setProfile(null);
+    setSelectedColor("#6366f1");
+    setFeedback({ linkedProvider: null, linkedLogin: null, error: null });
+    setReadbackIntent({ kind: "none" });
+    setAttestationImporting(false);
+    setReadbackPending(false);
+    if (sessionIdentity) void refreshProfile().catch(() => {});
+  }, [sessionIdentity, refreshProfile]);
+
+  useEffect(() => {
+    if (sessionStatus === "loading" || (!linkedProvider && !error)) return;
     const operation = ++operationSequence.current;
     // This navigation owns the UI now. Retire the old operation's pending state.
     profileSequence.current++;
@@ -594,11 +614,11 @@ export function ProfileView(): ReactElement {
     }).catch(() => {
       if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: "readback_failed" });
     }).finally(() => { if (mounted.current && operation === operationSequence.current) setReadbackPending(false); });
-  }, [linkedProvider, linkedLogin, error, router, updateSession, refreshProfile]);
+  }, [linkedProvider, linkedLogin, error, router, updateSession, refreshProfile, sessionStatus]);
 
   const attestationHandled = useRef(false);
   useEffect(() => {
-    if (attestationHandled.current) return;
+    if (sessionStatus === "loading" || attestationHandled.current) return;
     const hash = window.location.hash;
     if (!hash.startsWith("#attestation=")) return;
     attestationHandled.current = true;
@@ -653,10 +673,10 @@ export function ProfileView(): ReactElement {
         if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: "readback_failed" });
       } finally { if (mounted.current && operation === operationSequence.current) setAttestationImporting(false); }
     })();
-  }, [refreshProfile]);
+  }, [refreshProfile, sessionStatus]);
 
   useEffect(() => {
-    if (!initialProfileRequested.current) {
+    if (sessionStatus !== "loading" && !initialProfileRequested.current) {
       initialProfileRequested.current = true;
       if (!linkedProvider) void refreshProfile().catch(() => {});
     }
@@ -689,21 +709,22 @@ export function ProfileView(): ReactElement {
         if (data) setOllamaConnected(data.connected);
       })
       .catch(() => {});
-  }, [refreshProfile, linkedProvider]);
+  }, [refreshProfile, linkedProvider, sessionStatus]);
 
   const walletAddress = session?.user?.walletAddress ?? null;
+  const visibleProfile = profileOwner.current === sessionIdentity ? profile : null;
   const displayName =
-    profile?.resolvedDisplayName ?? session?.user?.displayName ?? "User";
+    visibleProfile?.resolvedDisplayName ?? session?.user?.displayName ?? "User";
   const avatarLetter = displayName.charAt(0).toUpperCase();
 
   // Build set of linked provider IDs for quick lookup
   const linkedProviderIds = new Set(
-    profile?.linkedProviders.map((p) => p.provider) ?? []
+    visibleProfile?.linkedProviders.map((p) => p.provider) ?? []
   );
 
   // Get provider login by provider ID
   const getProviderLogin = (providerId: string): string | null =>
-    profile?.linkedProviders.find((p) => p.provider === providerId)
+    visibleProfile?.linkedProviders.find((p) => p.provider === providerId)
       ?.providerLogin ?? null;
 
   const initiateProviderLink = async (providerId: string) => {

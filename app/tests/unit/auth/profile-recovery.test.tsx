@@ -6,8 +6,8 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mock = vi.hoisted(() => { const replace = vi.fn(); return { signIn: vi.fn(), update: vi.fn(), replace, router: { replace } }; });
-vi.mock("next-auth/react", () => ({ useSession: () => ({ data: { user: {} }, update: mock.update }), signIn: mock.signIn }));
+const mock = vi.hoisted(() => { const replace = vi.fn(); return { sessionId: "a", status: "authenticated", signIn: vi.fn(), update: vi.fn(), replace, router: { replace } }; });
+vi.mock("next-auth/react", () => ({ useSession: () => ({ data: { user: { id: mock.sessionId } }, status: mock.status, update: mock.update }), signIn: mock.signIn }));
 vi.mock("next/navigation", () => ({ useRouter: () => mock.router, useSearchParams: () => new URLSearchParams(window.location.search) }));
 vi.mock("next/link", () => ({ default: ({ children }: { children: ReactNode }) => <span>{children}</span> }));
 vi.mock("@rainbow-me/rainbowkit", () => ({ useConnectModal: () => ({}) }));
@@ -22,7 +22,7 @@ const profile = (bindings: { provider: string; providerLogin: string | null }[])
 const reply = (body: unknown, ok = true, status = ok ? 200 : 500) => ({ ok, status, json: async () => body });
 
 describe("profile import readback", () => {
-  beforeEach(() => { vi.clearAllMocks(); mock.replace.mockImplementation((path: string) => window.history.replaceState(null, "", path)); window.history.replaceState(null, "", "/profile#attestation=fixture"); });
+  beforeEach(() => { vi.clearAllMocks(); mock.sessionId = "a"; mock.status = "authenticated"; mock.replace.mockImplementation((path: string) => window.history.replaceState(null, "", path)); window.history.replaceState(null, "", "/profile#attestation=fixture"); });
   afterEach(() => { vi.unstubAllGlobals(); window.history.replaceState(null, "", "/"); });
   it("reads profile after a lost import receipt before offering a link", async () => {
     let reads = 0;
@@ -297,6 +297,61 @@ describe("profile import readback", () => {
     const buttons = screen.getAllByRole("button", { name: "Link" });
     expect(buttons).toHaveLength(2);
     for (const button of buttons) expect(button).toBeDisabled();
+  });
+
+  it("discards an old account profile after a session switch", async () => {
+    window.history.replaceState(null, "", "/profile");
+    let release!: (value: ReturnType<typeof reply>) => void;
+    const held = new Promise<ReturnType<typeof reply>>((resolve) => { release = resolve; });
+    let reads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/v1/users/me") return ++reads === 1 ? held : reply({ ...profile([{ provider: "github", providerLogin: "account-b" }]), resolvedDisplayName: "Account B" });
+      if (url === "/api/auth/providers") return reply({});
+      return reply({ connected: false });
+    }));
+    const view = render(<ProfileView />);
+    await waitFor(() => expect(reads).toBe(1));
+    mock.sessionId = "b";
+    view.rerender(<ProfileView />);
+    expect(await screen.findByText("account-b")).toBeInTheDocument();
+    await act(async () => release(reply({ ...profile([{ provider: "github", providerLogin: "account-a" }]), resolvedDisplayName: "Account A" })));
+    expect(screen.getByText("account-b")).toBeInTheDocument();
+    expect(screen.queryByText("account-a")).not.toBeInTheDocument();
+  });
+
+  it("waits for initial session loading before submitting the return", async () => {
+    mock.status = "loading";
+    const fetcher = vi.fn(async (url: string) => {
+      if (url === "/api/v1/identity/bindings/import") return reply({ bound: true, githubLogin: "target" });
+      if (url === "/api/v1/users/me") return reply(profile([{ provider: "github", providerLogin: "target" }]));
+      if (url === "/api/auth/providers") return reply({});
+      return reply({ connected: false });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const view = render(<ProfileView />);
+    expect(fetcher.mock.calls.some(([url]) => url === "/api/v1/identity/bindings/import")).toBe(false);
+    mock.status = "authenticated";
+    view.rerender(<ProfileView />);
+    expect(await screen.findByText(/Verified/)).toBeInTheDocument();
+  });
+
+  it("does not apply an old account import receipt to the new session", async () => {
+    let release!: (value: ReturnType<typeof reply>) => void;
+    const held = new Promise<ReturnType<typeof reply>>((resolve) => { release = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/v1/identity/bindings/import") return held;
+      if (url === "/api/v1/users/me") return reply(profile([{ provider: "github", providerLogin: mock.sessionId === "a" ? "account-a" : "account-b" }]));
+      if (url === "/api/auth/providers") return reply({});
+      return reply({ connected: false });
+    }));
+    const view = render(<ProfileView />);
+    await screen.findByText("Recording your verified GitHub account on this node…");
+    mock.sessionId = "b";
+    view.rerender(<ProfileView />);
+    expect(await screen.findByText("account-b")).toBeInTheDocument();
+    await act(async () => release(reply({ bound: true, githubLogin: "account-a" })));
+    expect(screen.getByText("account-b")).toBeInTheDocument();
+    expect(screen.queryByText(/Verified/)).not.toBeInTheDocument();
   });
 
 });

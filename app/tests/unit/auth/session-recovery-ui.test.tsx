@@ -90,4 +90,50 @@ describe("explicit recovery gates", () => {
     expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument();
   });
 
+  it("does not disconnect after unmount during verification", async () => {
+    effects.status = "connected";
+    effects.connections = [{ connector: {} }];
+    let release!: (value: unknown) => void;
+    const held = new Promise((resolve) => { release = resolve; });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ effectiveSessionCredentialPresent: false }) }).mockReturnValueOnce(held));
+    const view = render(<Recovery initialCredential="absent" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Continue recovery" }));
+    view.unmount();
+    await act(async () => release({ ok: true, json: async () => ({ effectiveSessionCredentialPresent: false }) }));
+    expect(effects.disconnect).not.toHaveBeenCalled();
+  });
+  it("does not navigate after unmount during session broadcast", async () => {
+    effects.status = "connected";
+    let release!: (value: unknown) => void;
+    effects.getSession.mockReturnValue(new Promise((resolve) => { release = resolve; }));
+    effects.disconnect.mockImplementation(async () => { effects.status = "disconnected"; });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ effectiveSessionCredentialPresent: false }) }));
+    const assign = vi.spyOn(window.location, "assign").mockImplementation(() => {});
+    const view = render(<Recovery initialCredential="absent" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Continue recovery" }));
+    await waitFor(() => expect(effects.disconnect).toHaveBeenCalled());
+    effects.status = "disconnected";
+    view.rerender(<Recovery initialCredential="absent" />);
+    // A second explicit attempt sees the disconnected wallet.
+    fireEvent.click(await screen.findByRole("button", { name: "Continue recovery" }));
+    await waitFor(() => expect(effects.getSession).toHaveBeenCalled());
+    view.unmount();
+    await act(async () => release(null));
+    expect(assign).not.toHaveBeenCalled();
+    assign.mockRestore();
+  });
+
+  it("does not navigate after unmount during final sign-in verification", async () => {
+    let release!: (value: unknown) => void;
+    const held = new Promise((resolve) => { release = resolve; });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ effectiveSessionCredentialPresent: false }) }).mockReturnValueOnce(held));
+    const assign = vi.spyOn(window.location, "assign").mockImplementation(() => {});
+    const view = render(<Recovery initialCredential="absent" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Sign in" }));
+    view.unmount();
+    await act(async () => release({ ok: true, json: async () => ({ effectiveSessionCredentialPresent: false }) }));
+    expect(assign).not.toHaveBeenCalled();
+    assign.mockRestore();
+  });
+
 });

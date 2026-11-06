@@ -27,6 +27,8 @@ export function Recovery({ initialCredential }: { initialCredential: "present" |
   const [phase, setPhase] = useState<"checking" | "choice" | "wallet" | "ready">("checking");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const attempt = useRef(0);
+  useEffect(() => () => { attempt.current++; }, []);
   const [walletHydrated, setWalletHydrated] = useState(false);
   useEffect(() => {
     const store = config._internal.store.persist;
@@ -55,34 +57,44 @@ export function Recovery({ initialCredential }: { initialCredential: "present" |
     }).catch(() => { if (!cancelled) { setError("Could not check your session. Try again."); setPhase("choice"); } });
     return () => { cancelled = true; };
   }, [initialCredential, walletHydrated]);
-  async function finishWallet() {
-    if (!(await credentialAbsent())) { setPhase("choice"); throw new Error("session returned"); }
+  async function finishWallet(current: number) {
+    const active = () => attempt.current === current;
+    const absent = await credentialAbsent();
+    if (!active()) return;
+    if (!absent) { setPhase("choice"); throw new Error("session returned"); }
     const state = accountRef.current;
     if (!walletHydrated) throw new Error("wallet not hydrated");
     if (state.status === "connecting" || state.status === "reconnecting") throw new Error("wallet is connecting");
     const connector = connectionsRef.current[0]?.connector;
     if (connector) await disconnectAsync({ connector });
     else if (state.status === "connected") await disconnectAsync();
-    // The wagmi store may update after disconnectAsync resolves; require a new render
-    // and an explicit retry rather than inferring absence from the promise.
+    if (!active()) return;
     if (accountRef.current.status !== "disconnected" || connectionsRef.current.length !== 0) { setPhase("wallet"); return; }
-    if (!(await credentialAbsent())) { setPhase("choice"); throw new Error("session returned"); }
+    const stillAbsent = await credentialAbsent();
+    if (!active()) return;
+    if (!stillAbsent) { setPhase("choice"); throw new Error("session returned"); }
     await getSession({ broadcast: true });
+    if (!active()) return;
     window.location.assign("/session-recovery");
   }
   async function run(signOutFirst: boolean) {
+    const current = ++attempt.current;
+    const active = () => attempt.current === current;
     setBusy(true); setError("");
     try {
       if (signOutFirst) {
         const expected = new URL("/session-recovery", window.location.origin).href;
         const result = await signOut({ redirect: false, callbackUrl: expected });
+        if (!active()) return;
         if (!result || typeof result.url !== "string" || new URL(result.url, window.location.origin).href !== expected) throw new Error("signout refused");
-        if (!(await credentialAbsent())) throw new Error("credential remains");
+        const absent = await credentialAbsent();
+        if (!active()) return;
+        if (!absent) throw new Error("credential remains");
         setPhase("wallet");
       }
-      await finishWallet();
-    } catch { setError(signOutFirst ? "Could not sign out. Try again." : "Could not finish recovery. Try again."); }
-    finally { setBusy(false); }
+      await finishWallet(current);
+    } catch { if (active()) setError(signOutFirst ? "Could not sign out. Try again." : "Could not finish recovery. Try again."); }
+    finally { if (active()) setBusy(false); }
   }
   return <main className="mx-auto max-w-lg space-y-4 p-6">
     <h1 className="text-2xl font-semibold">Session recovery</h1>
@@ -91,12 +103,14 @@ export function Recovery({ initialCredential }: { initialCredential: "present" |
     {phase === "choice" && <><p>Your session cannot access an account here. Sign in again to continue.</p><Button disabled={busy} onClick={() => void run(true)}>Sign out and continue</Button></>}
     {phase === "wallet" && <><p>Disconnect your wallet to continue.</p><Button disabled={busy} onClick={() => void run(false)}>Continue recovery</Button></>}
     {phase === "ready" && <><p>No active session. Sign in to continue.</p><Button disabled={busy} onClick={() => {
+      const current = ++attempt.current;
       setBusy(true); setError("");
       void credentialAbsent().then((absent) => {
+        if (attempt.current !== current) return;
         if (!absent) { setPhase("choice"); return; }
         if (!walletHydrated || accountRef.current.status !== "disconnected" || connectionsRef.current.length !== 0) { setPhase("wallet"); return; }
         window.location.assign("/");
-      }).catch(() => setError("Could not check your session. Try again.")).finally(() => setBusy(false));
+      }).catch(() => { if (attempt.current === current) setError("Could not check your session. Try again."); }).finally(() => { if (attempt.current === current) setBusy(false); });
     }}>Sign in</Button></>}
   </main>;
 }
