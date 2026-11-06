@@ -4,7 +4,7 @@
 "use client";
 import { getSession, signOut } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
-import { useAccount, useConnections, useDisconnect } from "wagmi";
+import { useAccount, useConfig, useConnections, useDisconnect } from "wagmi";
 import { Button } from "@/components";
 
 async function credentialAbsent(): Promise<boolean> {
@@ -16,6 +16,7 @@ async function credentialAbsent(): Promise<boolean> {
 }
 
 export function Recovery({ initialCredential }: { initialCredential: "present" | "absent" | "unavailable" }) {
+  const config = useConfig();
   const account = useAccount();
   const connections = useConnections();
   const accountRef = useRef(account);
@@ -26,6 +27,13 @@ export function Recovery({ initialCredential }: { initialCredential: "present" |
   const [phase, setPhase] = useState<"checking" | "choice" | "wallet" | "ready">("checking");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [walletHydrated, setWalletHydrated] = useState(false);
+  useEffect(() => {
+    const store = config._internal.store.persist;
+    const unsubscribe = store.onFinishHydration(() => setWalletHydrated(true));
+    if (store.hasHydrated()) setWalletHydrated(true);
+    return unsubscribe;
+  }, [config]);
   useEffect(() => {
     if (initialCredential === "unavailable") {
       setError("Could not check your session. Try again.");
@@ -36,6 +44,7 @@ export function Recovery({ initialCredential }: { initialCredential: "present" |
       setPhase("choice");
       return;
     }
+    if (!walletHydrated) return;
     let cancelled = false;
     // The server read does not establish browser cookie or hydrated wallet state.
     void credentialAbsent().then((absent) => {
@@ -45,10 +54,11 @@ export function Recovery({ initialCredential }: { initialCredential: "present" |
       else setPhase("wallet");
     }).catch(() => { if (!cancelled) { setError("Could not check your session. Try again."); setPhase("choice"); } });
     return () => { cancelled = true; };
-  }, [initialCredential]);
+  }, [initialCredential, walletHydrated]);
   async function finishWallet() {
     if (!(await credentialAbsent())) { setPhase("choice"); throw new Error("session returned"); }
     const state = accountRef.current;
+    if (!walletHydrated) throw new Error("wallet not hydrated");
     if (state.status === "connecting" || state.status === "reconnecting") throw new Error("wallet is connecting");
     const connector = connectionsRef.current[0]?.connector;
     if (connector) await disconnectAsync({ connector });
@@ -84,7 +94,7 @@ export function Recovery({ initialCredential }: { initialCredential: "present" |
       setBusy(true); setError("");
       void credentialAbsent().then((absent) => {
         if (!absent) { setPhase("choice"); return; }
-        if (accountRef.current.status !== "disconnected" || connectionsRef.current.length !== 0) { setPhase("wallet"); return; }
+        if (!walletHydrated || accountRef.current.status !== "disconnected" || connectionsRef.current.length !== 0) { setPhase("wallet"); return; }
         window.location.assign("/");
       }).catch(() => setError("Could not check your session. Try again.")).finally(() => setBusy(false));
     }}>Sign in</Button></>}

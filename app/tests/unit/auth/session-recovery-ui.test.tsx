@@ -3,20 +3,20 @@
 // @vitest-environment happy-dom
 
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ButtonHTMLAttributes } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const effects = vi.hoisted(() => ({ readCredential: vi.fn(), signOut: vi.fn(), getSession: vi.fn(), disconnect: vi.fn(), status: "disconnected", connections: [] as { connector: object }[] }));
+const effects = vi.hoisted(() => ({ hydrated: true, onHydrated: undefined as undefined | (() => void), readCredential: vi.fn(), signOut: vi.fn(), getSession: vi.fn(), disconnect: vi.fn(), status: "disconnected", connections: [] as { connector: object }[] }));
 vi.mock("@/app/_lib/auth/link-session.server", () => ({ effectiveSessionCredential: effects.readCredential }));
 vi.mock("next-auth/react", () => ({ signOut: effects.signOut, getSession: effects.getSession }));
-vi.mock("wagmi", () => ({ useAccount: () => ({ status: effects.status }), useConnections: () => effects.connections, useDisconnect: () => ({ disconnectAsync: effects.disconnect }) }));
+vi.mock("wagmi", () => ({ useConfig: () => ({ _internal: { store: { persist: { hasHydrated: () => effects.hydrated, onFinishHydration: (fn: () => void) => { effects.onHydrated = fn; return () => {}; } } } } }), useAccount: () => ({ status: effects.status }), useConnections: () => effects.connections, useDisconnect: () => ({ disconnectAsync: effects.disconnect }) }));
 vi.mock("@/components", () => ({ Button: (props: ButtonHTMLAttributes<HTMLButtonElement>) => <button {...props} /> }));
 import { Recovery } from "@/app/session-recovery/recovery.client";
 import SessionRecoveryPage from "@/app/session-recovery/page";
 
 describe("explicit recovery gates", () => {
-  beforeEach(() => { vi.clearAllMocks(); effects.status = "disconnected"; effects.connections = []; });
+  beforeEach(() => { vi.clearAllMocks(); effects.status = "disconnected"; effects.connections = []; effects.hydrated = true; effects.onHydrated = undefined; });
   afterEach(() => { vi.unstubAllGlobals(); });
   it("does not accept a resolved CSRF refusal as sign-out", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ effectiveSessionCredentialPresent: true }) }));
@@ -77,6 +77,17 @@ describe("explicit recovery gates", () => {
     render(<Recovery initialCredential="unavailable" />);
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not check your session");
     expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
+  });
+
+  it("does not offer sign in before the wallet store has hydrated", async () => {
+    effects.hydrated = false;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ effectiveSessionCredentialPresent: false }) }));
+    render(<Recovery initialCredential="absent" />);
+    await act(async () => {});
+    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
+    expect(effects.onHydrated).toBeDefined();
+    await act(async () => { effects.hydrated = true; effects.onHydrated?.(); });
+    expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument();
   });
 
 });
