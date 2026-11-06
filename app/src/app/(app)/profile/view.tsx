@@ -543,8 +543,11 @@ export function ProfileView(): ReactElement {
     | { kind: "expected"; provider: string; login: string | null }
   >({ kind: "none" });
   const [attestationImporting, setAttestationImporting] = useState(false);
+  const [importGate, setImportGate] = useState<"idle" | "pending" | "failed">("idle");
+  const importOwner = useRef(0);
   const startInFlight = useRef(false);
   const profileSequence = useRef(0);
+  const queryReadback = useRef<Promise<void> | null>(null);
   const initialProfileRequested = useRef(false);
   const operationSequence = useRef(0);
   const mounted = useRef(true);
@@ -555,6 +558,7 @@ export function ProfileView(): ReactElement {
     observedIdentity.current = sessionIdentity;
     profileSequence.current++;
     operationSequence.current++;
+    importOwner.current++;
   }
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const linkedProvider = searchParams.get("linked");
@@ -578,6 +582,7 @@ export function ProfileView(): ReactElement {
   useEffect(() => {
     if (profileOwner.current === sessionIdentity) return;
     profileOwner.current = sessionIdentity;
+    setImportGate("idle");
     setProfile(null);
     setSelectedColor("#6366f1");
     setFeedback({ linkedProvider: null, linkedLogin: null, error: null });
@@ -604,7 +609,7 @@ export function ProfileView(): ReactElement {
     setReadbackIntent({ kind: "expected", provider: linkedProvider.toLowerCase(), login: linkedLogin });
     setReadbackPending(true);
     router.replace("/profile");
-    void refreshProfile(linkedLogin, linkedProvider.toLowerCase()).then((data) => {
+    const query = refreshProfile(linkedLogin, linkedProvider.toLowerCase()).then((data) => {
       if (!mounted.current || operation !== operationSequence.current) return;
       // The callback query is not proof. The profile list supplies the result.
       const binding = data.linkedProviders.find((entry) => entry.provider === linkedProvider.toLowerCase() && (!linkedLogin || entry.providerLogin === linkedLogin));
@@ -614,6 +619,8 @@ export function ProfileView(): ReactElement {
     }).catch(() => {
       if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: "readback_failed" });
     }).finally(() => { if (mounted.current && operation === operationSequence.current) setReadbackPending(false); });
+    queryReadback.current = query;
+    void query.finally(() => { if (queryReadback.current === query) queryReadback.current = null; });
   }, [linkedProvider, linkedLogin, error, router, updateSession, refreshProfile, sessionStatus]);
 
   const attestationHandled = useRef(false);
@@ -625,7 +632,9 @@ export function ProfileView(): ReactElement {
     window.history.replaceState(null, "", window.location.pathname + window.location.search);
     setAttestationImporting(true);
     const operation = ++operationSequence.current;
+    const owner = ++importOwner.current;
     void (async () => {
+      let submitted = false;
       let expectedLogin: string | null | undefined;
       let uncertain = false;
       let uncertainCode: "import_uncertain" | "local_session_unavailable" = "import_uncertain";
@@ -639,6 +648,8 @@ export function ProfileView(): ReactElement {
           }
           return;
         }
+        submitted = true;
+        setImportGate("pending");
         let res: Response;
         try { res = await fetch("/api/v1/identity/bindings/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) }); }
         catch { uncertain = true; res = null as never; }
@@ -671,7 +682,25 @@ export function ProfileView(): ReactElement {
         } finally { if (mounted.current && operation === operationSequence.current) setReadbackPending(false); }
       } catch {
         if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: "readback_failed" });
-      } finally { if (mounted.current && operation === operationSequence.current) setAttestationImporting(false); }
+      } finally {
+        if (mounted.current && owner === importOwner.current) {
+          if (submitted && operation !== operationSequence.current) {
+            // A query can replace feedback, but cannot settle an in-flight import.
+            // Read again only after that operation has stopped producing results.
+            try {
+              if (queryReadback.current) await queryReadback.current;
+              if (!mounted.current || owner !== importOwner.current) return;
+              await refreshProfile();
+              if (mounted.current && owner === importOwner.current) setImportGate("idle");
+            } catch {
+              if (mounted.current && owner === importOwner.current) setImportGate("failed");
+            }
+          } else {
+            setImportGate("idle");
+          }
+          if (operation === operationSequence.current) setAttestationImporting(false);
+        }
+      }
     })();
   }, [refreshProfile, sessionStatus]);
 
@@ -785,7 +814,6 @@ export function ProfileView(): ReactElement {
         setReadbackPending(true);
         const operation = ++operationSequence.current;
         const intent = readbackIntent;
-        if (intent.kind === "none") { setReadbackPending(false); return; }
         void refreshProfile(intent.kind === "uncertain" ? undefined : intent.login, intent.kind === "expected" ? intent.provider : "github").then((data) => {
           if (!mounted.current || operation !== operationSequence.current) return;
           if (intent.kind === "uncertain") {
@@ -796,6 +824,14 @@ export function ProfileView(): ReactElement {
           if (!binding) throw new Error("binding not confirmed");
           setFeedback({ linkedProvider: intent.provider, linkedLogin: intent.login, error: null });
         }).catch(() => {}).finally(() => { if (mounted.current && operation === operationSequence.current) setReadbackPending(false); });
+      }}>Retry account readback</Button>}
+
+      {importGate === "failed" && <Button onClick={() => {
+        const owner = importOwner.current;
+        setImportGate("pending");
+        void refreshProfile().then(() => {
+          if (mounted.current && owner === importOwner.current) setImportGate("idle");
+        }).catch(() => { if (mounted.current && owner === importOwner.current) setImportGate("failed"); });
       }}>Retry account readback</Button>}
 
       {/* ── Profile section (display name + avatar color, no divider between) ── */}
@@ -880,7 +916,7 @@ export function ProfileView(): ReactElement {
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={providerPending !== null || attestationStarting || readbackPending || (feedback.error === "readback_failed" && (readbackIntent.kind === "uncertain" || (readbackIntent.kind === "expected" && id === readbackIntent.provider)))}
+                    disabled={importGate !== "idle" || providerPending !== null || attestationStarting || readbackPending || (feedback.error === "readback_failed" && (readbackIntent.kind === "uncertain" || (readbackIntent.kind === "expected" && id === readbackIntent.provider)))}
                     onClick={() => void initiateProviderLink(id)}
                   >
                     Link another GitHub
@@ -891,7 +927,7 @@ export function ProfileView(): ReactElement {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={providerPending !== null || attestationStarting || readbackPending || (feedback.error === "readback_failed" && (readbackIntent.kind === "uncertain" || (readbackIntent.kind === "expected" && id === readbackIntent.provider)))}
+                disabled={importGate !== "idle" || providerPending !== null || attestationStarting || readbackPending || (feedback.error === "readback_failed" && (readbackIntent.kind === "uncertain" || (readbackIntent.kind === "expected" && id === readbackIntent.provider)))}
                     onClick={() => void initiateProviderLink(id)}
               >
                 Link
@@ -909,7 +945,7 @@ export function ProfileView(): ReactElement {
           that leaks it ("verify via this environment's operator hub") is a bug. */}
       {providersLoaded &&
         !configuredProviders.has("github") &&
-        !linkedProviderIds.has("github") && feedback.error !== "readback_failed" && !readbackPending && (
+        !linkedProviderIds.has("github") && importGate === "idle" && feedback.error !== "readback_failed" && !readbackPending && (
           <SettingRow
             icon={<GitHubIcon className="size-5" />}
             label="GitHub"

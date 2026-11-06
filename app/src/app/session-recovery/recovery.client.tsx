@@ -31,12 +31,19 @@ export function Recovery({ initialCredential }: { initialCredential: "present" |
   useEffect(() => () => { attempt.current++; }, []);
   const [walletHydrated, setWalletHydrated] = useState(false);
   useEffect(() => {
-    const store = config._internal.store.persist;
-    const unsubscribe = store.onFinishHydration(() => setWalletHydrated(true));
-    if (store.hasHydrated()) setWalletHydrated(true);
-    return unsubscribe;
+    // Wagmi 2.19.5 runs Zustand persist hydration inside its SSR provider.
+    // Its exposed store type can collapse to never with the installed Zustand
+    // types, so inspect the runtime API and fail closed if it is unavailable.
+    const store: unknown = config._internal.store;
+    if (!store || typeof store !== "object" || !("persist" in store)) return;
+    const persist = store.persist;
+    if (!persist || typeof persist !== "object" || !("onFinishHydration" in persist) || typeof persist.onFinishHydration !== "function" || !("hasHydrated" in persist) || typeof persist.hasHydrated !== "function") return;
+    const unsubscribe: unknown = persist.onFinishHydration(() => setWalletHydrated(true));
+    if (persist.hasHydrated()) setWalletHydrated(true);
+    return () => { if (typeof unsubscribe === "function") unsubscribe(); };
   }, [config]);
   useEffect(() => {
+    if (attempt.current !== 0) return;
     if (initialCredential === "unavailable") {
       setError("Could not check your session. Try again.");
       setPhase("choice");

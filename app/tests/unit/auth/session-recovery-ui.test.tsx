@@ -136,4 +136,18 @@ describe("explicit recovery gates", () => {
     assign.mockRestore();
   });
 
+  it("preserves wallet retry when hydration follows verified sign-out", async () => {
+    effects.hydrated = false;
+    effects.status = "connected";
+    effects.signOut.mockResolvedValue({ url: new URL("/session-recovery", window.location.origin).href });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ effectiveSessionCredentialPresent: false }) }));
+    render(<Recovery initialCredential="present" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Sign out and continue" }));
+    await screen.findByRole("button", { name: "Continue recovery" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue recovery" })).toBeEnabled());
+    await act(async () => { effects.hydrated = true; effects.onHydrated?.(); });
+    expect(screen.getByRole("button", { name: "Continue recovery" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign out and continue" })).not.toBeInTheDocument();
+  });
+
 });

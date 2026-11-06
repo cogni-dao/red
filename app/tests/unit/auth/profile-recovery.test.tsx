@@ -354,4 +354,29 @@ describe("profile import readback", () => {
     expect(screen.queryByText(/Verified/)).not.toBeInTheDocument();
   });
 
+  it.each(["import", "readback"])("keeps linking gated after a query supersedes %s until a fresh read", async (stage) => {
+    let release!: (value: ReturnType<typeof reply>) => void;
+    const held = new Promise<ReturnType<typeof reply>>((resolve) => { release = resolve; });
+    let reads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/v1/identity/bindings/import") return stage === "import" ? held : reply({ bound: true, githubLogin: "target" });
+      if (url === "/api/v1/users/me") return ++reads === 1 ? reply(profile([])) : stage === "readback" && reads === 2 ? held : reply(profile([]));
+      if (url === "/api/auth/providers") return reply({ discord: { id: "discord" } });
+      return reply({ connected: false });
+    }));
+    const view = render(<ProfileView />);
+    if (stage === "readback") await waitFor(() => expect(reads).toBe(2));
+    else await screen.findByText("Recording your verified GitHub account on this node…");
+    window.history.replaceState(null, "", "/profile?error=link_failed");
+    view.rerender(<ProfileView />);
+    await screen.findByText("Unable to start linking. Try again.");
+    const discord = (await screen.findByText("Discord")).parentElement?.parentElement?.parentElement;
+    if (!discord) throw new Error("missing provider");
+    expect(within(discord).getByRole("button", { name: "Link" })).toBeDisabled();
+    await act(async () => release(stage === "import" ? reply({ bound: true, githubLogin: "target" }) : reply(profile([{ provider: "github", providerLogin: "target" }]))));
+    await waitFor(() => expect(within(discord).getByRole("button", { name: "Link" })).toBeEnabled());
+    expect(screen.getByText("Unable to start linking. Try again.")).toBeInTheDocument();
+    expect(screen.queryByText(/Verified/)).not.toBeInTheDocument();
+  });
+
 });
