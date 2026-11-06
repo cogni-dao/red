@@ -104,4 +104,108 @@ describe("profile import readback", () => {
     expect(await screen.findByText(/Verified/)).toBeInTheDocument();
   });
 
+  it("reads the committed profile after a parsed persistence 503", async () => {
+    let reads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/v1/identity/bindings/import") return reply({ errorCode: "local_session_unavailable" }, false, 503);
+      if (url === "/api/v1/users/me") return reply(profile(++reads === 1 ? [] : [{ provider: "github", providerLogin: "committed" }]));
+      if (url === "/api/auth/providers") return reply({});
+      return reply({ connected: false });
+    }));
+    render(<ProfileView />);
+    expect(await screen.findByText("Account service is temporarily unavailable. Try again.")).toBeInTheDocument();
+    expect(await screen.findByText("committed")).toBeInTheDocument();
+    expect(reads).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByRole("button", { name: "Link" })).not.toBeInTheDocument();
+  });
+  it.each([{ bound: true }, { bound: true, githubLogin: 42 }])("does not claim completion for a malformed login receipt %o", async (receipt) => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/v1/identity/bindings/import") return reply(receipt);
+      if (url === "/api/v1/users/me") return reply(profile([{ provider: "github", providerLogin: "unrelated" }]));
+      if (url === "/api/auth/providers") return reply({});
+      return reply({ connected: false });
+    }));
+    render(<ProfileView />);
+    expect(await screen.findByText("The result could not be confirmed. Check your linked accounts before trying again.")).toBeInTheDocument();
+    expect(screen.getByText("unrelated")).toBeInTheDocument();
+    expect(screen.queryByText(/Verified/)).not.toBeInTheDocument();
+  });
+  it.each(["direct", "broker"])("serializes %s first and releases both starts after failure", async (first) => {
+    window.history.replaceState(null, "", "/profile");
+    let finish!: (value: ReturnType<typeof reply>) => void;
+    const pending = new Promise<ReturnType<typeof reply>>((resolve) => { finish = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/v1/users/me") return reply(profile([]));
+      if (url === "/api/auth/providers") return reply({ discord: { id: "discord" } });
+      if (url === "/api/auth/link/discord") return first === "direct" ? pending : reply({ errorCode: "identity_link_failed" }, false);
+      if (url === "/api/v1/identity/bindings/import/start") return first === "broker" ? pending : reply({ errorCode: "identity_link_failed" }, false);
+      return reply({ connected: false });
+    }));
+    render(<ProfileView />);
+    const discordLabel = await screen.findByText("Discord");
+    const githubLabel = await screen.findByText("GitHub");
+    const discordRow = discordLabel.parentElement?.parentElement?.parentElement;
+    const githubRow = githubLabel.parentElement?.parentElement?.parentElement;
+    if (!discordRow || !githubRow) throw new Error("provider row missing");
+    const discord = within(discordRow).getByRole("button", { name: "Link" });
+    const github = within(githubRow).getByRole("button", { name: "Link" });
+    fireEvent.click(first === "direct" ? discord : github);
+    await waitFor(() => expect(first === "direct" ? github : discord).toBeDisabled());
+    finish(reply({ errorCode: "identity_link_failed" }, false));
+    await waitFor(() => { expect(discord).toBeEnabled(); expect(github).toBeEnabled(); });
+  });
+
+  it("retains 503 feedback and blocks LINK until failed readback is retried", async () => {
+    let reads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/v1/identity/bindings/import") return reply({ errorCode: "local_session_unavailable" }, false, 503);
+      if (url === "/api/v1/users/me") return ++reads === 1 ? reply(profile([])) : reads === 2 ? reply(null, false) : reply(profile([{ provider: "github", providerLogin: "committed" }]));
+      if (url === "/api/auth/providers") return reply({});
+      return reply({ connected: false });
+    }));
+    render(<ProfileView />);
+    expect(await screen.findByText("Could not confirm the linked account. Refresh and try again.")).toBeInTheDocument();
+    expect(screen.getByText("Account service is temporarily unavailable. Try again.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Link" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry account readback" }));
+    expect(await screen.findByText("committed")).toBeInTheDocument();
+    expect(screen.getByText("Account service is temporarily unavailable. Try again.")).toBeInTheDocument();
+  });
+  it("accepts an explicit null login without inventing a name", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/v1/identity/bindings/import") return reply({ bound: true, githubLogin: null });
+      if (url === "/api/v1/users/me") return reply(profile([{ provider: "github", providerLogin: null }]));
+      if (url === "/api/auth/providers") return reply({});
+      return reply({ connected: false });
+    }));
+    render(<ProfileView />);
+    expect(await screen.findByText("Successfully linked your GitHub account.")).toBeInTheDocument();
+  });
+  it("blocks broker start while direct provider signIn remains pending", async () => {
+    window.history.replaceState(null, "", "/profile");
+    let finish!: (value: { ok: boolean; error: string; status: number; url: null }) => void;
+    mock.signIn.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const fetcher = vi.fn(async (url: string) => {
+      if (url === "/api/v1/users/me") return reply(profile([]));
+      if (url === "/api/auth/providers") return reply({ discord: { id: "discord" } });
+      if (url === "/api/auth/link/discord") return reply({ ok: true });
+      if (url === "/api/v1/identity/bindings/import/start") return reply({ errorCode: "identity_link_failed" }, false);
+      return reply({ connected: false });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    render(<ProfileView />);
+    const discordRow = (await screen.findByText("Discord")).parentElement?.parentElement?.parentElement;
+    const githubRow = (await screen.findByText("GitHub")).parentElement?.parentElement?.parentElement;
+    if (!discordRow || !githubRow) throw new Error("provider row missing");
+    const discord = within(discordRow).getByRole("button", { name: "Link" });
+    const github = within(githubRow).getByRole("button", { name: "Link" });
+    fireEvent.click(discord);
+    await waitFor(() => expect(mock.signIn).toHaveBeenCalled());
+    expect(github).toBeDisabled();
+    fireEvent.click(github);
+    expect(fetcher.mock.calls.filter(([url]) => url === "/api/v1/identity/bindings/import/start")).toHaveLength(0);
+    finish({ ok: false, error: "refused", status: 400, url: null });
+    await waitFor(() => { expect(discord).toBeEnabled(); expect(github).toBeEnabled(); });
+  });
+
 });

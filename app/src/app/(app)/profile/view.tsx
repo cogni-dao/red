@@ -538,6 +538,8 @@ export function ProfileView(): ReactElement {
   const [providerPending, setProviderPending] = useState<string | null>(null);
   const [readbackPending, setReadbackPending] = useState(false);
   const [uncertainImport, setUncertainImport] = useState(false);
+  const [uncertainFeedback, setUncertainFeedback] = useState("import_uncertain");
+  const startInFlight = useRef(false);
   const [readbackProvider, setReadbackProvider] = useState("github");
   const [expectedGithubLogin, setExpectedGithubLogin] = useState<string | null>(null);
   const profileSequence = useRef(0);
@@ -602,6 +604,7 @@ export function ProfileView(): ReactElement {
     void (async () => {
       let expectedLogin: string | null | undefined;
       let uncertain = false;
+      let uncertainCode = "import_uncertain";
       try {
         const token = decodeURIComponent(hash.slice("#attestation=".length));
         let res: Response;
@@ -610,22 +613,26 @@ export function ProfileView(): ReactElement {
         if (!uncertain) {
           const body = await res.json().catch(() => null) as { bound?: boolean; githubLogin?: string | null; errorCode?: string } | null;
           const refusal = body?.errorCode ?? (res.status === 401 ? "local_session_invalid" : "");
-          if (!res.ok && ATTESTATION_ERROR_CODES.has(refusal)) {
+          if (!res.ok && refusal === "local_session_unavailable") {
+            uncertain = true;
+            uncertainCode = "local_session_unavailable";
+          } else if (!res.ok && ATTESTATION_ERROR_CODES.has(refusal)) {
             if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: refusal });
             return;
           }
-          if (!res.ok || !body || body.bound !== true) uncertain = true;
-          else expectedLogin = body.githubLogin ?? null;
+          if (!res.ok || !body || body.bound !== true || !Object.hasOwn(body, "githubLogin") || (typeof body.githubLogin !== "string" && body.githubLogin !== null)) uncertain = true;
+          else expectedLogin = body.githubLogin;
         }
         if (!mounted.current || operation !== operationSequence.current) return;
         setReadbackProvider("github");
         setExpectedGithubLogin(expectedLogin ?? null);
         setUncertainImport(uncertain);
+        setUncertainFeedback(uncertainCode);
         setReadbackPending(true);
         try {
           await refreshProfile(uncertain ? undefined : expectedLogin);
           if (mounted.current && operation === operationSequence.current) setFeedback(uncertain
-            ? { linkedProvider: null, linkedLogin: null, error: "import_uncertain" }
+            ? { linkedProvider: null, linkedLogin: null, error: uncertainCode }
             : { linkedProvider: "GitHub", linkedLogin: expectedLogin ?? null, error: null });
         } catch {
           if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: "readback_failed" });
@@ -688,6 +695,8 @@ export function ProfileView(): ReactElement {
       ?.providerLogin ?? null;
 
   const initiateProviderLink = async (providerId: string) => {
+    if (startInFlight.current) return;
+    startInFlight.current = true;
     const operation = ++operationSequence.current;
     setProviderPending(providerId);
     setFeedback({ linkedProvider: null, linkedLogin: null, error: null });
@@ -705,7 +714,7 @@ export function ProfileView(): ReactElement {
       const result = await signIn(providerId, { callbackUrl: `/profile?linked=${providerId}` });
       if (result && (!result.ok || result.error)) throw new Error("provider sign-in refused");
     } catch { if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: "link_failed" }); }
-    finally { if (mounted.current && operation === operationSequence.current) setProviderPending(null); }
+    finally { startInFlight.current = false; if (mounted.current) setProviderPending(null); }
   };
 
   // Return leg from the operator identity broker: the page would otherwise render
@@ -737,6 +746,7 @@ export function ProfileView(): ReactElement {
         linkedProvider={feedback.linkedProvider}
       />
 
+      {feedback.error === "readback_failed" && uncertainImport && uncertainFeedback === "local_session_unavailable" && <p role="alert">Account service is temporarily unavailable. Try again.</p>}
       {(feedback.error || feedback.linkedProvider) && feedback.error !== "readback_failed" && <Button variant="ghost" size="sm" onClick={() => setFeedback({ linkedProvider: null, linkedLogin: null, error: null })}>Dismiss</Button>}
       {feedback.error === "readback_failed" && <Button disabled={readbackPending} onClick={() => {
         setReadbackPending(true);
@@ -744,7 +754,7 @@ export function ProfileView(): ReactElement {
         void refreshProfile(uncertainImport ? undefined : expectedGithubLogin, readbackProvider).then((data) => {
           if (!mounted.current || operation !== operationSequence.current) return;
           const binding = data.linkedProviders.find((entry) => entry.provider === readbackProvider);
-          setFeedback(uncertainImport ? { linkedProvider: null, linkedLogin: null, error: "import_uncertain" } : { linkedProvider: readbackProvider, linkedLogin: binding?.providerLogin ?? null, error: null });
+          setFeedback(uncertainImport ? { linkedProvider: null, linkedLogin: null, error: uncertainFeedback } : { linkedProvider: readbackProvider, linkedLogin: binding?.providerLogin ?? null, error: null });
         }).catch(() => {}).finally(() => { if (mounted.current && operation === operationSequence.current) setReadbackPending(false); });
       }}>Retry account readback</Button>}
 
@@ -830,7 +840,7 @@ export function ProfileView(): ReactElement {
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={providerPending !== null || readbackPending || (id === readbackProvider && feedback.error === "readback_failed")}
+                    disabled={providerPending !== null || attestationStarting || readbackPending || (id === readbackProvider && feedback.error === "readback_failed")}
                     onClick={() => void initiateProviderLink(id)}
                   >
                     Link another GitHub
@@ -841,7 +851,7 @@ export function ProfileView(): ReactElement {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={providerPending !== null || readbackPending || (id === readbackProvider && feedback.error === "readback_failed")}
+                disabled={providerPending !== null || attestationStarting || readbackPending || (id === readbackProvider && feedback.error === "readback_failed")}
                     onClick={() => void initiateProviderLink(id)}
               >
                 Link
@@ -868,8 +878,10 @@ export function ProfileView(): ReactElement {
             <Button
               variant="outline"
               size="sm"
-              disabled={attestationStarting}
+              disabled={attestationStarting || providerPending !== null || readbackPending}
               onClick={() => {
+                if (startInFlight.current) return;
+                startInFlight.current = true;
                 const operation = ++operationSequence.current;
                 setAttestationStarting(true);
                 setFeedback({ linkedProvider: null, linkedLogin: null, error: null });
@@ -884,7 +896,7 @@ export function ProfileView(): ReactElement {
                     }
                     if (mounted.current && operation === operationSequence.current) window.location.assign(data.authorizeUrl);
                   } catch { if (mounted.current && operation === operationSequence.current) setFeedback({ linkedProvider: null, linkedLogin: null, error: "link_failed" }); }
-                  finally { if (mounted.current && operation === operationSequence.current) setAttestationStarting(false); }
+                  finally { startInFlight.current = false; if (mounted.current) setAttestationStarting(false); }
                 })();
               }}
             >
