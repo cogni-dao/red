@@ -40,7 +40,9 @@ export function Recovery() {
     if (!(await credentialAbsent())) { setPhase("choice"); throw new Error("session returned"); }
     const state = accountRef.current;
     if (state.status === "connecting" || state.status === "reconnecting") throw new Error("wallet is connecting");
-    if (state.status === "connected") await disconnectAsync();
+    const connector = connectionsRef.current[0]?.connector;
+    if (connector) await disconnectAsync({ connector });
+    else if (state.status === "connected") await disconnectAsync();
     // The wagmi store may update after disconnectAsync resolves; require a new render
     // and an explicit retry rather than inferring absence from the promise.
     if (accountRef.current.status !== "disconnected" || connectionsRef.current.length !== 0) { setPhase("wallet"); return; }

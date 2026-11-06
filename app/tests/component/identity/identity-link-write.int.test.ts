@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { getSeedDb } from "@tests/_fixtures/db/seed-client";
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { linkTransactions, users } from "@/shared/db/schema";
+import { identityEvents, linkTransactions, users } from "@/shared/db/schema";
 import { DrizzleIdentityBindingRepository } from "@/adapters/server/identity/identity-binding.adapter";
 
 describe("identity link nonce persistence", () => {
@@ -16,6 +16,23 @@ describe("identity link nonce persistence", () => {
       nonce, userId: randomUUID(), expiresAt: new Date(Date.now() + 60_000),
     })).rejects.toMatchObject({ kind: "local_account_missing" });
     expect(await getSeedDb().query.linkTransactions.findFirst({ where: eq(linkTransactions.id, nonce) })).toBeUndefined();
+  });
+  it("classifies the direct link writer's real missing-parent FK", async () => {
+    const { createLinkTransaction } = await import("@/auth");
+    const absent = randomUUID();
+    await expect(createLinkTransaction(absent, "discord")).rejects.toMatchObject({ kind: "local_account_missing" });
+    const rows = await getSeedDb().query.linkTransactions.findMany({ where: eq(linkTransactions.userId, absent) });
+    expect(rows).toEqual([]);
+  });
+  it("does not call an unrelated native FK a missing nonce parent", async () => {
+    const { classifyIdentityLinkWriteError } = await import("@/adapters/server/identity/identity-link-errors");
+    let failure: unknown;
+    try {
+      await getSeedDb().insert(identityEvents).values({ id: randomUUID(), userId: randomUUID(), eventType: "bind", payload: {} });
+    } catch (error) { failure = error; }
+    expect(failure).toBeDefined();
+    expect((failure as { cause?: { code?: string; constraint_name?: string } }).cause).toMatchObject({ code: "23503", constraint_name: "identity_events_user_id_users_id_fk" });
+    expect(classifyIdentityLinkWriteError(failure, true).kind).toBe("unexpected");
   });
   it("retains the parent while an inserted nonce exists", async () => {
     const db = getSeedDb();

@@ -18,6 +18,7 @@ import { NextResponse } from "next/server";
 import { encode } from "next-auth/jwt";
 
 import { identityLinkFailure, invalidLocalSession } from "@/app/_facades/identity/identity-link-response.server";
+import { effectiveSessionCredential } from "@/app/_lib/auth/link-session.server";
 import { authSecret, createLinkTransaction } from "@/auth";
 import { wrapRouteHandlerWithLogging } from "@/bootstrap/http";
 import { getServerSessionUser } from "@/lib/auth/server";
@@ -32,6 +33,8 @@ const LINK_INTENT_TTL = 5 * 60; // 5 minutes
 export const POST = wrapRouteHandlerWithLogging<{ params: Promise<{ provider: string }> }>(
   { routeId: "identity.direct_link", auth: { mode: "none" } },
   async (ctx, _request, _session, context) => {
+  const response = await (async () => {
+  try {
   if (!context) return NextResponse.json({ errorCode: "identity_link_failed" }, { status: 500 });
   const { provider } = await context.params;
 
@@ -39,11 +42,14 @@ export const POST = wrapRouteHandlerWithLogging<{ params: Promise<{ provider: st
     return NextResponse.json({ error: "Unknown provider" }, { status: 400 });
   }
 
-  try {
+  // Reject malformed or absent cookie families before resolving the native session.
+  let credential;
+  try { credential = await effectiveSessionCredential(); }
+  catch { return NextResponse.json({ errorCode: "local_session_unavailable" }, { status: 503 }); }
+  if (!credential.present || credential.invalidName) return invalidLocalSession();
   // Require existing session
   const session = await getServerSessionUser();
   if (!session) {
-    ctx.log.info({ event: "identity.link_start_result", operation: "direct_link", outcome: "invalid_session", status: 401 }, "identity.link_start_result");
     return invalidLocalSession();
   }
 
@@ -73,11 +79,11 @@ export const POST = wrapRouteHandlerWithLogging<{ params: Promise<{ provider: st
     maxAge: LINK_INTENT_TTL,
   });
 
-  ctx.log.info({ event: "identity.link_start_result", operation: "direct_link", outcome: "started", status: 200 }, "identity.link_start_result");
   return NextResponse.json({ ok: true });
   } catch (error) {
-    const response = identityLinkFailure(error);
-    ctx.log.info({ event: "identity.link_start_result", operation: "direct_link", outcome: response.status === 401 ? "invalid_session" : response.status === 503 ? "unavailable" : "failed", status: response.status }, "identity.link_start_result");
-    return response;
+    return identityLinkFailure(error);
   }
+  })();
+  ctx.log.info({ event: "identity.link_start_result", operation: "direct_link", outcome: response.status === 401 ? "invalid_session" : response.status === 503 ? "unavailable" : response.ok ? "started" : "failed", status: response.status }, "identity.link_start_result");
+  return response;
 });

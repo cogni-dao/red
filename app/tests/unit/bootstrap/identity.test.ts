@@ -177,9 +177,9 @@ describe("redeemAttestedGithubBinding", () => {
 			.mockRejectedValueOnce(new Error("database unavailable"))
 			.mockResolvedValueOnce({ created: true, eventId: "event-1" });
 
-		await expect(redeemAttestedGithubBinding(PARAMS)).rejects.toThrow(
-			"database unavailable",
-		);
+		await expect(redeemAttestedGithubBinding(PARAMS)).rejects.toMatchObject({
+            kind: "unexpected", message: "Identity link persistence failed",
+        });
 		expect(nonceConsumed).toBe(false);
 
 		expect(await redeemAttestedGithubBinding(PARAMS)).toBe("created");

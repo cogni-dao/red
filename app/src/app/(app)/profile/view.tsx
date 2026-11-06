@@ -549,7 +549,9 @@ export function ProfileView(): ReactElement {
     const data = (await response.json()) as ProfileData;
     if (!Array.isArray(data.linkedProviders)) throw new Error("invalid profile");
     if (expectedLogin !== undefined && !data.linkedProviders.some((binding) => binding.provider === "github" && (!expectedLogin || binding.providerLogin === expectedLogin))) throw new Error("binding not confirmed");
-    if (sequence === profileSequence.current) { setProfile(data); setSelectedColor(data.avatarColor ?? "#6366f1"); }
+    if (sequence !== profileSequence.current) throw new Error("profile request superseded");
+    setProfile(data);
+    setSelectedColor(data.avatarColor ?? "#6366f1");
   }, []);
 
   useEffect(() => {
@@ -773,7 +775,7 @@ export function ProfileView(): ReactElement {
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={providerPending !== null || readbackPending}
+                    disabled={providerPending !== null || readbackPending || (id === "github" && feedback.error === "readback_failed")}
                     onClick={() => void initiateProviderLink(id)}
                   >
                     Link another GitHub
@@ -784,7 +786,7 @@ export function ProfileView(): ReactElement {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={providerPending !== null || readbackPending}
+                disabled={providerPending !== null || readbackPending || (id === "github" && feedback.error === "readback_failed")}
                     onClick={() => void initiateProviderLink(id)}
               >
                 Link

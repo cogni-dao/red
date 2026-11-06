@@ -34,4 +34,14 @@ describe("native NextAuth credential assembly", () => {
     expect(inspectSessionCookies(name, [{ name: `${name}.unexpected`, value: "part" }])).toEqual({ present: true, invalidName: true });
     expect(inspectSessionCookies(name, [{ name: `__Secure-${name}`, value: "part" }])).toEqual({ present: false, invalidName: false });
   });
+  it("uses the configured cookie family for secure and custom names", async () => {
+    const token = await encode({ secret, token: { id: "native" } });
+    const secureName = `__Secure-${name}`;
+    const request = { cookies: { [secureName]: token }, headers: {} } as never;
+    expect(await getToken({ req: request, secret, secureCookie: true })).toMatchObject({ id: "native" });
+    expect(await getToken({ req: request, secret, secureCookie: false })).toBeNull();
+    const customName = "custom.session";
+    expect(await getToken({ req: { cookies: { [customName]: token }, headers: {} } as never, secret, cookieName: customName })).toMatchObject({ id: "native" });
+    expect(inspectSessionCookies(customName, [{ name: `${customName}.0`, value: token }, { name, value: "ignored" }])).toEqual({ present: true, invalidName: false });
+  });
 });

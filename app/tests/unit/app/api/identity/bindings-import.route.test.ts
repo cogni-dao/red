@@ -22,6 +22,7 @@
 import { IDENTITY_ATTESTATION_V1_PROTOCOL_SHA256 } from "@cogni/node-contracts";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { NextRequest } from "next/server";
+import { IdentityLinkPersistenceError } from "@/ports/identity-binding.errors";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // --- Mocks (must precede imports of modules under test) ---
@@ -39,6 +40,13 @@ const mockCreateNonce = vi.fn();
 let mockDomain: string | undefined = "test.cognidao.org";
 let mockNodeOrigin = "https://node.test.example";
 
+// Route unit tests have no Next request async storage. Supply its cookie store;
+// these tests already stub the session and do not claim native session verification.
+vi.mock("next/headers", () => ({
+  cookies: async () => ({ getAll: () => [], set: vi.fn() }),
+  headers: async () => new Headers({ host: "localhost:3200", "x-forwarded-proto": "http" }),
+}));
+
 // Keep the verifier's env read isolated from full server env validation
 vi.mock("@/shared/env/server", () => ({
 	serverEnv: () => ({
@@ -55,6 +63,7 @@ vi.mock("@/shared/config", () => ({ getNodeId: () => NODE_ID }));
 
 vi.mock("@/app/_facades/identity/operator-attested-binding.server", () => ({
 	createIdentityAttestationNonce: (...args: unknown[]) => mockCreateNonce(...args),
+    createSigninChallenge: async () => ({ nonce: NONCE }),
 	redeemAttestedGithubBinding: (...args: unknown[]) =>
 		mockRedeemBinding(...args),
 }));
@@ -104,6 +113,7 @@ import {
 	resetOperatorAttestationJwksCacheForTests,
 	resolveOperatorIssuerUrl,
 } from "@/app/_lib/auth/operator-attestation";
+import { POST as DIRECT_POST } from "@/app/api/auth/link/[provider]/route";
 import { POST as IMPORT_POST } from "@/app/api/v1/identity/bindings/import/route";
 import { POST as START_POST } from "@/app/api/v1/identity/bindings/import/start/route";
 
@@ -389,6 +399,33 @@ describe("POST /api/v1/identity/bindings/import", () => {
 });
 
 describe("POST /api/v1/identity/bindings/import/start", () => {
+    it("allows unmarked anonymous SIGN-IN without selecting a local user", async () => {
+      mockGetSessionUser.mockResolvedValue(null);
+      const res = await START_POST(new NextRequest("http://localhost:3200/api/v1/identity/bindings/import/start", { method: "POST" }));
+      expect(res.status).toBe(200);
+      const body = await res.json() as { authorizeUrl: string };
+      expect(new URL(body.authorizeUrl).searchParams.get("return_to")).toBe("https://node.test.example/auth/attest/complete");
+      expect(mockCreateNonce).not.toHaveBeenCalled();
+    });
+    it("rejects explicit LINK without a verified session without minting", async () => {
+      mockGetSessionUser.mockResolvedValue(null);
+      const res = await START_POST(new NextRequest("http://localhost:3200/api/v1/identity/bindings/import/start", { method: "POST", headers: { "X-Cogni-Identity-Intent": "link" } }));
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ errorCode: "local_session_invalid" });
+      expect(mockCreateNonce).not.toHaveBeenCalled();
+    });
+    it("rejects malformed intent before minting", async () => {
+      const res = await START_POST(new NextRequest("http://localhost:3200/api/v1/identity/bindings/import/start", { method: "POST", headers: { "X-Cogni-Identity-Intent": "sign-in" } }));
+      expect(res.status).toBe(400);
+      expect(mockCreateNonce).not.toHaveBeenCalled();
+    });
+    it.each([["local_account_missing", 401], ["unavailable", 503], ["unexpected", 500]] as const)("maps %s without a URL", async (kind, status) => {
+      mockCreateNonce.mockRejectedValueOnce(new IdentityLinkPersistenceError(kind));
+      const res = await START_POST(new NextRequest("http://localhost:3200/api/v1/identity/bindings/import/start", { method: "POST", headers: { "X-Cogni-Identity-Intent": "link" } }));
+      expect(res.status).toBe(status);
+      expect(await res.json()).not.toHaveProperty("authorizeUrl");
+    });
+
 	it.each([
 		["test.cognidao.org", "https://test.cognidao.org"],
 		["staging.example.org", "https://staging.example.org"],
@@ -470,6 +507,19 @@ describe("POST /api/v1/identity/bindings/import/start", () => {
 		expect(await res.json()).toEqual({ errorCode: "node_origin_unavailable" });
 		expect(mockCreateNonce).not.toHaveBeenCalled();
 	});
+});
+
+describe("direct LINK setup", () => {
+    it("rejects a missing effective cookie before starting OAuth", async () => {
+      const res = await DIRECT_POST(new NextRequest("http://localhost:3200/api/auth/link/github", { method: "POST" }), { params: Promise.resolve({ provider: "github" }) });
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ errorCode: "local_session_invalid" });
+      expect(res.headers.get("set-cookie")).toBeNull();
+    });
+    it("still rejects unknown providers", async () => {
+      const res = await DIRECT_POST(new NextRequest("http://localhost:3200/api/auth/link/unknown", { method: "POST" }), { params: Promise.resolve({ provider: "unknown" }) });
+      expect(res.status).toBe(400);
+    });
 });
 
 describe("resolveOperatorIssuerUrl", () => {

@@ -56,14 +56,16 @@ export const POST = wrapRouteHandlerWithLogging(
 		auth: { mode: "none" },
 	},
 	async (ctx, request) => {
+        let operation = "broker_link";
+        const response = await (async () => {
         try {
         const intent = request.headers.get("X-Cogni-Identity-Intent");
         if (intent !== null && intent !== "link") return NextResponse.json({ errorCode: "invalid_identity_intent" }, { status: 400 });
         let credential;
         try { credential = await effectiveSessionCredential(); } catch { return NextResponse.json({ errorCode: "local_session_unavailable" }, { status: 503 }); }
         const sessionUser = await getServerSessionUser();
+        if (!sessionUser && intent !== "link" && !credential.present) operation = "anonymous_signin";
         if (credential.invalidName || (!sessionUser && (intent === "link" || credential.present))) {
-          ctx.log.info({ event: "identity.link_start_result", operation: "broker_link", outcome: "invalid_session", status: 401 }, "identity.link_start_result");
           return invalidLocalSession();
         }
 		const nodeOrigin = configuredNodeOrigin();
@@ -118,12 +120,12 @@ export const POST = wrapRouteHandlerWithLogging(
 		authorizeUrl.searchParams.set("target_origin", nodeOrigin);
 		authorizeUrl.searchParams.set("return_to", `${nodeOrigin}${returnPath}`);
 
-        ctx.log.info({ event: "identity.link_start_result", operation: sessionUser ? "broker_link" : "anonymous_signin", outcome: "started", status: 200 }, "identity.link_start_result");
 		return NextResponse.json(identityAttestationStartOperation.output.parse({ authorizeUrl: authorizeUrl.toString() }));
         } catch (error) {
-            const response = identityLinkFailure(error);
-            ctx.log.info({ event: "identity.link_start_result", operation: "broker_link", outcome: response.status === 401 ? "invalid_session" : response.status === 503 ? "unavailable" : "failed", status: response.status }, "identity.link_start_result");
-            return response;
+            return identityLinkFailure(error);
         }
+        })();
+        ctx.log.info({ event: "identity.link_start_result", operation, outcome: response.status === 401 ? "invalid_session" : response.status === 503 ? "unavailable" : response.ok ? "started" : "failed", status: response.status }, "identity.link_start_result");
+        return response;
 	},
 );

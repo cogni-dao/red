@@ -47,10 +47,12 @@ export const POST = wrapRouteHandlerWithLogging(
 		auth: { mode: "none" },
 	},
 	async (ctx, request) => {
+        let missingSession = false;
+        const response = await (async () => {
         try {
         const sessionUser = await getServerSessionUser();
         if (!sessionUser) {
-          ctx.log.info({ event: "identity.link_start_result", operation: "import", outcome: "invalid_session", status: 401 }, "identity.link_start_result");
+          missingSession = true;
           return invalidLocalSession();
         }
 		let body: unknown;
@@ -104,7 +106,6 @@ export const POST = wrapRouteHandlerWithLogging(
 			);
 		}
 
-        ctx.log.info({ event: "identity.link_start_result", operation: "import", outcome: "started", status: result === "already_bound" ? 200 : 201 }, "identity.link_start_result");
 		ctx.log.info(
 			{
 				event: "identity.binding_imported",
@@ -133,9 +134,10 @@ export const POST = wrapRouteHandlerWithLogging(
 			{ status: 201 },
 		);
         } catch (error) {
-            const response = identityLinkFailure(error);
-            ctx.log.info({ event: "identity.link_start_result", operation: "import", outcome: response.status === 503 ? "unavailable" : "failed", status: response.status }, "identity.link_start_result");
-            return response;
+            return identityLinkFailure(error);
         }
+        })();
+        ctx.log.info({ event: "identity.link_start_result", operation: "import", outcome: missingSession ? "invalid_session" : response.status === 503 ? "unavailable" : response.ok ? "started" : "failed", status: response.status }, "identity.link_start_result");
+        return response;
 	},
 );
