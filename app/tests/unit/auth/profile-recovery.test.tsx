@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Cogni-DAO
 // @vitest-environment happy-dom
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -206,6 +206,97 @@ describe("profile import readback", () => {
     expect(fetcher.mock.calls.filter(([url]) => url === "/api/v1/identity/bindings/import/start")).toHaveLength(0);
     finish({ ok: false, error: "refused", status: 400, url: null });
     await waitFor(() => { expect(discord).toBeEnabled(); expect(github).toBeEnabled(); });
+  });
+
+  it("retry displays the matching intended account, not the first provider binding", async () => {
+    let reads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/v1/identity/bindings/import") return reply({ bound: true, githubLogin: "target-b" });
+      if (url === "/api/v1/users/me") return ++reads <= 2 ? reply(null, false) : reply(profile([{ provider: "github", providerLogin: "other-a" }, { provider: "github", providerLogin: "target-b" }]));
+      if (url === "/api/auth/providers") return reply({});
+      return reply({ connected: false });
+    }));
+    render(<ProfileView />);
+    fireEvent.click(await screen.findByRole("button", { name: "Retry account readback" }));
+    expect(await screen.findByText(/@target-b/, { selector: "strong" })).toBeInTheDocument();
+    expect(screen.queryByText(/@other-a/, { selector: "strong" })).not.toBeInTheDocument();
+  });
+  it("treats malformed fragment as pre-submit failure without a readback retry", async () => {
+    window.history.replaceState(null, "", "/profile#attestation=%");
+    const fetcher = vi.fn(async (url: string) => {
+      if (url === "/api/v1/users/me") return reply(profile([{ provider: "github", providerLogin: "existing" }]));
+      if (url === "/api/auth/providers") return reply({});
+      return reply({ connected: false });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    render(<ProfileView />);
+    expect(await screen.findByText("Unable to start linking. Try again.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry account readback" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Verified/)).not.toBeInTheDocument();
+    expect(fetcher.mock.calls.some(([url]) => url === "/api/v1/identity/bindings/import")).toBe(false);
+  });
+  it.each(["import", "readback"])("retires pending %s when a query supersedes it", async (stage) => {
+    let finish!: (value: ReturnType<typeof reply>) => void;
+    const delayed = new Promise<ReturnType<typeof reply>>((resolve) => { finish = resolve; });
+    let reads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/v1/identity/bindings/import") return stage === "import" ? delayed : reply({ bound: true, githubLogin: "target" });
+      if (url === "/api/v1/users/me") return ++reads === 1 ? reply(profile([])) : delayed;
+      if (url === "/api/auth/providers") return reply({});
+      return reply({ connected: false });
+    }));
+    const view = render(<ProfileView />);
+    if (stage === "readback") await waitFor(() => expect(reads).toBe(2));
+    else await screen.findByText("Recording your verified GitHub account on this node…");
+    window.history.replaceState(null, "", "/profile?error=link_failed");
+    view.rerender(<ProfileView />);
+    expect(await screen.findByText("Unable to start linking. Try again.")).toBeInTheDocument();
+    finish(stage === "import" ? reply({ bound: true, githubLogin: "target" }) : reply(profile([{ provider: "github", providerLogin: "target" }])));
+    await waitFor(() => expect(screen.getByText("Unable to start linking. Try again.")).toBeInTheDocument());
+    expect(screen.queryByText(/Verified/)).not.toBeInTheDocument();
+  });
+
+  it("a stale import completion cannot clear a newer query readback", async () => {
+    let finishImport!: (value: ReturnType<typeof reply>) => void;
+    let finishReadback!: (value: ReturnType<typeof reply>) => void;
+    const oldImport = new Promise<ReturnType<typeof reply>>((resolve) => { finishImport = resolve; });
+    const newReadback = new Promise<ReturnType<typeof reply>>((resolve) => { finishReadback = resolve; });
+    let reads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/v1/identity/bindings/import") return oldImport;
+      if (url === "/api/v1/users/me") return ++reads === 1 ? reply(profile([])) : newReadback;
+      if (url === "/api/auth/providers") return reply({ discord: { id: "discord" } });
+      return reply({ connected: false });
+    }));
+    const view = render(<ProfileView />);
+    await screen.findByText("Recording your verified GitHub account on this node…");
+    window.history.replaceState(null, "", "/profile?linked=discord&login=alice");
+    view.rerender(<ProfileView />);
+    const label = await screen.findByText("Discord");
+    const row = label.parentElement?.parentElement?.parentElement;
+    if (!row) throw new Error("provider row missing");
+    const link = within(row).getByRole("button", { name: "Link" });
+    expect(link).toBeDisabled();
+    await act(async () => finishImport(reply({ bound: true, githubLogin: "old" })));
+    expect(link).toBeDisabled();
+    expect(screen.queryByText(/Verified/)).not.toBeInTheDocument();
+    await act(async () => finishReadback(reply(profile([{ provider: "discord", providerLogin: "alice" }]))));
+    expect(await screen.findByText(/Verified/)).toBeInTheDocument();
+  });
+
+  it("blocks all provider starts while an uncertain import readback has failed", async () => {
+    let reads = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/v1/identity/bindings/import") return reply({ errorCode: "local_session_unavailable" }, false, 503);
+      if (url === "/api/v1/users/me") return ++reads === 1 ? reply(profile([])) : reply(null, false);
+      if (url === "/api/auth/providers") return reply({ github: { id: "github" }, discord: { id: "discord" } });
+      return reply({ connected: false });
+    }));
+    render(<ProfileView />);
+    await screen.findByRole("button", { name: "Retry account readback" });
+    const buttons = screen.getAllByRole("button", { name: "Link" });
+    expect(buttons).toHaveLength(2);
+    for (const button of buttons) expect(button).toBeDisabled();
   });
 
 });

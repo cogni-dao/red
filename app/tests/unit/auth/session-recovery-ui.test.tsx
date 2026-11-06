@@ -7,11 +7,13 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ButtonHTMLAttributes } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const effects = vi.hoisted(() => ({ signOut: vi.fn(), getSession: vi.fn(), disconnect: vi.fn(), status: "disconnected", connections: [] as { connector: object }[] }));
+const effects = vi.hoisted(() => ({ readCredential: vi.fn(), signOut: vi.fn(), getSession: vi.fn(), disconnect: vi.fn(), status: "disconnected", connections: [] as { connector: object }[] }));
+vi.mock("@/app/_lib/auth/link-session.server", () => ({ effectiveSessionCredential: effects.readCredential }));
 vi.mock("next-auth/react", () => ({ signOut: effects.signOut, getSession: effects.getSession }));
 vi.mock("wagmi", () => ({ useAccount: () => ({ status: effects.status }), useConnections: () => effects.connections, useDisconnect: () => ({ disconnectAsync: effects.disconnect }) }));
 vi.mock("@/components", () => ({ Button: (props: ButtonHTMLAttributes<HTMLButtonElement>) => <button {...props} /> }));
 import { Recovery } from "@/app/session-recovery/recovery.client";
+import SessionRecoveryPage from "@/app/session-recovery/page";
 
 describe("explicit recovery gates", () => {
   beforeEach(() => { vi.clearAllMocks(); effects.status = "disconnected"; effects.connections = []; });
@@ -19,7 +21,7 @@ describe("explicit recovery gates", () => {
   it("does not accept a resolved CSRF refusal as sign-out", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ effectiveSessionCredentialPresent: true }) }));
     effects.signOut.mockResolvedValue({ url: "/api/auth/signout?csrf=true" });
-    render(<Recovery />);
+    render(<Recovery initialCredential="absent" />);
     fireEvent.click(await screen.findByRole("button", { name: "Sign out and continue" }));
     await screen.findByRole("alert");
     expect(screen.getByText("Could not sign out. Try again.")).toBeInTheDocument();
@@ -29,7 +31,7 @@ describe("explicit recovery gates", () => {
   it("does not accept a successful-looking URL while credential bytes remain", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ effectiveSessionCredentialPresent: true }) }));
     effects.signOut.mockResolvedValue({ url: new URL("/session-recovery", window.location.origin).href });
-    render(<Recovery />);
+    render(<Recovery initialCredential="absent" />);
     fireEvent.click(await screen.findByRole("button", { name: "Sign out and continue" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Could not sign out"));
     expect(effects.getSession).not.toHaveBeenCalled();
@@ -39,7 +41,7 @@ describe("explicit recovery gates", () => {
     effects.connections = [{ connector: {} }];
     effects.disconnect.mockRejectedValue(new Error("rejected"));
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ effectiveSessionCredentialPresent: false }) }));
-    render(<Recovery />);
+    render(<Recovery initialCredential="absent" />);
     fireEvent.click(await screen.findByRole("button", { name: "Continue recovery" }));
     await screen.findByRole("alert");
     expect(effects.disconnect).toHaveBeenCalledOnce();
@@ -49,7 +51,7 @@ describe("explicit recovery gates", () => {
   it("requires a fresh choice when credentials return during wallet retry", async () => {
     effects.status = "connected";
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ effectiveSessionCredentialPresent: false }) }).mockResolvedValueOnce({ ok: true, json: async () => ({ effectiveSessionCredentialPresent: true }) }));
-    render(<Recovery />);
+    render(<Recovery initialCredential="absent" />);
     fireEvent.click(await screen.findByRole("button", { name: "Continue recovery" }));
     await screen.findByRole("button", { name: "Sign out and continue" });
     expect(effects.signOut).not.toHaveBeenCalled();
@@ -58,10 +60,22 @@ describe("explicit recovery gates", () => {
   it("does not offer fresh sign-in while the wallet is reconnecting", async () => {
     effects.status = "reconnecting";
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ effectiveSessionCredentialPresent: false }) }));
-    render(<Recovery />);
+    render(<Recovery initialCredential="absent" />);
     expect(await screen.findByRole("button", { name: "Continue recovery" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Continue recovery" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not finish recovery");
+    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
+  });
+
+  it("passes the server reader result and never reports failure as absence", async () => {
+    effects.readCredential.mockResolvedValueOnce({ present: true, invalidName: false });
+    expect((await SessionRecoveryPage()).props.initialCredential).toBe("present");
+    effects.readCredential.mockResolvedValueOnce({ present: false, invalidName: false });
+    expect((await SessionRecoveryPage()).props.initialCredential).toBe("absent");
+    effects.readCredential.mockRejectedValueOnce(new Error("unavailable"));
+    expect((await SessionRecoveryPage()).props.initialCredential).toBe("unavailable");
+    render(<Recovery initialCredential="unavailable" />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not check your session");
     expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
   });
 

@@ -15,7 +15,7 @@ async function credentialAbsent(): Promise<boolean> {
   return !data.effectiveSessionCredentialPresent;
 }
 
-export function Recovery() {
+export function Recovery({ initialCredential }: { initialCredential: "present" | "absent" | "unavailable" }) {
   const account = useAccount();
   const connections = useConnections();
   const accountRef = useRef(account);
@@ -27,7 +27,17 @@ export function Recovery() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
+    if (initialCredential === "unavailable") {
+      setError("Could not check your session. Try again.");
+      setPhase("choice");
+      return;
+    }
+    if (initialCredential === "present") {
+      setPhase("choice");
+      return;
+    }
     let cancelled = false;
+    // The server read does not establish browser cookie or hydrated wallet state.
     void credentialAbsent().then((absent) => {
       if (cancelled) return;
       if (!absent) setPhase("choice");
@@ -35,7 +45,7 @@ export function Recovery() {
       else setPhase("wallet");
     }).catch(() => { if (!cancelled) { setError("Could not check your session. Try again."); setPhase("choice"); } });
     return () => { cancelled = true; };
-  }, []);
+  }, [initialCredential]);
   async function finishWallet() {
     if (!(await credentialAbsent())) { setPhase("choice"); throw new Error("session returned"); }
     const state = accountRef.current;

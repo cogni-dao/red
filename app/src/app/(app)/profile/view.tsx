@@ -537,11 +537,13 @@ export function ProfileView(): ReactElement {
   const [feedback, setFeedback] = useState<{ linkedProvider: string | null; linkedLogin: string | null; error: string | null }>({ linkedProvider: null, linkedLogin: null, error: null });
   const [providerPending, setProviderPending] = useState<string | null>(null);
   const [readbackPending, setReadbackPending] = useState(false);
-  const [uncertainImport, setUncertainImport] = useState(false);
-  const [uncertainFeedback, setUncertainFeedback] = useState("import_uncertain");
+  const [readbackIntent, setReadbackIntent] = useState<
+    | { kind: "none" }
+    | { kind: "uncertain"; feedback: "import_uncertain" | "local_session_unavailable" }
+    | { kind: "expected"; provider: string; login: string | null }
+  >({ kind: "none" });
+  const [attestationImporting, setAttestationImporting] = useState(false);
   const startInFlight = useRef(false);
-  const [readbackProvider, setReadbackProvider] = useState("github");
-  const [expectedGithubLogin, setExpectedGithubLogin] = useState<string | null>(null);
   const profileSequence = useRef(0);
   const initialProfileRequested = useRef(false);
   const operationSequence = useRef(0);
@@ -568,15 +570,18 @@ export function ProfileView(): ReactElement {
   useEffect(() => {
     if (!linkedProvider && !error) return;
     const operation = ++operationSequence.current;
+    // This navigation owns the UI now. Retire the old operation's pending state.
+    profileSequence.current++;
+    setAttestationImporting(false);
+    setReadbackPending(false);
     if (error) {
+      setReadbackIntent({ kind: "none" });
       setFeedback({ linkedProvider: null, linkedLogin: null, error });
       router.replace("/profile");
       return;
     }
     if (!linkedProvider) return;
-    setReadbackProvider(linkedProvider.toLowerCase());
-    setExpectedGithubLogin(linkedLogin);
-    setUncertainImport(false);
+    setReadbackIntent({ kind: "expected", provider: linkedProvider.toLowerCase(), login: linkedLogin });
     setReadbackPending(true);
     router.replace("/profile");
     void refreshProfile(linkedLogin, linkedProvider.toLowerCase()).then((data) => {
@@ -591,7 +596,6 @@ export function ProfileView(): ReactElement {
     }).finally(() => { if (mounted.current && operation === operationSequence.current) setReadbackPending(false); });
   }, [linkedProvider, linkedLogin, error, router, updateSession, refreshProfile]);
 
-  const [attestationImporting, setAttestationImporting] = useState(false);
   const attestationHandled = useRef(false);
   useEffect(() => {
     if (attestationHandled.current) return;
@@ -604,9 +608,17 @@ export function ProfileView(): ReactElement {
     void (async () => {
       let expectedLogin: string | null | undefined;
       let uncertain = false;
-      let uncertainCode = "import_uncertain";
+      let uncertainCode: "import_uncertain" | "local_session_unavailable" = "import_uncertain";
       try {
-        const token = decodeURIComponent(hash.slice("#attestation=".length));
+        let token: string;
+        try { token = decodeURIComponent(hash.slice("#attestation=".length)); }
+        catch {
+          if (mounted.current && operation === operationSequence.current) {
+            setReadbackIntent({ kind: "none" });
+            setFeedback({ linkedProvider: null, linkedLogin: null, error: "link_failed" });
+          }
+          return;
+        }
         let res: Response;
         try { res = await fetch("/api/v1/identity/bindings/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) }); }
         catch { uncertain = true; res = null as never; }
@@ -624,10 +636,10 @@ export function ProfileView(): ReactElement {
           else expectedLogin = body.githubLogin;
         }
         if (!mounted.current || operation !== operationSequence.current) return;
-        setReadbackProvider("github");
-        setExpectedGithubLogin(expectedLogin ?? null);
-        setUncertainImport(uncertain);
-        setUncertainFeedback(uncertainCode);
+        const intent = uncertain
+          ? { kind: "uncertain" as const, feedback: uncertainCode }
+          : { kind: "expected" as const, provider: "github", login: expectedLogin ?? null };
+        setReadbackIntent(intent);
         setReadbackPending(true);
         try {
           await refreshProfile(uncertain ? undefined : expectedLogin);
@@ -746,15 +758,22 @@ export function ProfileView(): ReactElement {
         linkedProvider={feedback.linkedProvider}
       />
 
-      {feedback.error === "readback_failed" && uncertainImport && uncertainFeedback === "local_session_unavailable" && <p role="alert">Account service is temporarily unavailable. Try again.</p>}
+      {feedback.error === "readback_failed" && readbackIntent.kind === "uncertain" && readbackIntent.feedback === "local_session_unavailable" && <p role="alert">Account service is temporarily unavailable. Try again.</p>}
       {(feedback.error || feedback.linkedProvider) && feedback.error !== "readback_failed" && <Button variant="ghost" size="sm" onClick={() => setFeedback({ linkedProvider: null, linkedLogin: null, error: null })}>Dismiss</Button>}
-      {feedback.error === "readback_failed" && <Button disabled={readbackPending} onClick={() => {
+      {feedback.error === "readback_failed" && readbackIntent.kind !== "none" && <Button disabled={readbackPending} onClick={() => {
         setReadbackPending(true);
         const operation = ++operationSequence.current;
-        void refreshProfile(uncertainImport ? undefined : expectedGithubLogin, readbackProvider).then((data) => {
+        const intent = readbackIntent;
+        if (intent.kind === "none") { setReadbackPending(false); return; }
+        void refreshProfile(intent.kind === "uncertain" ? undefined : intent.login, intent.kind === "expected" ? intent.provider : "github").then((data) => {
           if (!mounted.current || operation !== operationSequence.current) return;
-          const binding = data.linkedProviders.find((entry) => entry.provider === readbackProvider);
-          setFeedback(uncertainImport ? { linkedProvider: null, linkedLogin: null, error: uncertainFeedback } : { linkedProvider: readbackProvider, linkedLogin: binding?.providerLogin ?? null, error: null });
+          if (intent.kind === "uncertain") {
+            setFeedback({ linkedProvider: null, linkedLogin: null, error: intent.feedback });
+            return;
+          }
+          const binding = data.linkedProviders.find((entry) => entry.provider === intent.provider && (intent.login === null || entry.providerLogin === intent.login));
+          if (!binding) throw new Error("binding not confirmed");
+          setFeedback({ linkedProvider: intent.provider, linkedLogin: intent.login, error: null });
         }).catch(() => {}).finally(() => { if (mounted.current && operation === operationSequence.current) setReadbackPending(false); });
       }}>Retry account readback</Button>}
 
@@ -840,7 +859,7 @@ export function ProfileView(): ReactElement {
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={providerPending !== null || attestationStarting || readbackPending || (id === readbackProvider && feedback.error === "readback_failed")}
+                    disabled={providerPending !== null || attestationStarting || readbackPending || (feedback.error === "readback_failed" && (readbackIntent.kind === "uncertain" || (readbackIntent.kind === "expected" && id === readbackIntent.provider)))}
                     onClick={() => void initiateProviderLink(id)}
                   >
                     Link another GitHub
@@ -851,7 +870,7 @@ export function ProfileView(): ReactElement {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={providerPending !== null || attestationStarting || readbackPending || (id === readbackProvider && feedback.error === "readback_failed")}
+                disabled={providerPending !== null || attestationStarting || readbackPending || (feedback.error === "readback_failed" && (readbackIntent.kind === "uncertain" || (readbackIntent.kind === "expected" && id === readbackIntent.provider)))}
                     onClick={() => void initiateProviderLink(id)}
               >
                 Link
