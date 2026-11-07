@@ -1,3 +1,4 @@
+import { KpiBindingsSchema } from "@cogni-dao/metrics/contracts";
 // SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 // SPDX-FileCopyrightText: 2025 Cogni-DAO
 
@@ -56,6 +57,18 @@ export const GET = wrapRouteHandlerWithLogging<{
 
     ctx.log.info({ id }, "knowledge.get_success");
 
-    return NextResponse.json(KnowledgeRowSchema.parse(toKnowledgeRow(entry)));
+    const goalMetrics = getContainer().goalMetrics;
+    const kpis =
+      ["goal", "hypothesis"].includes(entry.entryType ?? "") &&
+      entry.kpiBindings?.length &&
+      goalMetrics
+        ? await goalMetrics.bindings(KpiBindingsSchema.parse(entry.kpiBindings), {
+            hypothesis: entry.entryType === "hypothesis",
+          })
+        : undefined;
+    return NextResponse.json({
+      ...KnowledgeRowSchema.parse(toKnowledgeRow(entry)),
+      ...(kpis ? { kpis } : {}),
+    });
   }
 );
