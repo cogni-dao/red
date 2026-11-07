@@ -26,9 +26,9 @@ import {
 	KpiBindingsSchema,
 	type MetricService,
 } from "@cogni-dao/metrics";
-import { createGoalMetricTools } from "@/bootstrap/capabilities/goal-metric-tools";
 import {
 	createGoalMetrics,
+	createGoalMetricTools,
 	createGoalProgressReader,
 } from "@/bootstrap/capabilities/goal-metrics";
 import type { AttributionStore } from "@cogni/attribution-ledger";
@@ -144,7 +144,6 @@ import {
 } from "@/adapters/test";
 import { createToolBindings } from "@/bootstrap/ai/tool-bindings";
 import { createBoundToolSource } from "@/bootstrap/ai/tool-source.factory";
-import { startMetricsSyncOnBoot } from "@/bootstrap/startup-reconcile";
 import {
 	createMetricsCapability,
 	derivePrometheusQueryUrl,
@@ -347,7 +346,11 @@ let _workflowClientPromise: Promise<{
 export function getContainer(): Container {
 	if (!_container) {
 		_container = createContainer();
-		if (_container.goalMetrics) startMetricsSyncOnBoot();
+		// Dynamic import avoids a static container/job cycle.
+		if (_container.goalMetrics)
+			void import("@/bootstrap/jobs/metrics-refresh.job").then((job) =>
+				job.startMetricsSyncOnBoot()
+			);
 	}
 	return _container;
 }
