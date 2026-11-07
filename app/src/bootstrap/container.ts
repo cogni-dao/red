@@ -21,6 +21,16 @@ import type {
 	WebSearchCapability,
 } from "@cogni/ai-tools";
 import { CORE_TOOL_BUNDLE } from "@cogni/ai-tools";
+import {
+	type GoalsProgress,
+	KpiBindingsSchema,
+	type MetricService,
+} from "@cogni-dao/metrics";
+import {
+	createGoalMetrics,
+	createGoalMetricTools,
+	createGoalProgressReader,
+} from "@/bootstrap/capabilities/goal-metrics";
 import type { AttributionStore } from "@cogni/attribution-ledger";
 import {
 	createDefaultRegistries,
@@ -243,6 +253,9 @@ export interface Container {
 	scheduleRunReader: ScheduleRunReader;
 	/** Metrics capability for AI tools - requires PROMETHEUS_URL to be configured */
 	metricsCapability: MetricsCapability;
+	goalMetrics: MetricService | undefined;
+	/** The node's one goal-progress read; HTTP, SSR and core__goal_progress share it. */
+	goalProgress: () => Promise<GoalsProgress>;
 	/** Web search capability for AI tools - requires TAVILY_API_KEY to be configured */
 	webSearchCapability: WebSearchCapability;
 	/** Repo capability for AI tools - requires COGNI_REPO_PATH */
@@ -333,6 +346,11 @@ let _workflowClientPromise: Promise<{
 export function getContainer(): Container {
 	if (!_container) {
 		_container = createContainer();
+		// Dynamic import avoids a static container/job cycle.
+		if (_container.goalMetrics)
+			void import("@/bootstrap/jobs/metrics-refresh.job").then((job) =>
+				job.startMetricsSyncOnBoot()
+			);
 	}
 	return _container;
 }
@@ -732,6 +750,7 @@ function createContainer(): Container {
 	let knowledgeCapability: KnowledgeCapability;
 	let edoCapability: EdoCapability;
 	let knowledgeContributionService: ContributionService | undefined;
+	let goalMetrics: MetricService | undefined;
 	let knowledgeStorePort: KnowledgeStorePort | undefined;
 	let doltgresWorkItems: WorkItemsDoltgresPort;
 	if (env.DOLTGRES_URL) {
@@ -793,7 +812,37 @@ function createContainer(): Container {
 			writerSession: knowledgeWriter,
 		});
 		knowledgeStorePort = knowledgePort;
+		goalMetrics = createGoalMetrics({
+			knowledgeSql: doltClient,
+			observationsSql: serviceDb.$client,
+			environment: env.DEPLOY_ENVIRONMENT ?? "unknown",
+			// Compute receipts and skipped invalid definitions must reach Loki.
+			log: (event) => log.info(event, "metric.event"),
+		});
 		knowledgeCapability = createKnowledgeCapability(knowledgePort);
+		const listGoals =
+			knowledgeCapability.listActiveGoals?.bind(knowledgeCapability);
+		if (listGoals)
+			knowledgeCapability.listActiveGoals = async () => {
+				const goals = await listGoals();
+				return Promise.all(
+					goals.map(async (goal) => {
+						const row = await knowledgePort.getKnowledge(goal.id);
+						// Invalid stored bindings never break the goal list.
+						const parsed = KpiBindingsSchema.safeParse(row?.kpiBindings ?? []);
+						const bindings = parsed.success ? parsed.data : [];
+						return {
+							...goal,
+							kpis:
+								bindings.length && goalMetrics
+									? await goalMetrics.bindings(bindings, {
+											deadline: goal.evaluateAt,
+										})
+									: [],
+						};
+					}),
+				);
+			};
 		const edoResolver = new DoltgresEdoResolverAdapter({
 			sql: doltClient,
 			store: knowledgePort,
@@ -888,7 +937,20 @@ function createContainer(): Container {
 		vcsCapability: stubVcsCapability,
 		workItemCapability,
 	});
-	const toolSource = createBoundToolSource([...CORE_TOOL_BUNDLE], toolBindings);
+	const goalProgress = createGoalProgressReader({
+		metrics: () => goalMetrics,
+		knowledge: () => knowledgeStorePort,
+		// Same fallback as createGoalMetrics, so payload environment == observation scope.
+		environment: env.DEPLOY_ENVIRONMENT ?? "unknown",
+	});
+	const metricTools = createGoalMetricTools({
+		metrics: () => goalMetrics,
+		goalProgress,
+	});
+	const toolSource = createBoundToolSource([...CORE_TOOL_BUNDLE], {
+		...toolBindings,
+		...metricTools.bindings,
+	});
 
 	// Config: rethrow in dev/test for diagnosis, respond_500 in production for safety
 	const config: ContainerConfig = {
@@ -1034,6 +1096,8 @@ function createContainer(): Container {
 		scheduleManager,
 		scheduleRunReader,
 		metricsCapability,
+		goalMetrics,
+		goalProgress,
 		webSearchCapability,
 		repoCapability,
 		toolSource,

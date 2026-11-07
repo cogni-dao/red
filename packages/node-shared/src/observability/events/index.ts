@@ -17,6 +17,8 @@
 // ============================================================================
 
 export const EVENT_NAMES = {
+	METRIC_REFRESH_COMPLETE: "metric.refresh_complete",
+	GOALS_PROGRESS_READ: "goals.progress_read",
 	// AI Domain - Server
 	AI_COMPLETION: "ai.completion",
 	AI_LLM_CALL: "ai.llm_call",
