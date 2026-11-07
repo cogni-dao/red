@@ -19,6 +19,7 @@
 
 "use client";
 
+import type { GoalsProgress } from "@cogni-dao/metrics/contracts";
 import type {
   ContributionRecord,
   DomainRow,
@@ -55,11 +56,18 @@ import {
   Plus,
   Settings2,
   Tags,
+  Target,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 
 import { Button, Input } from "@/components";
+import {
+  attentionCount,
+  fetchGoalsProgress,
+  GOALS_QUERY_KEY,
+  GoalsBoard,
+} from "@/features/goals";
 
 import { closeContribution } from "./_api/closeContribution";
 import { fetchContributions } from "./_api/fetchContributions";
@@ -75,7 +83,7 @@ import { domainColumns } from "./_components/domain-columns";
 import { GraphView } from "./_components/GraphView";
 import { KnowledgeDetail } from "./_components/KnowledgeDetail";
 
-type ViewMode = "browse" | "domains" | "inbox" | "chains" | "graph";
+type ViewMode = "browse" | "domains" | "inbox" | "chains" | "graph" | "goals";
 
 const EDO_ENTRY_TYPES: ReadonlySet<string> = new Set([
   "hypothesis",
@@ -90,7 +98,8 @@ function isMode(v: string | null): v is ViewMode {
     v === "domains" ||
     v === "inbox" ||
     v === "chains" ||
-    v === "graph"
+    v === "graph" ||
+    v === "goals"
   );
 }
 
@@ -105,12 +114,15 @@ interface KnowledgeDashboardViewProps {
   readonly initialDomains?: DomainsListResponse | undefined;
   /** SSR-seeded graph — only present on a `?mode=graph` deep-link. */
   readonly initialGraph?: KnowledgeGraphResponse | undefined;
+  /** SSR-seeded goal progress — only present on a `?mode=goals` deep-link. */
+  readonly initialGoals?: GoalsProgress | undefined;
 }
 
 export function KnowledgeDashboardView({
   initialList,
   initialDomains,
   initialGraph,
+  initialGoals,
 }: KnowledgeDashboardViewProps = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -154,6 +166,20 @@ export function KnowledgeDashboardView({
   });
 
   const openCount = contributionsQuery.data?.contributions.length ?? 0;
+
+  // One read feeds the Goals tab badge. Polling lives in GoalsBoard, which is
+  // mounted only while the Goals tab is selected.
+  const goalsQuery = useQuery({
+    queryKey: GOALS_QUERY_KEY,
+    queryFn: fetchGoalsProgress,
+    staleTime: 30_000,
+    initialData: initialGoals,
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
+  const goalsAttention = goalsQuery.data
+    ? attentionCount(goalsQuery.data.goals)
+    : 0;
 
   // A failed merge used to be swallowed — the button flipped back with zero
   // feedback and the contribution stayed open (bug.5120). Surface it INLINE on
@@ -235,6 +261,13 @@ export function KnowledgeDashboardView({
               icon={<GitBranch className="size-3.5" />}
             />
             <ModeButton
+              active={mode === "goals"}
+              onClick={() => setModeUrl("goals")}
+              label="Goals"
+              icon={<Target className="size-3.5" />}
+              {...(goalsAttention > 0 ? { badge: goalsAttention } : {})}
+            />
+            <ModeButton
               active={mode === "domains"}
               onClick={() => setModeUrl("domains")}
               label="Domains"
@@ -275,6 +308,7 @@ export function KnowledgeDashboardView({
           initialData={initialGraph}
         />
       )}
+      {mode === "goals" && <GoalsBoard initialData={initialGoals} />}
       {mode === "domains" && (
         <DomainsPanel
           rows={domainsQuery.data?.domains ?? []}

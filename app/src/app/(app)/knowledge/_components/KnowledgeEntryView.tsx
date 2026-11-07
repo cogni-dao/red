@@ -17,6 +17,8 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
+import { GoalsBoard, MetricEvidence } from "@/features/goals";
+
 import { fetchKnowledgeEntry } from "../_api/fetchKnowledgeEntry";
 import { CopyLinkButton } from "./CopyLinkButton";
 import { KnowledgeEntryFields } from "./KnowledgeEntryFields";
@@ -80,6 +82,11 @@ export function KnowledgeEntryView({ id }: { readonly id: string }) {
               />
             </div>
           </div>
+
+          {query.data.entryType === "goal" && (
+            <GoalsBoard goalId={query.data.id} />
+          )}
+          {query.data.metricSpec && <MetricEvidence id={query.data.id} />}
 
           <div className="mt-2">
             <KnowledgeEntryFields item={query.data} />
