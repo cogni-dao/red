@@ -23,7 +23,7 @@ export function composeWorkItemContent(
     "get" | "list" | "claim" | "heartbeat" | "release" | "delete"
   >
 ): WorkItemsDoltgresPort {
-  const { history } = content;
+  const { history, listBoardColumns } = content;
   const refresh = async (item: WorkItem): Promise<WorkItem> => {
     const current = await content.get(item.id);
     if (!current) throw new Error(`Work item not found: ${item.id}`);
@@ -46,7 +46,13 @@ export function composeWorkItemContent(
         ),
       };
     },
-    listSummaries: (query) => content.listSummaries(query),
+    // Bounded reads (task.0056): summaries and the composed board carry no claim
+    // overlay, so they read the content store once with the caller's bounds.
+    listSummaries: (query, options) => content.listSummaries(query, options),
+    ...(listBoardColumns && {
+      listBoardColumns: (query, statuses, perColumn, options) =>
+        listBoardColumns.call(content, query, statuses, perColumn, options),
+    }),
     ...(history && { history: (id) => history.call(content, id) }),
     create: (input, principal) => content.create(input, principal),
     patch: async (input, principal) =>
