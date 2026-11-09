@@ -24,6 +24,7 @@ import {
   WorkItemsBackendNotReadyError,
   WorkItemScoresInvalidError,
   WorkItemWriteOutcomeUnknownError,
+  NodeAdminRequiredError,
 } from "@/app/_facades/work/items.server";
 import { getSessionUser } from "@/app/_lib/auth/session";
 import { wrapRouteHandlerWithLogging } from "@/bootstrap/http";
@@ -118,6 +119,7 @@ export const POST = wrapRouteHandlerWithLogging(
     try {
       const created = await createWorkItem(parseResult.data, {
         id: sessionUser.id,
+        walletAddress: sessionUser.walletAddress,
       });
       ctx.log.info(
         { workItemId: created.id, node: created.node },
@@ -127,6 +129,12 @@ export const POST = wrapRouteHandlerWithLogging(
         status: 201,
       });
     } catch (e) {
+      if (e instanceof NodeAdminRequiredError) {
+        return NextResponse.json(
+          { error: e.message, errorCode: e.errorCode, action: e.action },
+          { status: e.status }
+        );
+      }
       if (e instanceof WorkItemWriteOutcomeUnknownError)
         return NextResponse.json(
           {
