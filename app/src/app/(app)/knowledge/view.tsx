@@ -19,7 +19,7 @@
 
 "use client";
 
-import type { GoalsProgress } from "@cogni-dao/metrics/contracts";
+import { attentionCount } from "@cogni/knowledge-base-ui/goals";
 import type {
   ContributionRecord,
   DomainRow,
@@ -35,6 +35,7 @@ import { DataGridColumnVisibility } from "@cogni/node-ui-kit/reui/data-grid/data
 import { DataGridPagination } from "@cogni/node-ui-kit/reui/data-grid/data-grid-pagination";
 import { DataGridTable } from "@cogni/node-ui-kit/reui/data-grid/data-grid-table";
 import { Skeleton } from "@cogni/node-ui-kit/shadcn/skeleton";
+import type { GoalsProgress } from "@cogni-dao/metrics/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type ColumnFiltersState,
@@ -62,12 +63,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 
 import { Button, Input } from "@/components";
-import {
-  attentionCount,
-  fetchGoalsProgress,
-  GOALS_QUERY_KEY,
-  GoalsBoard,
-} from "@/features/goals";
 
 import { closeContribution } from "./_api/closeContribution";
 import { fetchContributions } from "./_api/fetchContributions";
@@ -80,6 +75,11 @@ import { ContributionDetail } from "./_components/ContributionDetail";
 import { knowledgeColumns } from "./_components/columns";
 import { buildContributionColumns } from "./_components/contribution-columns";
 import { domainColumns } from "./_components/domain-columns";
+import {
+  KnowledgeGoalsBoard,
+  KnowledgeGoalsProvider,
+  useKnowledgeGoalsBadge,
+} from "./_components/GoalsMount";
 import { GraphView } from "./_components/GraphView";
 import { KnowledgeDetail } from "./_components/KnowledgeDetail";
 
@@ -118,12 +118,23 @@ interface KnowledgeDashboardViewProps {
   readonly initialGoals?: GoalsProgress | undefined;
 }
 
-export function KnowledgeDashboardView({
+/** One Goals host for the tab badge and the board, so both read one cache entry. */
+export function KnowledgeDashboardView(
+  props: KnowledgeDashboardViewProps = {}
+) {
+  return (
+    <KnowledgeGoalsProvider>
+      <KnowledgeDashboard {...props} />
+    </KnowledgeGoalsProvider>
+  );
+}
+
+function KnowledgeDashboard({
   initialList,
   initialDomains,
   initialGraph,
   initialGoals,
-}: KnowledgeDashboardViewProps = {}) {
+}: KnowledgeDashboardViewProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -169,14 +180,7 @@ export function KnowledgeDashboardView({
 
   // One read feeds the Goals tab badge. Polling lives in GoalsBoard, which is
   // mounted only while the Goals tab is selected.
-  const goalsQuery = useQuery({
-    queryKey: GOALS_QUERY_KEY,
-    queryFn: fetchGoalsProgress,
-    staleTime: 30_000,
-    initialData: initialGoals,
-    retry: 1,
-    refetchOnWindowFocus: false,
-  });
+  const goalsQuery = useKnowledgeGoalsBadge({ initialData: initialGoals });
   const goalsAttention = goalsQuery.data
     ? attentionCount(goalsQuery.data.goals)
     : 0;
@@ -308,7 +312,7 @@ export function KnowledgeDashboardView({
           initialData={initialGraph}
         />
       )}
-      {mode === "goals" && <GoalsBoard initialData={initialGoals} />}
+      {mode === "goals" && <KnowledgeGoalsBoard initialData={initialGoals} />}
       {mode === "domains" && (
         <DomainsPanel
           rows={domainsQuery.data?.domains ?? []}
