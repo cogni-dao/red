@@ -13,13 +13,21 @@
  * @public
  */
 
-import { HTTP_REQUEST_NAME } from "@cogni/red-ai-tools";
+import { HTTP_REQUEST_NAME, SANDBOX_EXEC_NAME } from "@cogni/red-ai-tools";
 
 /**
  * Tool IDs for red-solver graph.
  * Single source of truth - imported by server.ts, cogni-exec.ts, and catalog.ts.
+ *
+ * - HTTP_REQUEST_NAME: scope-bound web recon/PoC (web-class challenges).
+ * - SANDBOX_EXEC_NAME: one bounded shell command in the node sandbox for non-web
+ *   work (network recon, scripted tooling, pwn/rev/crypto/forensics). Resolves to
+ *   `unavailable` when the sandbox is not configured for the environment (story.0002).
  */
-export const RED_SOLVER_TOOL_IDS = [HTTP_REQUEST_NAME] as const;
+export const RED_SOLVER_TOOL_IDS = [
+  HTTP_REQUEST_NAME,
+  SANDBOX_EXEC_NAME,
+] as const;
 
 /**
  * Type for red-solver tool IDs.

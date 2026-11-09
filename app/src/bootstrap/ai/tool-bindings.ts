@@ -30,6 +30,7 @@ import type {
   EdoCapability,
   MetricsCapability,
   RepoCapability,
+  SandboxExecCapability,
   ScheduleCapability,
   ToolImplementation,
   VcsCapability,
@@ -45,6 +46,7 @@ import {
   createRepoListImplementation,
   createRepoOpenImplementation,
   createRepoSearchImplementation,
+  createSandboxExecImplementation,
   createScheduleListImplementation,
   createScheduleManageImplementation,
   createVcsCreateBranchImplementation,
@@ -67,6 +69,8 @@ import {
   REPO_LIST_NAME,
   REPO_OPEN_NAME,
   REPO_SEARCH_NAME,
+  SANDBOX_EXEC_NAME,
+  sandboxExecUnavailableImplementation,
   SCHEDULE_LIST_NAME,
   SCHEDULE_MANAGE_NAME,
   VCS_CREATE_BRANCH_NAME,
@@ -90,6 +94,8 @@ export interface ToolBindingDeps {
   readonly metricsCapability: MetricsCapability;
   readonly webSearchCapability: WebSearchCapability;
   readonly repoCapability: RepoCapability;
+  /** Optional: when absent, the sandbox tool resolves to the unavailable binding. */
+  readonly sandboxExecCapability?: SandboxExecCapability | undefined;
   readonly scheduleCapability: ScheduleCapability;
   readonly vcsCapability: VcsCapability;
   readonly workItemCapability: WorkItemCapability;
@@ -124,6 +130,14 @@ export function createToolBindings(deps: ToolBindingDeps): ToolBindings {
     [GET_CURRENT_TIME_NAME]:
       getCurrentTimeImplementation as AnyToolImplementation,
     [HTTP_REQUEST_NAME]: httpRequestImplementation as AnyToolImplementation,
+
+    // Sandbox shell exec (story.0002): real impl when a capability is injected,
+    // else the structured-unavailable binding (local dev / no execd token).
+    [SANDBOX_EXEC_NAME]: (deps.sandboxExecCapability
+      ? createSandboxExecImplementation({
+          sandboxExecCapability: deps.sandboxExecCapability,
+        })
+      : sandboxExecUnavailableImplementation) as AnyToolImplementation,
 
     [GOAL_LIST_NAME]: createGoalListImplementation({
       knowledgeCapability: deps.knowledgeCapability,
