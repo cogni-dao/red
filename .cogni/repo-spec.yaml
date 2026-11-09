@@ -43,8 +43,8 @@ knowledge:
 # parent catalog, not this file, decides whether an environment lands on k3s or
 # off-cluster compute.
 # The `cogni-node-app-v1` runtime_profile pins the Cogni Next.js app contract;
-# the operator supplies that profile's standard secrets automatically, so you only
-# add `secret_refs` here for a secret BEYOND the profile.
+# the operator supplies that profile's standard secrets automatically. Any other
+# secret is declared once in .cogni/secrets-catalog.yaml with `workloads:`.
 # Add sibling services here (private by default) as this node grows.
 deployment:
   services:
@@ -76,8 +76,6 @@ deployment:
       port: 8080
       visibility: private
       bindings: {}
-      secret_refs:
-        - key: SANDBOX_EXECD_TOKEN
       bind_host: 0.0.0.0
       resources:
         cpu_units: 1
