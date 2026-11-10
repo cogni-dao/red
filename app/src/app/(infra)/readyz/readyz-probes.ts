@@ -66,6 +66,9 @@ const REDIS_READYZ_PROBE_KEY = "readyz:probe";
 /** This node's connectivity error, injected into the package's runner and probe factories. */
 const wrapInfra = (message: string): Error => new InfraConnectivityError(message);
 
+/** Default-path budget for the system-tenant DB check; exceeding it reports degraded (non-fatal). */
+export const SYSTEM_TENANT_BUDGET_MS = 2000;
+
 /** Dependencies a deep 503 can name in `unreachable` (this node's probe-name union). */
 export type DeepDependency =
   | "postgres"
@@ -94,6 +97,67 @@ export async function runDeepChecks(
       ),
     budgetMs: DEEP_CHECK_BUDGET_MS,
   });
+}
+
+/** Readiness status of a default-path check. */
+export type CheckStatus = "ok" | "degraded";
+
+/**
+ * Default-path system-tenant check: NON-FATAL (bug.0022). A k8s readiness probe
+ * must not hard-gate on a shared DB: a Postgres blip would drain every pod from
+ * its Service at once. Provisioning (a missing cogni_system tenant) is asserted
+ * once at process boot instead (`bootstrap/startup-assertions`), so a pod that
+ * is genuinely unprovisioned crash-loops rather than serving.
+ *
+ * Any rejection of `verifySystemTenant` (query error, missing account, budget
+ * exceeded) becomes `"degraded"` plus a stable critical log, never a throw. The
+ * deep probe does not use this: it calls `verifySystemTenant` directly and
+ * still 503s with `postgres` in `unreachable`.
+ */
+export async function checkSystemTenantNonFatal(
+  ctx: RequestContext,
+  serviceAccountService: Parameters<typeof verifySystemTenant>[0]
+): Promise<CheckStatus> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      verifySystemTenant(serviceAccountService),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new InfraConnectivityError(
+                `System tenant check exceeded ${SYSTEM_TENANT_BUDGET_MS}ms budget`
+              )
+            ),
+          SYSTEM_TENANT_BUDGET_MS
+        );
+      }),
+    ]);
+    return "ok";
+  } catch (error) {
+    // pg/drizzle errors wrap the driver error (with its SQLSTATE `code`) in `cause`.
+    const cause = (error as { cause?: { code?: unknown; message?: unknown } })
+      .cause;
+    ctx.log.error(
+      {
+        event: "substrate.postgres.unreachable",
+        severity: "critical",
+        reason:
+          error instanceof InfraConnectivityError
+            ? error.code
+            : "SYSTEM_TENANT_CHECK_FAILED",
+        dependency: "postgres",
+        message: error instanceof Error ? error.message : String(error),
+        causeCode: cause?.code,
+        causeMessage: cause?.message,
+      },
+      "readiness: postgres system-tenant check failed — shared DB down or unprovisioned. Returning ready: probe stays non-fatal so the fleet is not drained; provisioning is asserted at boot and the critical alert covers the outage."
+    );
+    return "degraded";
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
