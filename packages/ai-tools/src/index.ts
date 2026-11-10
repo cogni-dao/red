@@ -49,6 +49,9 @@ export type {
   RepoSearchHit,
   RepoSearchParams,
   RepoSearchResult,
+  SandboxExecCapability,
+  SandboxExecParams,
+  SandboxExecResult,
   ScheduleCapability,
   ScheduleCreateParams,
   ScheduleInfo,
@@ -158,6 +161,19 @@ export {
   httpRequestContract,
   httpRequestImplementation,
 } from "./tools/http-request";
+export {
+  createSandboxExecImplementation,
+  SANDBOX_EXEC_NAME,
+  type SandboxExecDeps,
+  type SandboxExecInput,
+  SandboxExecInputSchema,
+  type SandboxExecOutput,
+  SandboxExecOutputSchema,
+  type SandboxExecRedacted,
+  sandboxExecBoundTool,
+  sandboxExecContract,
+  sandboxExecUnavailableImplementation,
+} from "./tools/sandbox-exec";
 export {
   createKnowledgeReadImplementation,
   KNOWLEDGE_READ_NAME,
