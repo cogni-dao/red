@@ -5,7 +5,7 @@
  * Module: `@tests/contract/readyz-substrate.contract`
  * Purpose: Prove the shallow/deep readiness contract for async substrate dependencies.
  * Scope: Exercises the /readyz route with isolated Temporal and scheduler-worker probes. Does not perform network or database IO.
- * Invariants: Default readiness stays healthy while emitting critical dependency events; `?deep=1` returns 503 for either missing dependency.
+ * Invariants: Default readiness stays healthy while emitting critical dependency events (including a failing Postgres system tenant, bug.0022); `?deep=1` returns 503 for either missing dependency and for a failing system tenant.
  * Side-effects: none
  * Links: src/app/(infra)/readyz/route.ts, Cogni-DAO/cogni#1860
  * @internal
@@ -114,6 +114,7 @@ vi.mock("@/shared/observability/server/metrics", () => ({
 }));
 
 import { GET } from "@/app/(infra)/readyz/route";
+import { EnvValidationError } from "@/shared/env";
 import {
   InfraConnectivityError,
   RuntimeSecretError,
@@ -402,17 +403,96 @@ describe("GET /readyz async substrate contract", () => {
     );
     mocks.verifySystemTenant.mockRejectedValue(new Error("pg down"));
     const shallow = await GET(request());
-    expect(shallow.status).toBe(503);
-    expect(await shallow.json()).toEqual({
-      status: "error",
-      reason: "INTERNAL_ERROR",
-    });
+    expect(shallow.status).toBe(200);
+    expect(await shallow.json()).not.toHaveProperty("unreachable");
     mocks.assertRuntimeSecrets.mockImplementationOnce(() => {
       throw new RuntimeSecretError("secret missing");
     });
     const deepConfig = await GET(request("/readyz?deep=1"));
     expect(deepConfig.status).toBe(503);
     expect(await deepConfig.json()).not.toHaveProperty("unreachable");
+  });
+
+  it("default readiness stays 200 with a critical log when the system tenant check rejects (bug.0022)", async () => {
+    mocks.verifySystemTenant.mockRejectedValue(
+      Object.assign(
+        new Error("FATAL: cogni_system billing account missing. Run migrations."),
+        { cause: { code: "ECONNREFUSED", message: "connection refused" } }
+      )
+    );
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      status: "healthy",
+      buildSha: "readyz-contract-sha",
+    });
+    expect(mocks.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "substrate.postgres.unreachable",
+        severity: "critical",
+        reason: "SYSTEM_TENANT_CHECK_FAILED",
+        dependency: "postgres",
+        message: expect.stringContaining("cogni_system billing account missing"),
+        causeCode: "ECONNREFUSED",
+        causeMessage: "connection refused",
+      }),
+      expect.stringContaining("Returning ready")
+    );
+  });
+
+  it("default readiness stays 200 and critically logs when the system tenant check hangs past its budget (bug.0022)", async () => {
+    vi.useFakeTimers();
+    mocks.verifySystemTenant.mockReturnValue(new Promise<never>(() => {}));
+
+    const pending = GET(request());
+    await vi.advanceTimersByTimeAsync(2000);
+    const response = await pending;
+
+    expect(response.status).toBe(200);
+    expect(mocks.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "substrate.postgres.unreachable",
+        severity: "critical",
+        reason: "INFRA_UNREACHABLE",
+        dependency: "postgres",
+        message: "System tenant check exceeded 2000ms budget",
+      }),
+      expect.stringContaining("Returning ready")
+    );
+  });
+
+  it("default readiness still returns 503 when runtime secrets are missing, before any check runs", async () => {
+    mocks.assertRuntimeSecrets.mockImplementationOnce(() => {
+      throw new RuntimeSecretError("secret missing");
+    });
+    mocks.verifySystemTenant.mockRejectedValue(new Error("pg down"));
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      status: "error",
+      reason: "MISSING_RUNTIME_SECRET",
+      message: "secret missing",
+    });
+    expect(mocks.verifySystemTenant).not.toHaveBeenCalled();
+  });
+
+  it("default readiness still returns 503 on invalid environment, before any check runs", async () => {
+    mocks.serverEnv.mockImplementationOnce(() => {
+      throw new EnvValidationError({
+        code: "INVALID_ENV",
+        missing: ["DATABASE_URL"],
+        invalid: [],
+      });
+    });
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(503);
+    expect(mocks.verifySystemTenant).not.toHaveBeenCalled();
   });
 
   it("names redis in the deep 503 when the run-stream is unreachable", async () => {
