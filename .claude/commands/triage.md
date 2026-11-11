@@ -14,6 +14,7 @@ curl -X PATCH https://cognidao.org/api/v1/work/items/<id> \
   -H "authorization: Bearer $COGNI_KEY" \
   -H 'content-type: application/json' \
   -d '{
+    "reason": "<why this route, one line, at most 25 words>",
     "set": {
       "projectId": "proj.<parent-or-omit-if-standalone>",
       "status": "<next-status-per-table-below>",
@@ -21,6 +22,8 @@ curl -X PATCH https://cognidao.org/api/v1/work/items/<id> \
     }
   }'
 ```
+
+`reason` is required on every PATCH (one line, at most 25 words and 240 chars; a PATCH without it is a 400). It is stored in the item's history, never in the item. Optional `cites` (at most 8, each `{"id":"<hub-atom-id>"}`) pin the hub atoms you read to their commits.
 
 ## Routing table
 

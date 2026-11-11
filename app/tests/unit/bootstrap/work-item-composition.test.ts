@@ -117,6 +117,7 @@ describe("RED shared content / legacy v1 composition", () => {
     const patch = {
       id: item.id,
       expectedRevision: 8,
+      reason: "test change",
       set: { scores: item.scores },
     };
     await port.patch(patch, "collaborator");

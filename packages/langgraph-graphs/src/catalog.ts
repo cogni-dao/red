@@ -94,6 +94,23 @@ interface CatalogEntry {
   readonly systemPrompt?: string;
 }
 
+/**
+ * RED's work-prioritizer: the released entry with its write tool removed, so it is read-only.
+ *
+ * Triage writes are off on red until the program plumbing (program, sourceContext, run hooks) is ported.
+ * RED's in-proc runner does not pass `program` to the graph factory, so the released prioritizer would run
+ * as a plain ReAct agent holding the full-schema `core__work_item_update` with no triage guard, no
+ * five-change cap and no receipt. `core__work_item_read` stays; the update tool is neither offered nor bound.
+ */
+const SHARED_WORK_PRIORITIZER = SHARED_NODE_CATALOG["work-prioritizer"];
+const RED_WORK_PRIORITIZER: CatalogEntry = {
+  ...SHARED_WORK_PRIORITIZER,
+  toolIds: SHARED_WORK_PRIORITIZER.toolIds.filter(
+    (id) => id !== "core__work_item_update"
+  ),
+  systemPrompt: `${SHARED_WORK_PRIORITIZER.systemPrompt} READ-ONLY ON THIS NODE: triage writes are off, so core__work_item_update is not available. Do not try to change any item. Read as above, then report in your final answer the routes, scores and cancels you would make, one line per item, with the reason for each. Reporting them satisfies the run; ignore the instruction to write.`,
+};
+
 const createAutoresearchCatalogEntry = (
   displayName: string,
   description: string,
@@ -117,7 +134,7 @@ const createAutoresearchCatalogEntry = (
  * Per CATALOG_SINGLE_SOURCE_OF_TRUTH: graphs are defined here, not in bootstrap.
  */
 export const LANGGRAPH_CATALOG: Readonly<Record<string, CatalogEntry>> = {
-  "work-prioritizer": SHARED_NODE_CATALOG["work-prioritizer"],
+  "work-prioritizer": RED_WORK_PRIORITIZER,
   [AUTORESEARCH_SINGLE_LANE_GRAPH_NAME]: createAutoresearchCatalogEntry(
     "Autoresearch Single Lane",
     "Karpathy-style single-lane experiment loop with Thinker, Flasher, Eval, and Judge",

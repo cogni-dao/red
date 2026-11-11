@@ -30,7 +30,15 @@ import type {
   WorkItemScoresIssue,
   WorkSummaryReadOptions,
 } from "@cogni/work-items";
-import { toWorkItemDto, toWorkItemId } from "@cogni/work-items";
+import {
+  ChangeReasonInvalidError,
+  CitesInvalidError,
+  CitesUnsupportedError,
+  EntryResolverUnavailableError,
+  EntryUnresolvedError,
+  toWorkItemDto,
+  toWorkItemId,
+} from "@cogni/work-items";
 
 import {
   checkNodeAdmin,
@@ -54,7 +62,14 @@ export class InvalidCursorError extends Error {
   }
 }
 
-export { NodeAdminRequiredError };
+export {
+  ChangeReasonInvalidError,
+  CitesInvalidError,
+  CitesUnsupportedError,
+  EntryResolverUnavailableError,
+  EntryUnresolvedError,
+  NodeAdminRequiredError,
+};
 
 export class WorkItemNotFoundError extends Error {
   constructor(id: string) {
@@ -234,6 +249,26 @@ function rethrowBackendError(error: unknown): never {
     );
   }
   const message = (error as Error)?.message ?? "";
+  // task.0086: the adapter is the one enforcer of reason and cites. Root and adapter
+  // entrypoints may bundle separate copies of these classes, so match by name and rebuild.
+  const errorName = (error as Error)?.name;
+  if (errorName === "ChangeReasonInvalidError") {
+    throw new ChangeReasonInvalidError(message);
+  }
+  if (errorName === "CitesInvalidError") {
+    const issues = (error as { issues?: unknown }).issues;
+    throw new CitesInvalidError(
+      Array.isArray(issues) ? issues.map(String) : [message]
+    );
+  }
+  if (errorName === "CitesUnsupportedError") throw new CitesUnsupportedError();
+  if (errorName === "EntryUnresolvedError") {
+    const ids = (error as { ids?: unknown }).ids;
+    throw new EntryUnresolvedError(Array.isArray(ids) ? ids.map(String) : []);
+  }
+  if (errorName === "EntryResolverUnavailableError") {
+    throw new EntryResolverUnavailableError(message);
+  }
   const notFound = /^Work item not found: (.+)$/.exec(message);
   if (notFound?.[1]) throw new WorkItemNotFoundError(notFound[1]);
   if (
@@ -472,7 +507,8 @@ export async function patchWorkItem(
       {
         id: toWorkItemId(input.id),
         set: dropUndefined(input.set),
-        ...(input.reason !== undefined && { reason: input.reason }),
+        reason: input.reason,
+        ...(input.cites !== undefined && { cites: input.cites }),
         ...(input.expectedRevision !== undefined && {
           expectedRevision: input.expectedRevision,
         }),

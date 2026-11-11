@@ -19,7 +19,12 @@ import {
 import { NextResponse } from "next/server";
 
 import {
+  ChangeReasonInvalidError,
+  CitesInvalidError,
+  CitesUnsupportedError,
   deleteWorkItem,
+  EntryResolverUnavailableError,
+  EntryUnresolvedError,
   getWorkItem,
   patchWorkItem,
   WorkItemForbiddenError,
@@ -125,7 +130,10 @@ export const PATCH = wrapRouteHandlerWithLogging<{
         id: sessionUser.id,
         walletAddress: sessionUser.walletAddress,
       });
-      ctx.log.info({ workItemId: id }, "work.items.patch_success");
+      ctx.log.info(
+        { workItemId: id, citeCount: parseResult.data.cites?.length ?? 0 },
+        "work.items.patch_success"
+      );
       return NextResponse.json(workItemsPatchOperation.output.parse(patched));
     } catch (e) {
       if (e instanceof WorkItemWriteOutcomeUnknownError)
@@ -156,6 +164,61 @@ export const PATCH = wrapRouteHandlerWithLogging<{
           },
           { status: 409 }
         );
+      // The adapter is the one enforcer of reason and cites (task.0086); the schema above
+      // says the same thing earlier, so these cover a rule the schema could not see.
+      if (e instanceof ChangeReasonInvalidError) {
+        return NextResponse.json(
+          {
+            error: "invalid input",
+            issues: [{ code: "custom", path: ["reason"], message: e.message }],
+          },
+          { status: 400 }
+        );
+      }
+      if (e instanceof CitesInvalidError) {
+        return NextResponse.json(
+          {
+            error: "invalid input",
+            issues: e.issues.map((message) => ({
+              code: "custom",
+              path: ["cites"],
+              message,
+            })),
+          },
+          { status: 400 }
+        );
+      }
+      if (e instanceof EntryUnresolvedError) {
+        return NextResponse.json(
+          {
+            error: "invalid input",
+            errorCode: e.code,
+            ids: e.ids,
+            issues: e.ids.map((cited) => ({
+              code: "custom",
+              path: ["cites"],
+              message: `cited entry not found: ${cited}`,
+            })),
+          },
+          { status: 400 }
+        );
+      }
+      if (e instanceof CitesUnsupportedError) {
+        return NextResponse.json(
+          {
+            error: "invalid input",
+            errorCode: e.code,
+            issues: [{ code: "custom", path: ["cites"], message: e.message }],
+          },
+          { status: 400 }
+        );
+      }
+      if (e instanceof EntryResolverUnavailableError) {
+        return NextResponse.json(
+          { error: "cites_unavailable", errorCode: e.code, message: e.message },
+          { status: 503 }
+        );
+      }
       if (e instanceof WorkItemNotFoundError) {
         return NextResponse.json({ error: e.message }, { status: 404 });
       }

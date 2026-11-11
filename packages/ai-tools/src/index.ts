@@ -390,19 +390,8 @@ export {
   workItemQueryContract,
   workItemQueryStubImplementation,
 } from "./tools/work-item-query";
-export {
-  createWorkItemTransitionImplementation,
-  WORK_ITEM_TRANSITION_NAME,
-  type WorkItemTransitionDeps,
-  type WorkItemTransitionInput,
-  WorkItemTransitionInputSchema,
-  type WorkItemTransitionOutput,
-  WorkItemTransitionOutputSchema,
-  type WorkItemTransitionRedacted,
-  workItemTransitionBoundTool,
-  workItemTransitionContract,
-  workItemTransitionStubImplementation,
-} from "./tools/work-item-transition";
+// The transition tool is the released shared one; only its id constant is re-exported for graph tool lists.
+export { WORK_ITEM_TRANSITION_NAME } from "@cogni/shared-ai-tools";
 // Tool types
 export type {
   BoundTool,

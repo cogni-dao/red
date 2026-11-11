@@ -145,6 +145,10 @@ export const CORE_TOOL_BUNDLE: readonly CatalogBoundTool[] = [
   vcsMergePrBoundTool as CatalogBoundTool,
   webSearchBoundTool as CatalogBoundTool,
   sharedTool("core__work_item_query"),
+  // The released work-prioritizer reads each item with core__work_item_read. core__work_item_update is
+  // deliberately not in this catalog: no red program may write through it until the program plumbing
+  // (program, sourceContext, run hooks) is ported.
+  sharedTool("core__work_item_read"),
   sharedTool("core__work_item_transition"),
 ];
 
