@@ -23,7 +23,11 @@ import {
   GOAL_LIST_NAME,
   createKnowledgeSearchImplementation,
   createWorkItemQueryImplementation,
+  createWorkItemReadImplementation,
   createWorkItemTransitionImplementation,
+  createWorkItemUpdateImplementation,
+  WORK_ITEM_READ_NAME,
+  WORK_ITEM_UPDATE_NAME,
 } from "@cogni/shared-ai-tools";
 
 import type {
@@ -222,7 +226,17 @@ export function createToolBindings(deps: ToolBindingDeps): ToolBindings {
       nodePublicOrigin: deps.nodePublicOrigin,
     }) as AnyToolImplementation,
 
+    [WORK_ITEM_READ_NAME]: createWorkItemReadImplementation({
+      workItemCapability: deps.workItemCapability,
+      nodePublicOrigin: deps.nodePublicOrigin,
+    }) as AnyToolImplementation,
+
     [WORK_ITEM_TRANSITION_NAME]: createWorkItemTransitionImplementation({
+      workItemCapability: deps.workItemCapability,
+    }) as AnyToolImplementation,
+
+    // task.0086: mirrors PATCH /api/v1/work/items/{id}; same capability, same store, same reason rule.
+    [WORK_ITEM_UPDATE_NAME]: createWorkItemUpdateImplementation({
       workItemCapability: deps.workItemCapability,
     }) as AnyToolImplementation,
   };

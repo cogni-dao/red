@@ -145,7 +145,11 @@ export const CORE_TOOL_BUNDLE: readonly CatalogBoundTool[] = [
   vcsMergePrBoundTool as CatalogBoundTool,
   webSearchBoundTool as CatalogBoundTool,
   sharedTool("core__work_item_query"),
+  // task.0086: the released work-prioritizer reads with core__work_item_read and writes only through
+  // core__work_item_update (requires work_item:transition, declared by the shared contract).
+  sharedTool("core__work_item_read"),
   sharedTool("core__work_item_transition"),
+  sharedTool("core__work_item_update"),
 ];
 
 /**
