@@ -25,7 +25,9 @@ vi.mock("@/bootstrap/container", () => ({
 }));
 
 import {
+  CitesUnsupportedError,
   createWorkItem,
+  EntryUnresolvedError,
   getWorkItem,
   listWorkItems,
   NodeAdminRequiredError,
@@ -302,7 +304,7 @@ describe("P0P1_IS_NODE_ADMIN — priority <= 1 needs node admin (story.5101)", (
     for (const priority of [0, 1]) {
       const store = withAuthority(false);
       const err = await patchWorkItem(
-        { id: "task.5001", set: { priority } } as never,
+        { id: "task.5001", reason: "test change", set: { priority } } as never,
         { id: "agent-1", walletAddress: null }
       ).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(NodeAdminRequiredError);
@@ -327,10 +329,66 @@ describe("P0P1_IS_NODE_ADMIN — priority <= 1 needs node admin (story.5101)", (
 
   it("the node admin may set p0", async () => {
     const store = withAuthority(true);
-    await patchWorkItem({ id: "task.5001", set: { priority: 0 } } as never, {
-      id: "u1",
-      walletAddress: "0xabc",
-    });
+    await patchWorkItem(
+      {
+        id: "task.5001",
+        reason: "test change",
+        set: { priority: 0 },
+      } as never,
+      {
+        id: "u1",
+        walletAddress: "0xabc",
+      }
+    );
     expect(store.patch).toHaveBeenCalledTimes(1);
+    expect(store.patch).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "test change" }),
+      "u1"
+    );
+  });
+
+  it("forwards cites and rebuilds the adapter's cite errors as the facade's own classes (task.0086)", async () => {
+    const store = withAuthority(true);
+    const cites = [{ id: "change-history-design" }];
+    await patchWorkItem(
+      {
+        id: "task.5001",
+        reason: "scope follows the design",
+        cites,
+        set: { rank: 2 },
+      } as never,
+      { id: "u1", walletAddress: null }
+    );
+    expect(store.patch).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        reason: "scope follows the design",
+        cites,
+      }),
+      "u1"
+    );
+    // Root and adapter entrypoints may bundle separate classes: match by name.
+    store.patch.mockRejectedValueOnce(
+      Object.assign(new Error("not found"), {
+        name: "EntryUnresolvedError",
+        ids: ["nope"],
+      })
+    );
+    const unresolved = await patchWorkItem(
+      { id: "task.5001", reason: "why", cites: [{ id: "nope" }], set: { rank: 2 } } as never,
+      { id: "u1", walletAddress: null }
+    ).catch((e: unknown) => e);
+    expect(unresolved).toBeInstanceOf(EntryUnresolvedError);
+    expect((unresolved as EntryUnresolvedError).ids).toEqual(["nope"]);
+    store.patch.mockRejectedValueOnce(
+      Object.assign(new Error("no resolver"), {
+        name: "CitesUnsupportedError",
+      })
+    );
+    await expect(
+      patchWorkItem(
+        { id: "task.5001", reason: "why", cites, set: { rank: 2 } } as never,
+        { id: "u1", walletAddress: null }
+      )
+    ).rejects.toBeInstanceOf(CitesUnsupportedError);
   });
 });

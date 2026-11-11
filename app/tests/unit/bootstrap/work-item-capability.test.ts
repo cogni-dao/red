@@ -46,7 +46,12 @@ describe("RED live score writer", () => {
         principalId: () => actor,
       },
     });
-    const input = { id: item.id, expectedRevision: 1, set: { scores } };
+    const input = {
+      id: item.id,
+      expectedRevision: 1,
+      reason: "test change",
+      set: { scores },
+    };
     await capability.patch(input);
     actor = "actor-b";
     const result = await capability.patch(input);
@@ -66,9 +71,40 @@ describe("RED live score writer", () => {
     expect(patch).toHaveBeenCalledTimes(2);
     actor = "actor-b";
     await expect(
-      capability.patch({ id: item.id, set: { priority: 1 } })
+      capability.patch({
+        id: item.id,
+        reason: "test change",
+        set: { priority: 1 },
+      })
     ).rejects.toThrow("node admin");
     expect(patch).toHaveBeenCalledTimes(2);
+  });
+  it("forwards the required reason and the cites to the live store (task.0086)", async () => {
+    const patch = vi.fn().mockResolvedValue(item);
+    const capability = createWorkItemCapability({
+      workItemQuery: {} as never,
+      workItemCommand: {} as never,
+      backlogWriter: {
+        patch: patch as WorkItemsContentPort["patch"],
+        principalId: () => "actor-a",
+      },
+    });
+    const cites = [{ id: "change-history-design" }];
+    await capability.patch({
+      id: item.id,
+      reason: "scope follows the design",
+      cites,
+      set: { rank: 2 },
+    });
+    expect(patch).toHaveBeenCalledWith(
+      {
+        id: item.id,
+        reason: "scope follows the design",
+        cites,
+        set: { rank: 2 },
+      },
+      "actor-a"
+    );
   });
   it("forwards mixed triage plus foreign content unchanged and preserves the package ownership denial", async () => {
     const denied = Object.assign(
@@ -84,6 +120,7 @@ describe("RED live score writer", () => {
     const input = {
       id: item.id,
       expectedRevision: 1,
+      reason: "test change",
       set: { scores, summary: "foreign content" },
     };
     await expect(capability.patch(input)).rejects.toBe(denied);
