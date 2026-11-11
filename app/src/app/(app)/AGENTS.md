@@ -50,6 +50,7 @@ pnpm build   # build for production
 - Auth route coverage lives in `proxy.ts`. Add new protected top-level routes there before linking them in the shell.
 - Unauthenticated users are redirected to `/` before the app shell renders. No auto sign-out — sign-out is an explicit user action.
 - Sidebar navigation links stay within `(app)` routes. The sidebar logo links to `/chat`, not `/`.
+- PEEK_KEEPS_PAGE (bug.0011): citation links in entry Links and inbox cards render through `PeekLink` (`_components/EntityPeek.tsx`). A plain click on a knowledge id opens it in the shell-level side sheet (`EntityPeekProvider` in `layout.tsx`), and links inside the sheet swap its entry. Modified clicks, work-item ids and links outside the provider navigate.
 
 ## Dependencies
 

@@ -4,7 +4,7 @@
 /**
  * Module: `@app/api/v1/citations/[id]/route`
  * Purpose: GET /api/v1/citations/:id — depth-1 citation links for one
- *   knowledge or work-item endpoint, resolved into clickable UI metadata.
+ *   knowledge or work-item endpoint, five metadata links per cursor page.
  * Scope: Authenticated session/bearer read endpoint. Delegates reads through
  *   the knowledge store port; performs no writes or per-endpoint body reads.
  * Invariants: VALIDATE_IO, CITATION_LINKS_ARE_EDGES, DEPTH_1_INDEXED_READ.
@@ -13,9 +13,9 @@
  * @public
  */
 
+import { describeCitation, isWorkItemEndpointId } from "@cogni/knowledge-store";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-
 import { getSessionUser } from "@/app/_lib/auth/session";
 import { getContainer } from "@/bootstrap/container";
 import { wrapRouteHandlerWithLogging } from "@/bootstrap/http";
@@ -38,6 +38,9 @@ const CitationLinkSchema = z.object({
   source: CitationEndpointSchema,
   target: CitationEndpointSchema,
   context: z.string().nullable(),
+  /** This side's reading from CITATION_TYPE_DEFINITIONS ("supported by" on the cited side). */
+  label: z.string(),
+  tone: z.enum(["positive", "negative", "warning", "neutral", "muted"]),
 });
 
 const CitationLinksResponseSchema = z.object({
@@ -51,19 +54,13 @@ const CitationLinksQuerySchema = z.object({
 
 type CitationEndpoint = z.infer<typeof CitationEndpointSchema>;
 
-function isWorkItemEndpointId(id: string): boolean {
-  return /^(task|bug|spike|story|subtask)\.\d+$/.test(id);
-}
-
 function endpoint(id: string, title: string | null): CitationEndpoint {
   const isWork = isWorkItemEndpointId(id);
   return {
     id,
     kind: isWork ? "work" : "knowledge",
     title,
-    href: isWork
-      ? workItemPermalink(id)
-      : `/knowledge/${encodeURIComponent(id)}`,
+    href: isWork ? workItemPermalink(id) : `/knowledge/${encodeURIComponent(id)}`,
   };
 }
 
@@ -96,14 +93,18 @@ export const GET = wrapRouteHandlerWithLogging<{
       return NextResponse.json({ error: "invalid cursor" }, { status: 400 });
     }
     const page = await port.listCitationLinks(id, parsed.data.cursor);
-    const links = page.links.map((citation) => ({
-      id: citation.id,
-      direction: citation.citingId === id ? ("out" as const) : ("in" as const),
-      citationType: citation.citationType,
-      source: endpoint(citation.citingId, citation.sourceTitle),
-      target: endpoint(citation.citedId, citation.targetTitle),
-      context: citation.context,
-    }));
+    const links = page.links.map((c) => {
+      const direction = c.citingId === id ? ("out" as const) : ("in" as const);
+      return {
+        id: c.id,
+        direction,
+        citationType: c.citationType,
+        source: endpoint(c.citingId, c.sourceTitle),
+        target: endpoint(c.citedId, c.targetTitle),
+        context: c.context,
+        ...describeCitation(c.citationType, direction),
+      };
+    });
     ctx.log.info(
       { id, count: links.length, hasMore: page.nextCursor !== null },
       "citations.links_success"
