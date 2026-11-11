@@ -1,6 +1,17 @@
 // SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
 // SPDX-FileCopyrightText: 2026 Cogni-DAO
 
+/**
+ * Module: `@/bootstrap/capabilities/work-item`
+ * Purpose: RED's WorkItemCapability over the live Doltgres backlog and the markdown ports.
+ * Scope: Capability composition only. The store, not this module, enforces the reason and cites.
+ * Invariants:
+ *   - PATCH_REASON_AND_CITES (task.0086): the required `reason` and the optional `cites` are forwarded to the Doltgres store, the one enforcer.
+ *     The markdown fallback (development only) has no history, so it DROPS both reason and cites; the tool schema still requires a reason.
+ * Side-effects: none
+ * @internal
+ */
+
 import { isPrivilegedPriority } from "@cogni/knowledge-store";
 /** RED's tool capability uses the live backlog and released score/rank contracts. */
 import type { WorkItemCapability, WorkItemInfo } from "@cogni/shared-ai-tools";

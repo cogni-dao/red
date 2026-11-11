@@ -10,13 +10,11 @@
  *   - EFFECT_TYPED: effect is `state_change`
  *   - NO_ONEOF_IN_SCHEMA: Uses flat z.object per tool-use.md #10
  *   - TRANSITION_TABLE_ENFORCED: Capability validates transitions via development-lifecycle.md
- *   - PATCH_REASON_REQUIRED (task.0086): a `patch` action without a valid reason fails before the capability; the store enforces it again.
  * Side-effects: IO (mutates work items via capability)
  * Links: docs/spec/development-lifecycle.md, docs/spec/tool-use.md
  * @public
  */
 
-import { checkChangeReason } from "@cogni-dao/work-items";
 import { z } from "zod";
 
 import type { WorkItemCapability } from "../capabilities/work-item";
@@ -59,9 +57,7 @@ export const WorkItemTransitionInputSchema = z.object({
   reason: z
     .string()
     .optional()
-    .describe(
-      "Why this change happens, one line. Required for 'patch' (at most 25 words): it is stored in the item's history, never in the item. For 'transition' it is the optional audit reason."
-    ),
+    .describe("Reason for the transition — recorded in audit trail"),
   priority: z
     .number()
     .int()
@@ -112,7 +108,7 @@ export const workItemTransitionContract: ToolContract<
   description:
     "Modify a work item. Actions: " +
     "'transition' (requires id + toStatus, optional reason) changes the item's lifecycle status, " +
-    "'patch' (requires id and a reason that says why, optional priority/labels/summary) updates metadata fields. " +
+    "'patch' (requires id, optional priority/labels/summary) updates metadata fields. " +
     "Use core__work_item_query first to find items and check their current status.",
   effect: "state_change",
   inputSchema: WorkItemTransitionInputSchema,
@@ -182,10 +178,8 @@ export function createWorkItemTransitionImplementation(
             );
           }
 
-          // The rule the store applies to every patch reason: required, one line, 1-240 chars, at most 25 words.
-          const checked = checkChangeReason(input.reason);
-          if (!checked.ok) throw new Error(checked.message);
-
+          // Type-only pass-through: this copy is not bound in the catalog (the shared tool is),
+          // and it enforces nothing; the store is the one enforcer of the reason.
           const result = await workItemCapability.patch({
             id: input.id,
             reason: input.reason as string,
