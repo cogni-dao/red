@@ -4,7 +4,7 @@
 /**
  * Module: `@app/api/v1/citations/[id]/route`
  * Purpose: GET /api/v1/citations/:id — depth-1 citation links for one
- *   knowledge or work-item endpoint, five metadata links per cursor page.
+ *   knowledge or work-item endpoint, resolved into clickable UI metadata.
  * Scope: Authenticated session/bearer read endpoint. Delegates reads through
  *   the knowledge store port; performs no writes or per-endpoint body reads.
  * Invariants: VALIDATE_IO, CITATION_LINKS_ARE_EDGES, DEPTH_1_INDEXED_READ.
@@ -13,9 +13,10 @@
  * @public
  */
 
-import { describeCitation, isWorkItemEndpointId } from "@cogni/knowledge-store";
+import { describeCitation } from "@cogni/knowledge-store";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+
 import { getSessionUser } from "@/app/_lib/auth/session";
 import { getContainer } from "@/bootstrap/container";
 import { wrapRouteHandlerWithLogging } from "@/bootstrap/http";
@@ -54,13 +55,19 @@ const CitationLinksQuerySchema = z.object({
 
 type CitationEndpoint = z.infer<typeof CitationEndpointSchema>;
 
+function isWorkItemEndpointId(id: string): boolean {
+  return /^(task|bug|spike|story|subtask)\.\d+$/.test(id);
+}
+
 function endpoint(id: string, title: string | null): CitationEndpoint {
   const isWork = isWorkItemEndpointId(id);
   return {
     id,
     kind: isWork ? "work" : "knowledge",
     title,
-    href: isWork ? workItemPermalink(id) : `/knowledge/${encodeURIComponent(id)}`,
+    href: isWork
+      ? workItemPermalink(id)
+      : `/knowledge/${encodeURIComponent(id)}`,
   };
 }
 
@@ -93,16 +100,17 @@ export const GET = wrapRouteHandlerWithLogging<{
       return NextResponse.json({ error: "invalid cursor" }, { status: 400 });
     }
     const page = await port.listCitationLinks(id, parsed.data.cursor);
-    const links = page.links.map((c) => {
-      const direction = c.citingId === id ? ("out" as const) : ("in" as const);
+    const links = page.links.map((citation) => {
+      const direction =
+        citation.citingId === id ? ("out" as const) : ("in" as const);
       return {
-        id: c.id,
+        id: citation.id,
         direction,
-        citationType: c.citationType,
-        source: endpoint(c.citingId, c.sourceTitle),
-        target: endpoint(c.citedId, c.targetTitle),
-        context: c.context,
-        ...describeCitation(c.citationType, direction),
+        citationType: citation.citationType,
+        source: endpoint(citation.citingId, citation.sourceTitle),
+        target: endpoint(citation.citedId, citation.targetTitle),
+        context: citation.context,
+        ...describeCitation(citation.citationType, direction),
       };
     });
     ctx.log.info(

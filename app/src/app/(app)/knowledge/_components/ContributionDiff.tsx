@@ -31,12 +31,12 @@ import { HtmlRenderer } from "./HtmlRenderer";
 
 /** True when any diff row is an `html` entry (callers widen the layout). */
 export function diffHasHtmlEntry(
-  diff: ContributionDiffEntry[] | null,
+  diff: ContributionDiffEntry[] | null
 ): boolean {
   return (diff ?? []).some(
     (d) =>
       ((d.after ?? d.before) as { entryType?: string } | null)?.entryType ===
-      "html",
+      "html"
   );
 }
 
@@ -65,7 +65,7 @@ export function ContributionDiff({
 }): ReactElement {
   const [diff, setDiff] = useState<ContributionDiffEntry[] | null>(null);
   const [citations, setCitations] = useState<ContributionCitationDiffEntry[]>(
-    [],
+    []
   );
   const [diffError, setDiffError] = useState<string | null>(null);
   const onLoadedRef = useRef(onLoaded);
@@ -78,7 +78,7 @@ export function ContributionDiff({
     let cancelled = false;
     fetch(
       `/api/v1/knowledge/contributions/${encodeURIComponent(contributionId)}/diff`,
-      { credentials: "same-origin", cache: "no-store" },
+      { credentials: "same-origin", cache: "no-store" }
     )
       .then(async (r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
