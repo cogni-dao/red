@@ -100,19 +100,24 @@ export async function makeServerGraph<
   }
 
   // Create tool execution function for dev server
+  const execute = createDevToolExecFn(boundTools);
+  const hooks = (createGraph as import("../../inproc/types").CreateGraphFn).createRunHooks?.({
+    ...(opts.program !== undefined && { program: opts.program }),
+    ...(opts.sourceContext?.origin !== undefined && { origin: opts.sourceContext.origin }),
+  });
+  const devToolExecFn: typeof execute = async (name, args, callId) => {
+    const result = await execute(name, args, callId);
+    hooks?.observeTool?.(name, args, result, callId);
+    return result;
+  };
+
+  // Convert to LangChain tools
   const toolContracts = Object.values(boundTools).map((bt) => bt.contract);
-  const buildGraph = () => {
-    const execute = createDevToolExecFn(boundTools);
-    const hooks = (createGraph as import("../../inproc/types").CreateGraphFn).createRunHooks?.({
-      ...(opts.program !== undefined && { program: opts.program }),
-      ...(opts.sourceContext?.origin !== undefined && { origin: opts.sourceContext.origin }),
-    });
-    const devToolExecFn: typeof execute = async (name, args, callId) => {
-      const result = await execute(name, args, callId);
-      hooks?.observeTool?.(name, args, result, callId);
-      return result;
-    };
-    const tools: StructuredToolInterface[] = toLangChainToolsCaptured({ contracts: toolContracts, toolExecFn: devToolExecFn });
+  const tools: StructuredToolInterface[] = toLangChainToolsCaptured({
+    contracts: toolContracts,
+    toolExecFn: devToolExecFn,
+  });
+
   // Create graph using factory - cast preserves concrete return type
   return createGraph({
     llm, tools,
@@ -130,32 +135,4 @@ export async function makeServerGraph<
       return content;
     },
   }) as ReturnType<TCreateGraph>;
-  };
-  if (!opts.program) return buildGraph();
-
-  // The dev server keeps exported graphs alive. Each invocation needs fresh program receipts,
-  // including calls made through a withConfig binding. Preserve compiled-graph introspection.
-  function isolate<T extends object>(factory: () => T): T {
-    const target = factory();
-    return new Proxy(target, {
-      get(instance, property) {
-        if (property === "withConfig") return (...args: unknown[]) => isolate(() => {
-          const fresh = factory();
-          const method: unknown = Reflect.get(fresh, property);
-          if (typeof method !== "function") throw new Error("program_method_unavailable");
-          return Reflect.apply(method, fresh, args) as T;
-        });
-        if (["invoke", "stream", "streamEvents", "streamLog"].includes(String(property))) return (...args: unknown[]) => {
-          const fresh = factory();
-          const method: unknown = Reflect.get(fresh, property);
-          if (typeof method !== "function") throw new Error("program_method_unavailable");
-          return Reflect.apply(method, fresh, args);
-        };
-        if (["batch", "batchAsCompleted"].includes(String(property))) return () => { throw new Error("program_batch_not_supported"); };
-        const value = Reflect.get(instance, property);
-        return typeof value === "function" ? value.bind(instance) : value;
-      },
-    });
-  }
-  return isolate(buildGraph as () => object) as ReturnType<TCreateGraph>;
 }
