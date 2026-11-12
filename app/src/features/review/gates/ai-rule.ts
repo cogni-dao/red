@@ -7,7 +7,7 @@ import type { GraphExecutorPort } from "@/ports";
 import type { EvidenceBundle, GateResult } from "../types";
 
 export async function evaluateAiRule(params: {
-  readonly rule: Rule;
+  readonly rule: Pick<Rule, "id">;
   readonly evidence: EvidenceBundle;
   readonly executor: GraphExecutorPort;
   readonly model: string;

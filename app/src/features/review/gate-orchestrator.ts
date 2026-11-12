@@ -111,7 +111,8 @@ async function executeGate(
       return evaluateReviewLimits(evidence, gate.with);
 
     case "ai-rule": {
-      const rule = deps.loadRule(gate.with.rule_file);
+      // Reject retired declarations before attempting file I/O or YAML parsing.
+      const rule = { id: gate.id ?? gate.with.rule_file };
       return evaluateAiRule({
         rule,
         evidence,

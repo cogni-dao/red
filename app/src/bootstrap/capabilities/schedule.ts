@@ -95,6 +95,12 @@ export function createScheduleCapability(
 
     async create(input: ScheduleCreateParams): Promise<ScheduleInfo> {
       const userId = resolveUserId();
+      const modelRef = getExecutionScope().modelRef;
+      if (!modelRef) throw new Error("ScheduleCapability: current run modelRef required");
+      const payload: Record<string, unknown> = { ...input.input, modelRef };
+      if (!Array.isArray(payload.messages) || payload.messages.length === 0) throw new Error("ScheduleCapability: messages required");
+      const meta = payload._meta;
+      if (!meta || typeof meta !== "object" || !("purpose" in meta) || typeof meta.purpose !== "string" || !meta.purpose.trim()) throw new Error("ScheduleCapability: stable purpose required");
       const billingAccountId = await getOrCreateBillingAccountId(userId);
       const spec = await scheduleManager.createSchedule(
         userId,
@@ -102,7 +108,7 @@ export function createScheduleCapability(
         {
           nodeId: getNodeId(),
           graphId: input.graphId,
-          input: input.input,
+          input: payload,
           cron: input.cron,
           timezone: input.timezone,
         }

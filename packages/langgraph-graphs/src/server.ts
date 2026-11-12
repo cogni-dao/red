@@ -4,8 +4,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseRepoSpec, extractNodeMission } from "@cogni/repo-spec";
-import { createCogniGraph, createWorkPrioritizerGraph } from "@cogni/shared-langgraph-graphs/graphs";
-import { LANGGRAPH_CATALOG } from "./catalog";
+import { NODE_LANGGRAPH_CATALOG } from "@cogni/shared-langgraph-graphs";
 import { makeServerGraph } from "./runtime/core/make-server-graph";
 
 // Host provenance belongs to this dev entrypoint, never to a graph or model input.
@@ -15,8 +14,8 @@ const sourceContext = {
   origin: process.env.APP_BASE_URL ?? "http://localhost:3000",
   mission: { content: extractNodeMission(spec) ?? "", sourceRef: ".cogni/repo-spec.yaml", buildSha: process.env.COGNI_REPO_SHA ?? null },
 };
-const cogniEntry = LANGGRAPH_CATALOG.cogni!;
-const prioritizerEntry = LANGGRAPH_CATALOG["work-prioritizer"]!;
+const cogniEntry = NODE_LANGGRAPH_CATALOG.cogni;
+const prioritizerEntry = NODE_LANGGRAPH_CATALOG["work-prioritizer"];
 
-export const cogni = await makeServerGraph({ name: "cogni", createGraph: createCogniGraph, toolIds: cogniEntry.toolIds, program: "cogni", sourceContext, ...(cogniEntry.systemPrompt !== undefined && {systemPrompt: cogniEntry.systemPrompt}) });
-export const workPrioritizer = await makeServerGraph({ name: "work-prioritizer", createGraph: createWorkPrioritizerGraph, toolIds: prioritizerEntry.toolIds, program: "work-review", sourceContext, ...(prioritizerEntry.systemPrompt !== undefined && {systemPrompt: prioritizerEntry.systemPrompt}) });
+export const cogni = await makeServerGraph({ name: "cogni", createGraph: cogniEntry.graphFactory, toolIds: cogniEntry.toolIds, program: "cogni", sourceContext, ...(cogniEntry.systemPrompt !== undefined && {systemPrompt: cogniEntry.systemPrompt}) });
+export const workPrioritizer = await makeServerGraph({ name: "work-prioritizer", createGraph: prioritizerEntry.graphFactory, toolIds: prioritizerEntry.toolIds, program: "work-review", sourceContext, ...(prioritizerEntry.systemPrompt !== undefined && {systemPrompt: prioritizerEntry.systemPrompt}) });

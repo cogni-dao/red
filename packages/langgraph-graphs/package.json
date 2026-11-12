@@ -41,7 +41,7 @@
   },
   "dependencies": {
     "@cogni/ai-core": "workspace:*",
-    "@cogni/ai-tools": "https://github.com/cogni-dao/node-template/releases/download/ai-tools-v0.8.0/cogni-dao-ai-tools-0.8.0.tgz",
+    "@cogni/ai-tools": "https://github.com/cogni-dao/node-template/releases/download/ai-tools-v0.9.1/cogni-dao-ai-tools-0.9.1.tgz",
     "@cogni/red-ai-tools": "workspace:@cogni/ai-tools@*",
     "@cogni/shared-langgraph-graphs": "https://github.com/cogni-dao/node-template/releases/download/langgraph-graphs-v0.7.0/cogni-dao-langgraph-graphs-0.7.0.tgz",
     "@langchain/core": "1.2.14",
