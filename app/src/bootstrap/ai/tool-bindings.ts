@@ -24,6 +24,8 @@ import {
   createKnowledgeSearchImplementation,
   createWorkItemQueryImplementation,
   createWorkItemReadImplementation,
+  createWorkItemUpdateImplementation,
+  WORK_ITEM_UPDATE_NAME,
   createWorkItemTransitionImplementation,
   WORK_ITEM_READ_NAME,
 } from "@cogni/shared-ai-tools";
@@ -223,6 +225,8 @@ export function createToolBindings(deps: ToolBindingDeps): ToolBindings {
       workItemCapability: deps.workItemCapability,
       nodePublicOrigin: deps.nodePublicOrigin,
     }) as AnyToolImplementation,
+
+    [WORK_ITEM_UPDATE_NAME]: createWorkItemUpdateImplementation({ workItemCapability: deps.workItemCapability }) as AnyToolImplementation,
 
     [WORK_ITEM_READ_NAME]: createWorkItemReadImplementation({
       workItemCapability: deps.workItemCapability,

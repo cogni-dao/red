@@ -59,6 +59,9 @@ export async function makeServerGraph<
   readonly createGraph: TCreateGraph;
   /** Tool IDs this graph uses (from per-graph tools.ts) */
   readonly toolIds: readonly string[];
+  readonly program?: CreateReactAgentGraphOptions["program"];
+  readonly sourceContext?: CreateReactAgentGraphOptions["sourceContext"];
+  readonly systemPrompt?: string;
 }): Promise<ReturnType<TCreateGraph>> {
   const { name, createGraph, toolIds } = opts;
 
@@ -97,7 +100,16 @@ export async function makeServerGraph<
   }
 
   // Create tool execution function for dev server
-  const devToolExecFn = createDevToolExecFn(boundTools);
+  const execute = createDevToolExecFn(boundTools);
+  const hooks = (createGraph as import("../../inproc/types").CreateGraphFn).createRunHooks?.({
+    ...(opts.program !== undefined && { program: opts.program }),
+    ...(opts.sourceContext?.origin !== undefined && { origin: opts.sourceContext.origin }),
+  });
+  const devToolExecFn: typeof execute = async (name, args, callId) => {
+    const result = await execute(name, args, callId);
+    hooks?.observeTool?.(name, args, result, callId);
+    return result;
+  };
 
   // Convert to LangChain tools
   const toolContracts = Object.values(boundTools).map((bt) => bt.contract);
@@ -107,5 +119,20 @@ export async function makeServerGraph<
   });
 
   // Create graph using factory - cast preserves concrete return type
-  return createGraph({ llm, tools }) as ReturnType<TCreateGraph>;
+  return createGraph({
+    llm, tools,
+    ...hooks?.graphOptions,
+    ...(opts.program !== undefined && { program: opts.program }),
+    ...(opts.sourceContext !== undefined && { sourceContext: opts.sourceContext }),
+    ...(opts.systemPrompt !== undefined && { systemPrompt: opts.systemPrompt }),
+    readToolIds: toolContracts.filter((c) => c.effect === "read_only").map((c) => c.name),
+    readSkill: async (id: string) => {
+      const result = await devToolExecFn("core__knowledge_read", { id });
+      if (!result.ok) { hooks?.onSkillReadFailure?.(); throw new Error("skill_read_unavailable"); }
+      const data = result.value as { entries?: { id: string; content: string }[] };
+      const content = data.entries?.find((entry) => entry.id === id)?.content;
+      if (!content?.trim()) { hooks?.onSkillReadFailure?.(); throw new Error("skill_read_unavailable"); }
+      return content;
+    },
+  }) as ReturnType<TCreateGraph>;
 }

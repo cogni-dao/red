@@ -16,6 +16,8 @@
 
 import type { GraphId, ModelRef } from "@cogni/ai-core";
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import type { AgentDescriptor } from "@/ports";
 import {
   type GraphOption,
   GraphPicker,
@@ -30,62 +32,8 @@ import {
   validatePreferredModel,
 } from "@/features/ai/preferences/model-preference";
 
-/**
- * TODO: P1 - Replace hardcoded graphs with API fetch from /api/v1/ai/agents
- * Per CATALOG_STATIC_IN_P0: graphs are static, no runtime discovery yet.
- * See AGENT_DISCOVERY.md Phase 2 checklist.
- */
-const AVAILABLE_GRAPHS: readonly GraphOption[] = [
-  {
-    graphId: "langgraph:poly-brain" satisfies GraphId,
-    name: "Poly Brain",
-    description: "Prediction market analyst with live market data",
-  },
-  {
-    graphId: "langgraph:brain" satisfies GraphId,
-    name: "Brain",
-    description: "Code-aware assistant with repo access",
-  },
-  {
-    graphId: "langgraph:poet" satisfies GraphId,
-    name: "Poet",
-    description: "Poetic AI assistant with structured verse",
-  },
-  {
-    graphId: "langgraph:ponderer" satisfies GraphId,
-    name: "Ponderer",
-    description: "Philosophical thinker",
-  },
-  {
-    graphId: "langgraph:research" satisfies GraphId,
-    name: "Research",
-    description: "Deep research with web search",
-  },
-  {
-    graphId: "langgraph:red-solver" satisfies GraphId,
-    name: "Red Solver",
-    description: "Authorized ethical red-team solver — scope-bound HTTP attack loop",
-  },
-  {
-    graphId: "langgraph:browser" satisfies GraphId,
-    name: "Browser",
-    description: "Web browsing agent with Playwright MCP",
-  },
-  {
-    graphId: "langgraph:frontend-tester" satisfies GraphId,
-    name: "Frontend Tester",
-    description: "QA agent — tests web UIs via Playwright",
-  },
-  {
-    graphId: "langgraph:operating-review" satisfies GraphId,
-    name: "Operating Review",
-    description:
-      "Periodic review — triages backlog, flags risks, produces structured briefs",
-  },
-];
-
-/** Default graph ID - exported for page initialization */
-export const DEFAULT_GRAPH_ID: GraphId = "langgraph:brain";
+/** Red's default is in the published node core; live options come from discovery. */
+export const DEFAULT_GRAPH_ID: GraphId = "langgraph:cogni";
 
 export interface ChatComposerExtrasProps {
   selectedModel: string;
@@ -105,6 +53,17 @@ export function ChatComposerExtras({
   onGraphChange,
 }: Readonly<ChatComposerExtrasProps>) {
   const modelsQuery = useModels();
+  const agentsQuery = useQuery({
+    queryKey: ["ai-agents"],
+    queryFn: async (): Promise<GraphOption[]> => {
+      const response = await fetch("/api/v1/ai/agents");
+      if (!response.ok) throw new Error("Failed to load agents");
+      const data = await response.json() as { agents: AgentDescriptor[] };
+      return data.agents
+        .filter((agent) => agent.graphId.startsWith("langgraph:"))
+        .map((agent) => ({ graphId: agent.graphId as GraphId, name: agent.name, description: agent.description }));
+    },
+  });
   const [localModel, setLocalModel] = useState(selectedModel);
 
   // Initialize from localStorage on mount, validate against API models
@@ -149,10 +108,10 @@ export function ChatComposerExtras({
         balance={balance}
       />
       <GraphPicker
-        graphs={AVAILABLE_GRAPHS}
+        graphs={agentsQuery.data ?? []}
         value={selectedGraph}
         onValueChange={handleGraphChange}
-        disabled={!onGraphChange}
+        disabled={!onGraphChange || agentsQuery.isLoading || agentsQuery.isError}
       />
     </div>
   );

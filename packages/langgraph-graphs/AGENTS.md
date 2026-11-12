@@ -57,16 +57,8 @@ LangGraph graph definitions and runtime utilities for agentic AI execution. Cont
     - **Cogni (uses ALS):** `CogniCompletionAdapter` (with `withStructuredOutput()` for Zod/JSON Schema response parsing), `runWithCogniExecContext()`, `getCogniExecContext()`, `hasCogniExecContext()`, `toLangChainToolsFromContext()`, `makeCogniGraph()`
     - `CogniExecContext` — Runtime context type (completionFn, tokenSink, toolExecFn; NO model per #35)
   - `@cogni/langgraph-graphs/graphs` — Graph factories and shared types:
-    - `createAutoresearchGraph()` — prompt-driven Karpathy-style autoresearch factory for `autoresearch-single-lane`, `autoresearch-syntropy-loop`, and `autoresearch-registry-swarm`
-    - `createPoetGraph()`, `createPondererGraph()` — React agent factories (TYPE_TRANSPARENT_RETURN)
-    - `createBrainGraph()` — Code-aware ReAct agent with repo tools (list, search, open)
-    - `createResearchGraph()` — 3-node MVP research graph (plan_queries → web_search_fanout → rank_and_report)
-    - `createPrReviewGraph()` — Single-call structured output graph for PR review (no tools, `responseFormat` for typed metrics)
-    - `createBrowserGraph()` — Browser automation agent via Playwright MCP (mcpServerIds: ["playwright"])
-    - `createFrontendTesterGraph()` — QA agent for UI testing via Playwright MCP
-    - `PR_MANAGER_GRAPH_NAME`, `PR_MANAGER_PROMPT` — PR Manager agent (merge bot, reads evolving playbook)
-    - `PR_MANAGER_TOOL_IDS` — VCS tools + repo_open (for playbook) + work_item_query
-    - `POET_GRAPH_NAME`, `PONDERER_GRAPH_NAME`, `BRAIN_GRAPH_NAME`, `RESEARCH_GRAPH_NAME`, `PR_REVIEW_GRAPH_NAME`, `BROWSER_GRAPH_NAME`, `FRONTEND_TESTER_GRAPH_NAME` — Graph name constants
+    - Shared core graph factories and types re-exported from `@cogni/shared-langgraph-graphs/graphs`
+    - `createRedSolverGraph()`, `RED_SOLVER_GRAPH_NAME` — the only locally owned graph
     - `InvokableGraph<I,O>`, `MessageGraphInput`, `MessageGraphOutput` — Type firewall
     - `GraphInvokeOptions`, `CreateReactAgentGraphOptions` — Factory types
   - **Per-graph tools:** `src/graphs/*/tools.ts` exports `*_TOOL_IDS` constants (e.g., `BRAIN_TOOL_IDS`, `BrainToolId`)
@@ -123,6 +115,6 @@ pnpm --filter @cogni/langgraph-graphs test
 - Package isolation enables LangGraph Server to import graphs without Next.js deps
 - **Dual tsconfig:** LangGraph CLI generates runtime `.ts` files (`__langgraph__*.ts`) that break `composite` mode. This package uses `tsconfig.json` (noEmit, for CLI) + `tsconfig.build.json` (composite, for `tsc -b`). Root tsconfig.json references the build config explicitly. This is not proper form, but a valid workaround.
 
-The work-prioritizer entry imports the exact published graph factory. RED Solver and local catalog helpers retain the RED tool facade; the released graph has its own public ai-tools peer.
+The catalog and IDs compose the exact published node baseline plus red-solver. The InProc runner and graph option types are also imported from the release. Program/source context and graph reports flow through the provider. A missing runtime tool or host source context stops the run before any model call.
 
 Core tool wrappers delegate to the released runtime; Red graph composition and local ALS execution context remain node-owned.

@@ -807,6 +807,9 @@ importers:
       '@cogni/red-ai-tools':
         specifier: workspace:@cogni/ai-tools@*
         version: link:../ai-tools
+      '@cogni/repo-spec':
+        specifier: workspace:*
+        version: link:../repo-spec
       '@cogni/shared-langgraph-graphs':
         specifier: https://github.com/cogni-dao/node-template/releases/download/langgraph-graphs-v0.7.0/cogni-dao-langgraph-graphs-0.7.0.tgz
         version: '@cogni-dao/langgraph-graphs@https://github.com/cogni-dao/node-template/releases/download/langgraph-graphs-v0.7.0/cogni-dao-langgraph-graphs-0.7.0.tgz(ovensnawyp63osavqvxp2irkqa)'
@@ -856,6 +859,12 @@ importers:
       typescript:
         specifier: ^5
         version: 5.9.3
+      vite-tsconfig-paths:
+        specifier: ^5.1.4
+        version: 5.1.4(typescript@5.9.3)(vite@7.3.5(@types/node@22.19.19)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.4)(yaml@2.9.0))
+      vitest:
+        specifier: ^4.0.9
+        version: 4.1.8(@opentelemetry/api@1.9.1)(@types/node@22.19.19)(happy-dom@20.10.2(bufferutil@4.1.0)(utf-8-validate@5.0.10))(jsdom@27.4.0(@noble/hashes@1.8.0)(bufferutil@4.1.0)(utf-8-validate@5.0.10))(vite@7.3.5(@types/node@22.19.19)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.4)(yaml@2.9.0))
 
   packages/node-app:
     dependencies:
