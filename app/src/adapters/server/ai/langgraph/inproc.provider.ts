@@ -28,6 +28,9 @@ import type { CatalogBoundTool } from "@cogni/ai-tools";
 import {
   type CompletionFn,
   type CreateGraphFn,
+  type InProcRunnerOptions,
+  type GraphReportDecl,
+  graphReportLogFields,
   createInProcGraphRunner,
   type GraphResult,
   type InProcGraphRequest,
@@ -81,6 +84,8 @@ interface ProviderCatalogEntry {
   readonly mcpServerIds?: readonly string[];
   readonly graphFactory: CreateGraphFn;
   readonly systemPrompt?: string;
+  readonly program?: InProcRunnerOptions["program"];
+  readonly report?: GraphReportDecl;
 }
 
 /**
@@ -105,7 +110,8 @@ export class LangGraphInProcProvider implements GraphExecutorPort {
     private readonly toolSource: ToolSourcePort,
     private readonly getMcpToolSource: () => Promise<ToolSourcePort | null> = () =>
       Promise.resolve(null),
-    nodeBundle: readonly CatalogBoundTool[] = []
+    nodeBundle: readonly CatalogBoundTool[] = [],
+    private readonly sourceContext?: () => Promise<NonNullable<InProcRunnerOptions["sourceContext"]>>
   ) {
     this.log = makeLogger({ component: "LangGraphInProcProvider" });
     this.boundToolMap = new Map(nodeBundle.map((bt) => [bt.contract.name, bt]));
@@ -186,6 +192,13 @@ export class LangGraphInProcProvider implements GraphExecutorPort {
       stream: AsyncIterable<AiEvent>;
       final: Promise<GraphResult>;
     }> => {
+      const missingTools = catalogToolIds.filter((id) =>
+        !runtimeTools[id] || !this.boundToolMap.has(id)
+      );
+      // Never silently downgrade a published program or execute its write phase with missing inputs.
+      if (missingTools.length) throw new Error(`graph_tools_unavailable: ${missingTools.join(", ")}`);
+      if (entry.program && !this.sourceContext) throw new Error("node_source_context_unavailable");
+      const sourceContext = entry.program ? await this.sourceContext?.() : undefined;
       const mcpToolIds: string[] = [];
       if (mcpServerIds.length > 0) {
         const mcpToolSource = await this.getMcpToolSource();
@@ -275,7 +288,7 @@ export class LangGraphInProcProvider implements GraphExecutorPort {
         }),
         ...(traceId !== undefined && { traceId }),
         ...(requestId !== undefined && { ingressRequestId: requestId }),
-        configurable: { model, toolIds },
+        configurable: { model, toolIds, graphId, ...(scope.actorUserId !== undefined && { actorId: scope.actorUserId }) },
       };
 
       return createInProcGraphRunner({
@@ -288,6 +301,9 @@ export class LangGraphInProcProvider implements GraphExecutorPort {
         ...(req.responseFormat !== undefined && {
           responseFormat: req.responseFormat,
         }),
+        ...(entry.program !== undefined && { program: entry.program, trustedProgramId: entry.program }),
+        ...(scope.actorUserId !== undefined && { trustedActorId: scope.actorUserId }),
+        ...(sourceContext !== undefined && { sourceContext }),
         ...(entry.systemPrompt !== undefined && {
           systemPrompt: entry.systemPrompt,
         }),
@@ -316,13 +332,10 @@ export class LangGraphInProcProvider implements GraphExecutorPort {
 
     const final = innerResult.then(
       (r) => this.mapToGraphFinal(r.final, runId, requestId, graphName),
-      () =>
-        ({
-          ok: false as const,
-          runId,
-          requestId,
-          error: "internal",
-        }) as const
+      (error: unknown) => this.mapToGraphFinal(
+        Promise.resolve({ ok: false, error: "internal", errorMessage: error instanceof Error ? error.message : String(error) }),
+        runId, requestId, graphName
+      )
     );
 
     // mapToGraphFinal returns Promise<GraphFinal>, so final is Promise<Promise<GraphFinal> | GraphFinal>
@@ -358,6 +371,7 @@ export class LangGraphInProcProvider implements GraphExecutorPort {
       messages: Message[];
       model: string;
       tools?: readonly LlmToolDefinition[];
+      toolChoice?: import("@/ports").LlmToolChoice;
       abortSignal?: AbortSignal;
     }) => {
       const result = this.adapter.executeCompletionUnit({
@@ -366,6 +380,7 @@ export class LangGraphInProcProvider implements GraphExecutorPort {
         runContext: { runId, attempt, graphId },
         ...(params.abortSignal && { abortSignal: params.abortSignal }),
         ...(params.tools?.length && { tools: [...params.tools] }),
+        ...(params.toolChoice !== undefined && { toolChoice: params.toolChoice }),
       });
 
       return {
@@ -396,6 +411,12 @@ export class LangGraphInProcProvider implements GraphExecutorPort {
     graphName: string
   ): Promise<GraphFinal> {
     const result = await final;
+    const report = (this.catalog[graphName] as ProviderCatalogEntry | undefined)?.report;
+    if (report && result.ok) {
+      for (const fields of graphReportLogFields(report, runId, result.structuredOutput)) {
+        this.log.info(fields, "graph report");
+      }
+    }
 
     if (!result.ok) {
       // Log error at adapter boundary (per OBSERVABILITY.md: adapter ERROR log)

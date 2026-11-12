@@ -24,14 +24,8 @@ export {
   type LangGraphGraphId,
 } from "./catalog";
 
-// Re-export graph constants and factories
-export {
-  AUTORESEARCH_REGISTRY_SWARM_GRAPH_NAME,
-  AUTORESEARCH_SINGLE_LANE_GRAPH_NAME,
-  AUTORESEARCH_SYNTROPY_LOOP_GRAPH_NAME,
-  BRAIN_GRAPH_NAME,
-  POET_GRAPH_NAME,
-} from "./graphs/index";
+// Shared core and Red-owned factories.
+export { createCogniGraph, createCogniProgram, createWorkPrioritizerGraph, RED_SOLVER_GRAPH_NAME, createRedSolverGraph } from "./graphs/index";
 
 // Re-export inproc runner (all LangChain logic contained in package)
 export { createInProcGraphRunner } from "./inproc/runner";
@@ -58,3 +52,5 @@ export {
   McpToolSource,
   parseMcpConfigFromEnv,
 } from "./runtime/mcp/index";
+
+export { graphReportLogFields, graphReportDelta, type GraphReportDecl } from "@cogni/shared-langgraph-graphs";

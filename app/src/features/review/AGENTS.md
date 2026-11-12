@@ -17,7 +17,7 @@ PR review feature: deterministic gate orchestrator evaluates PRs against `.cogni
 - [Architecture](../../../../../docs/spec/architecture.md)
 - [VCS Integration Spec](../../../../../docs/spec/vcs-integration.md)
 - [repo-spec package](../../../../../packages/repo-spec/) (gate + rule schema validation)
-- [pr-review graph](../../../../../packages/langgraph-graphs/src/graphs/pr-review/) (LangGraph structured output)
+- Shared operator review workflow owns AI PR review; Red retains deterministic review limits.
 - **Related:** [../../adapters/server/review/](../../adapters/server/review/) (GitHub API adapters), [../../bootstrap/review-adapter.factory.ts](../../bootstrap/review-adapter.factory.ts) (wiring)
 
 ## Boundaries
@@ -53,7 +53,7 @@ PR review feature: deterministic gate orchestrator evaluates PRs against `.cogni
   - Run gates in declared order with per-gate timeout (120s) and crash isolation (→ neutral)
   - Aggregate gate results: fail > neutral > pass
   - Evaluate `review-limits` gates (file count + diff size, pure numeric, no LLM)
-  - Evaluate `ai-rule` gates (invoke pr-review graph via GraphExecutorPort with structured output, apply `success_criteria` thresholds deterministically)
+  - Reject legacy `ai-rule` declarations without model execution after task.0013 removes the pr-review graph
   - Format Check Run markdown summaries and PR comments (verdict, counts, per-gate sections, blockers, staleness marker)
   - Cache parsed rules per review run
 - This directory **does not:**

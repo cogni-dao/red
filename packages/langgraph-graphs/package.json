@@ -41,7 +41,7 @@
   },
   "dependencies": {
     "@cogni/ai-core": "workspace:*",
-    "@cogni/ai-tools": "https://github.com/cogni-dao/node-template/releases/download/ai-tools-v0.8.0/cogni-dao-ai-tools-0.8.0.tgz",
+    "@cogni/ai-tools": "https://github.com/cogni-dao/node-template/releases/download/ai-tools-v0.9.1/cogni-dao-ai-tools-0.9.1.tgz",
     "@cogni/red-ai-tools": "workspace:@cogni/ai-tools@*",
     "@cogni/shared-langgraph-graphs": "https://github.com/cogni-dao/node-template/releases/download/langgraph-graphs-v0.7.0/cogni-dao-langgraph-graphs-0.7.0.tgz",
     "@langchain/core": "1.2.14",
@@ -58,12 +58,15 @@
     "@langchain/langgraph-checkpoint": "1.2.1",
     "@langchain/langgraph-sdk": "1.9.29",
     "deepagents": "1.16.1",
-    "langsmith": "0.7.5"
+    "langsmith": "0.7.5",
+    "@cogni/repo-spec": "workspace:*"
   },
   "devDependencies": {
     "@langchain/langgraph-cli": "1.4.1",
     "tsup": "^8.5.1",
     "typescript": "^5",
-    "@langchain/langgraph-api": "1.4.1"
+    "@langchain/langgraph-api": "1.4.1",
+    "vitest": "^4.0.9",
+    "vite-tsconfig-paths": "^5.1.4"
   }
 }

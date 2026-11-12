@@ -16,7 +16,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import type { SourceSystem } from "@cogni/ai-core";
+import type { ModelRef, SourceSystem } from "@cogni/ai-core";
 import type { BillingContext, LlmService } from "@/ports";
 
 /**
@@ -26,6 +26,7 @@ import type { BillingContext, LlmService } from "@/ports";
  * Shared ExecutionContext (actorUserId, sessionId, etc.) flows via runGraph(req, ctx).
  */
 export interface ExecutionScope {
+  readonly modelRef?: ModelRef;
   readonly billing: BillingContext;
   /** Actor who initiated this run. Used by tools that need user-scoped operations (e.g., schedule CRUD). */
   readonly actorUserId?: string;

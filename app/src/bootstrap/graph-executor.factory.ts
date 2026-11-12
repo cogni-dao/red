@@ -62,6 +62,7 @@ import type {
   PreflightCreditCheckFn,
 } from "@/ports";
 import { serverEnv } from "@/shared/env";
+import { getNodeMission } from "@/shared/config/repoSpec.server";
 import { makeLogger } from "@/shared/observability";
 import {
   type AiAdapterDeps,
@@ -301,6 +302,7 @@ export function runGraphWithScope(params: {
       billing,
       llmService,
       usageSource,
+      modelRef: req.modelRef,
       ...(ctx?.actorUserId ? { actorUserId: ctx.actorUserId } : {}),
       ...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
     },
@@ -534,7 +536,21 @@ function createInProcProvider(
     inprocAdapter,
     container.toolSource,
     () => cache.getSource(),
-    [...CORE_TOOL_BUNDLE]
+    [...CORE_TOOL_BUNDLE],
+    async () => {
+      const env = serverEnv();
+      const origin = env.APP_BASE_URL;
+      const mission = getNodeMission();
+      if (!origin || !mission?.trim() || !container.knowledgeStorePort) {
+        throw new Error("node_source_context_unavailable");
+      }
+      return {
+        nodeId: container.nodeId,
+        origin,
+        mission: { content: mission, sourceRef: ".cogni/repo-spec.yaml", buildSha: env.COGNI_REPO_SHA ?? null },
+        governingIndex: await container.knowledgeStorePort.listGoverningIndex(),
+      };
+    }
   );
 }
 

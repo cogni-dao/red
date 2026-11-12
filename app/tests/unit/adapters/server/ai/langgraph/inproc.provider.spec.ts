@@ -14,7 +14,7 @@
  */
 
 import type { AiEvent, ToolSourcePort } from "@cogni/ai-core";
-import { TOOL_CATALOG, toBoundToolRuntime } from "@cogni/ai-tools";
+import { CORE_TOOL_BUNDLE, TOOL_CATALOG, toBoundToolRuntime } from "@cogni/ai-tools";
 import { describe, expect, it, vi } from "vitest";
 
 import { runInScope } from "@/adapters/server/ai/execution-scope";
@@ -71,6 +71,7 @@ function createMockAdapter(options?: {
     requestId: "test-req",
     usage: { promptTokens: 10, completionTokens: 5 },
     finishReason: "stop",
+    content: "Hello World",
   };
 
   return {
@@ -118,7 +119,7 @@ function createTestRequest(
     runId: "test-run-id",
     messages: [{ role: "user", content: "Hello" }],
     modelRef: { providerKey: "platform", modelId: "test-model" },
-    graphId: "langgraph:poet",
+    graphId: "langgraph:red-solver",
     ...overrides,
   };
 }
@@ -139,10 +140,10 @@ describe("LangGraphInProcProvider", () => {
         const mockToolSource = createMockToolSource();
         const provider = new LangGraphInProcProvider(
           mockAdapter,
-          mockToolSource
+          mockToolSource, undefined, CORE_TOOL_BUNDLE
         );
 
-        const request = createTestRequest({ graphId: "langgraph:poet" });
+        const request = createTestRequest({ graphId: "langgraph:red-solver" });
         const { stream, final } = provider.runGraph(request);
 
         const events = await collectEvents(stream);
@@ -180,7 +181,7 @@ describe("LangGraphInProcProvider", () => {
         const mockToolSource = createMockToolSource();
         const provider = new LangGraphInProcProvider(
           mockAdapter,
-          mockToolSource
+          mockToolSource, undefined, CORE_TOOL_BUNDLE
         );
 
         // Request with graph not in catalog
@@ -218,7 +219,7 @@ describe("LangGraphInProcProvider", () => {
         const mockToolSource = createMockToolSource();
         const provider = new LangGraphInProcProvider(
           mockAdapter,
-          mockToolSource
+          mockToolSource, undefined, CORE_TOOL_BUNDLE
         );
 
         // Request with wrong provider prefix
@@ -245,6 +246,33 @@ describe("LangGraphInProcProvider", () => {
         // Result reflects failure
         expect(result.ok).toBe(false);
       });
+    });
+  });
+});
+
+
+describe("published program capability preflight", () => {
+  it("fails with no model call when a published program requires unavailable tools", async () => {
+    await runInScope(TEST_SCOPE, async () => {
+      const adapter = createMockAdapter();
+      const source = createMockToolSource();
+      const incompleteSource = { ...source, getBoundTool: (id: string) => id === "core__work_item_update" ? undefined : source.getBoundTool(id) };
+      const provider = new LangGraphInProcProvider(adapter, incompleteSource, undefined, CORE_TOOL_BUNDLE);
+      const run = provider.runGraph(createTestRequest({ graphId: "langgraph:work-prioritizer" }));
+      const events = await collectEvents(run.stream);
+      expect((await run.final).ok).toBe(false);
+      expect(adapter.executeCompletionUnit).not.toHaveBeenCalled();
+      expect(events).toEqual([{ type: "error", error: "internal" }, { type: "done" }]);
+    });
+  });
+  it("never downgrades mission programs when host context is missing", async () => {
+    await runInScope(TEST_SCOPE, async () => {
+      const adapter = createMockAdapter();
+      const provider = new LangGraphInProcProvider(adapter, createMockToolSource(), undefined, CORE_TOOL_BUNDLE);
+      const run = provider.runGraph(createTestRequest({ graphId: "langgraph:cogni" }));
+      await collectEvents(run.stream);
+      expect((await run.final).ok).toBe(false);
+      expect(adapter.executeCompletionUnit).not.toHaveBeenCalled();
     });
   });
 });
