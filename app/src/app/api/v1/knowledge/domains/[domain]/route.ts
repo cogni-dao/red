@@ -25,7 +25,6 @@ type DomainRouteContext = { params: Promise<{ domain: string }> };
 export const GET = wrapRouteHandlerWithLogging<DomainRouteContext>(
   {
     routeId: "knowledge.domains.get",
-    sameDoor: "knowledge.read",
     auth: { mode: "required", getSessionUser },
   },
   async (_ctx, _request, sessionUser, context) => {
