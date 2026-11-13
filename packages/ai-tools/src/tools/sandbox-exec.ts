@@ -101,6 +101,13 @@ export const sandboxExecContract: ToolContract<
     "arbitrary hosts is not guaranteed. Returns status `unavailable` when the sandbox " +
     "is not configured for this environment.",
   effect: "external_side_effect",
+  requires: {
+    scope: "red_solver:sandbox_run",
+    kind: "node",
+    subject: "member",
+    label: "Run commands in the sandbox",
+    description: "Run one bounded command in the node sandbox.",
+  },
   inputSchema: SandboxExecInputSchema,
   outputSchema: SandboxExecOutputSchema,
 

@@ -157,11 +157,18 @@ import { createScheduleCapability } from "@/bootstrap/capabilities/schedule";
 import { stubVcsCapability } from "@/bootstrap/capabilities/vcs";
 import { createWebSearchCapability } from "@/bootstrap/capabilities/web-search";
 import { composeWorkItemContent } from "@/bootstrap/capabilities/work-item-composition";
-import { getExecutionScope } from "@/adapters/server";
 import { createCitationLinksPort } from "@/bootstrap/capabilities/citation-links";
 import { createWorkItemCapability } from "@/bootstrap/capabilities/work-item";
 import { createMoveMetricPorts } from "@/bootstrap/capabilities/work-item-moves";
+import { getExecutionScope, scopeUserId } from "@/adapters/server";
+import { AGENT_AUTHORITY_TOOL_BUNDLE } from "@/bootstrap/agent-authority-bundle";
+import {
+	type AgentAuthoritySql,
+	type AgentToolAuthority,
+	createAgentToolAuthority,
+} from "@/bootstrap/agent-authority";
 import { createApproversNodeAdminAuthority } from "@/bootstrap/node-admin-gate";
+import { createNodeAdminPort } from "@/bootstrap/node-admin-port";
 import { localReadinessPreflight } from "@/bootstrap/local-readiness-preflight";
 import type { RateLimitBypassConfig } from "@/bootstrap/http/wrapPublicRoute";
 import { startProcessHealthPublisher } from "@/bootstrap/publishers";
@@ -176,6 +183,7 @@ import type {
 	LlmService,
 	MetricsQueryPort,
 	ModelCatalogPort,
+	NodeAdminPort,
 	ModelProviderResolverPort,
 	OnChainVerifier,
 	OperatorWalletPort,
@@ -274,6 +282,10 @@ export interface Container {
 	knowledgeContributionService: ContributionService | undefined;
 	/** GOAL_CHANGE_IS_NODE_ADMIN / P0P1_IS_NODE_ADMIN: this node's one node-admin authority (repo-spec admin wallets). */
 	nodeAdmin: NodeAdminAuthority;
+	/** Runtime tool authority: principal lookup, guard wiring and role grant/revoke (task.5456). */
+	agentAuthority: AgentToolAuthority;
+	/** ADMIN_ACTS_IN_ADMIN: the one door for node-admin writes; callable only with an AdminSession. */
+	nodeAdminPort: NodeAdminPort;
 	/** Direct knowledge store port — exposed for the cookie-only browse endpoint. Undefined when DOLTGRES_URL is unset. */
 	knowledgeStorePort: KnowledgeStorePort | undefined;
 	/** EDO hypothesis-loop capability for the langgraph tool bindings AND the bearer-auth REST routes under /api/v1/edo. Always present (stubs throw when DOLTGRES_URL is unset). */
@@ -740,10 +752,10 @@ function createContainer(): Container {
 		backlogWriter: {
 			patch: (input, principal) => doltgresWorkItems.patch(input, principal),
 			principalId: () => {
-				const actor = getExecutionScope().actorUserId;
+				const actor = scopeUserId(getExecutionScope());
 				if (!actor)
 					throw new Error(
-						"WorkItemCapability: authenticated execution actor required"
+						"WorkItemCapability: a run subject or agent principal is required"
 					);
 				return actor;
 			},
@@ -1122,6 +1134,14 @@ function createContainer(): Container {
 		environment: env.DEPLOY_ENVIRONMENT ?? "local",
 	});
 
+	const agentAuthority = createAgentToolAuthority({
+		// Service role: agent_roles / agent_principals are deny-all for the app role.
+		sql: serviceDb.$client as unknown as AgentAuthoritySql,
+		nodeAdmin,
+		log,
+		toolBundle: [...AGENT_AUTHORITY_TOOL_BUNDLE],
+	});
+
 	return {
 		log,
 		config,
@@ -1156,6 +1176,8 @@ function createContainer(): Container {
 		toolSource,
 		knowledgeContributionService,
 		nodeAdmin,
+		agentAuthority,
+		nodeAdminPort: createNodeAdminPort(agentAuthority),
 		knowledgeStorePort,
 		edoCapability,
 		threadPersistenceForUser: (userId: UserId) =>
