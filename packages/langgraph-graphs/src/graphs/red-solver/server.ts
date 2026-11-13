@@ -10,7 +10,7 @@
  *   - HELPERS_DO_NOT_IMPORT_CATALOG: Uses makeServerGraph with explicit toolIds
  *   - NO_CROSSING_THE_STREAMS: Uses initChatModel (via makeServerGraph), never ALS
  * Side-effects: process.env (via makeServerGraph)
- * Links: docs/spec/graph-execution.md
+ * Links: https://node-template.cognidao.org/knowledge/graph-execution-invariants
  * @internal
  */
 

@@ -12,7 +12,7 @@
  *     CompiledStateGraph for LangGraph CLI schema extraction
  *   - GRAPH_OWNS_MESSAGES: embeds its own ethics/operational system prompt
  * Side-effects: none
- * Links: docs/guides/agent-development.md, docs/spec/langgraph-patterns.md
+ * Links: https://node-template.cognidao.org/knowledge/agent-development, https://node-template.cognidao.org/knowledge/graph-execution-invariants
  * @public
  */
 

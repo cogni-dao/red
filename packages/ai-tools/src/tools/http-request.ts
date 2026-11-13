@@ -17,7 +17,7 @@
  *   - NO LangChain imports (LangChain wrapping lives in langgraph-graphs)
  * Side-effects: IO (one outbound HTTP request via Node global fetch)
  * Notes: task.0005 — red-solver attack tool. Pure fetch, no runtime capability plumbing.
- * Links: docs/spec/tool-use.md, docs/spec/langgraph-patterns.md
+ * Links: https://github.com/cogni-dao/cogni/blob/2321821e61dd12aa0cf75d235bd668ff65739109/docs/spec/tool-use.md, https://node-template.cognidao.org/knowledge/graph-execution-invariants
  * @public
  */
 
