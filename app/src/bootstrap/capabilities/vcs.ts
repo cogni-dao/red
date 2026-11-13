@@ -12,7 +12,7 @@
  * @internal
  */
 
-import type { VcsCapability } from "@cogni/shared-ai-tools";
+import type { VcsCapability } from "@cogni/ai-tools";
 
 /**
  * Stub VcsCapability — satisfies tool binding requirement but throws if called.
@@ -32,12 +32,6 @@ export const stubVcsCapability: VcsCapability = {
     throw new Error("VcsCapability not configured on this node.");
   },
   dispatchCandidateFlight: async () => {
-    throw new Error("VcsCapability not configured on this node.");
-  },
-  getPr: async () => {
-    throw new Error("VcsCapability not configured on this node.");
-  },
-  compareCommits: async () => {
     throw new Error("VcsCapability not configured on this node.");
   },
 };

@@ -14,20 +14,25 @@
  * @public
  */
 
-import {
-  CORE_TOOL_BUNDLE as SHARED_CORE_TOOL_BUNDLE,
-  VCS_TOOL_BUNDLE as SHARED_VCS_TOOL_BUNDLE,
-} from "@cogni/shared-ai-tools";
+import { CORE_TOOL_BUNDLE as SHARED_CORE_TOOL_BUNDLE } from "@cogni/shared-ai-tools";
+import { edoDecideBoundTool } from "./tools/edo-decide";
+import { edoHypothesizeBoundTool } from "./tools/edo-hypothesize";
+import { edoRecordOutcomeBoundTool } from "./tools/edo-record-outcome";
 import { getCurrentTimeBoundTool } from "./tools/get-current-time";
 import { httpRequestBoundTool } from "./tools/http-request";
+import { knowledgeWriteBoundTool } from "./tools/knowledge-write";
 import { metricsQueryBoundTool } from "./tools/metrics-query";
 import { repoListBoundTool } from "./tools/repo-list";
 import { repoOpenBoundTool } from "./tools/repo-open";
 import { repoSearchBoundTool } from "./tools/repo-search";
 import { sandboxExecBoundTool } from "./tools/sandbox-exec";
 import { scheduleListBoundTool } from "./tools/schedule-list";
+import { scheduleManageBoundTool } from "./tools/schedule-manage";
+import { vcsCreateBranchBoundTool } from "./tools/vcs-create-branch";
+import { vcsFlightCandidateBoundTool } from "./tools/vcs-flight-candidate";
 import { vcsGetCiStatusBoundTool } from "./tools/vcs-get-ci-status";
 import { vcsListPrsBoundTool } from "./tools/vcs-list-prs";
+import { vcsMergePrBoundTool } from "./tools/vcs-merge-pr";
 import { webSearchBoundTool } from "./tools/web-search";
 import type { BoundTool } from "./types";
 
@@ -102,7 +107,7 @@ export function createToolCatalog(
 // The release catalog already erases concrete schemas at its typed boundary.
 // Reuse those entries rather than casting literal allowlists to keyof unknown.
 function sharedTool(id: string): CatalogBoundTool {
-  const tool = [...SHARED_CORE_TOOL_BUNDLE, ...SHARED_VCS_TOOL_BUNDLE].find(
+  const tool = SHARED_CORE_TOOL_BUNDLE.find(
     (entry) => entry.contract.name === id
   );
   if (!tool) throw new Error(`Shared baseline tool missing: ${id}`);
@@ -117,27 +122,27 @@ export const CORE_TOOL_BUNDLE: readonly CatalogBoundTool[] = [
   sharedTool("core__metric_read"),
   sharedTool("core__metric_history"),
   sharedTool("core__metric_compute"),
-  sharedTool("core__edo_decide"),
-  sharedTool("core__edo_hypothesize"),
-  sharedTool("core__edo_record_outcome"),
+  edoDecideBoundTool as CatalogBoundTool,
+  edoHypothesizeBoundTool as CatalogBoundTool,
+  edoRecordOutcomeBoundTool as CatalogBoundTool,
   getCurrentTimeBoundTool as CatalogBoundTool,
   sharedTool("core__goal_list"),
   httpRequestBoundTool as CatalogBoundTool,
   sharedTool("core__knowledge_read"),
   sharedTool("core__knowledge_search"),
-  sharedTool("core__knowledge_write"),
+  knowledgeWriteBoundTool as CatalogBoundTool,
   metricsQueryBoundTool as CatalogBoundTool,
   repoListBoundTool as CatalogBoundTool,
   repoOpenBoundTool as CatalogBoundTool,
   repoSearchBoundTool as CatalogBoundTool,
   sandboxExecBoundTool as CatalogBoundTool,
   scheduleListBoundTool as CatalogBoundTool,
-  sharedTool("core__schedule_manage"),
-  sharedTool("core__vcs_create_branch"),
-  sharedTool("core__vcs_flight_candidate"),
+  scheduleManageBoundTool as CatalogBoundTool,
+  vcsCreateBranchBoundTool as CatalogBoundTool,
+  vcsFlightCandidateBoundTool as CatalogBoundTool,
   vcsGetCiStatusBoundTool as CatalogBoundTool,
   vcsListPrsBoundTool as CatalogBoundTool,
-  sharedTool("core__vcs_merge_pr"),
+  vcsMergePrBoundTool as CatalogBoundTool,
   webSearchBoundTool as CatalogBoundTool,
   sharedTool("core__work_item_query"),
   // The released work-prioritizer reads each item with core__work_item_read. core__work_item_update is

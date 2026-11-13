@@ -16,7 +16,6 @@
 
 import type {
   KnowledgeCapability,
-  VcsCapability,
   WorkItemCapability,
 } from "@cogni/shared-ai-tools";
 import {
@@ -36,6 +35,7 @@ import type {
   SandboxExecCapability,
   ScheduleCapability,
   ToolImplementation,
+  VcsCapability,
   WebSearchCapability,
 } from "@cogni/ai-tools";
 import {

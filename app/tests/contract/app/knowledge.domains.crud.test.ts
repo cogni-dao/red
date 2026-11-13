@@ -69,10 +69,6 @@ vi.mock("@/bootstrap/container", () => ({
     clock: { now: vi.fn(() => new Date("2026-01-01T00:00:00Z")) },
     config: { unhandledErrorPolicy },
     knowledgeStorePort: mockStore,
-    // The GET routes carry the knowledge.read door; its allow/deny is proven in knowledge.read-principal.test.ts.
-    agentAuthority: {
-      authorizeRoute: vi.fn(async () => ({ decision: "allow", basis: "role" })),
-    },
   })),
 }));
 
@@ -154,13 +150,7 @@ beforeEach(async () => {
         clock: { now: vi.fn(() => new Date("2026-01-01T00:00:00Z")) },
         config: { unhandledErrorPolicy },
         knowledgeStorePort: mockStore,
-        agentAuthority: {
-          authorizeRoute: vi.fn(async () => ({
-            decision: "allow",
-            basis: "role",
-          })),
-        },
-      }) as unknown as ReturnType<typeof getContainer>
+      }) as ReturnType<typeof getContainer>
   );
   log.child.mockImplementation(() => log);
   currentUser = BEARER_AGENT;
