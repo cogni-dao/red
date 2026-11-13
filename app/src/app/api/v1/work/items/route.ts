@@ -6,6 +6,7 @@
  * Purpose: HTTP endpoints for listing and creating work items.
  * Scope: Auth-protected GET (list — markdown ∪ node-local Doltgres) and POST (create — node-local Doltgres only).
  * Invariants: VALIDATE_IO, CONTRACTS_ARE_TRUTH, AUTH_VIA_GETSESSIONUSER, NODE_STORE_IS_LOCAL.
+ * Moves (story.0033): POST accepts `moves`; an unknown or deprecated new metric id is HTTP400 `cite_unresolved` at `moves`; a baseline failure is HTTP503 `metric_baseline_unavailable` (`workItemWriteErrorResponse`, @cogni/work-items).
  * Side-effects: IO (HTTP response, filesystem read via port, Doltgres read/write)
  * Links: contracts/work.items.{list,create}.v1.contract
  * @public
@@ -15,6 +16,7 @@ import {
   workItemsCreateOperation,
   workItemsListOperation,
 } from "@cogni/node-contracts";
+import { workItemWriteErrorResponse } from "@cogni/work-items";
 import { NextResponse } from "next/server";
 
 import {
@@ -163,6 +165,9 @@ export const POST = wrapRouteHandlerWithLogging(
           { status: 409 }
         );
       }
+      // The package owns the moves answers (unknown metric, bad list, unsupported, resolver and baseline failures).
+      const mapped = workItemWriteErrorResponse(e, "create");
+      if (mapped) return NextResponse.json(mapped.body, { status: mapped.status });
       throw e;
     }
   }

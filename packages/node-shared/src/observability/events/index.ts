@@ -19,6 +19,8 @@
 export const EVENT_NAMES = {
 	METRIC_REFRESH_COMPLETE: "metric.refresh_complete",
 	GOALS_PROGRESS_READ: "goals.progress_read",
+	/** One work item's EDO expectations read (story.0041): status, durationMs, outcome; errorCode when degraded. */
+	WORK_EXPECTATIONS_READ: "work.expectations.read",
 	// Bounded work reads (task.0056): one terminal event per /work/summaries or /work/board request.
 	WORK_ITEMS_LIST_COMPLETE: "work.items.list_complete",
 	// AI Domain - Server
