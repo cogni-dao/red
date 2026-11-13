@@ -143,6 +143,13 @@ export const httpRequestContract: ToolContract<
     "subset, and a size-capped body. Secret/PII spans are withheld and flagged. " +
     "Use for in-scope recon and proof-of-concept vulnerability checks only.",
   effect: "external_side_effect",
+  requires: {
+    scope: "red_solver:web_request",
+    kind: "node",
+    subject: "member",
+    label: "Send web requests to a target",
+    description: "Probe one authorized target with web requests.",
+  },
   inputSchema: HttpRequestInputSchema,
   outputSchema: HttpRequestOutputSchema,
 

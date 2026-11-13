@@ -112,7 +112,7 @@ export {
   edoDecideBoundTool,
   edoDecideContract,
   edoDecideStubImplementation,
-} from "./tools/edo-decide";
+} from "@cogni/shared-ai-tools";
 export {
   createEdoHypothesizeImplementation,
   EDO_HYPOTHESIZE_NAME,
@@ -125,7 +125,7 @@ export {
   edoHypothesizeBoundTool,
   edoHypothesizeContract,
   edoHypothesizeStubImplementation,
-} from "./tools/edo-hypothesize";
+} from "@cogni/shared-ai-tools";
 export {
   createEdoRecordOutcomeImplementation,
   EDO_RECORD_OUTCOME_NAME,
@@ -138,7 +138,7 @@ export {
   edoRecordOutcomeBoundTool,
   edoRecordOutcomeContract,
   edoRecordOutcomeStubImplementation,
-} from "./tools/edo-record-outcome";
+} from "@cogni/shared-ai-tools";
 export {
   GET_CURRENT_TIME_NAME,
   type GetCurrentTimeInput,
@@ -212,7 +212,7 @@ export {
   knowledgeWriteBoundTool,
   knowledgeWriteContract,
   knowledgeWriteStubImplementation,
-} from "./tools/knowledge-write";
+} from "@cogni/shared-ai-tools";
 export {
   createMetricsQueryImplementation,
   METRICS_QUERY_NAME,
@@ -296,7 +296,7 @@ export {
   scheduleManageBoundTool,
   scheduleManageContract,
   scheduleManageStubImplementation,
-} from "./tools/schedule-manage";
+} from "@cogni/shared-ai-tools";
 export {
   createVcsCreateBranchImplementation,
   VCS_CREATE_BRANCH_NAME,
@@ -309,7 +309,7 @@ export {
   vcsCreateBranchBoundTool,
   vcsCreateBranchContract,
   vcsCreateBranchStubImplementation,
-} from "./tools/vcs-create-branch";
+} from "@cogni/shared-ai-tools";
 export {
   createVcsFlightCandidateImplementation,
   VCS_FLIGHT_CANDIDATE_NAME,
@@ -322,7 +322,7 @@ export {
   vcsFlightCandidateBoundTool,
   vcsFlightCandidateContract,
   vcsFlightCandidateStubImplementation,
-} from "./tools/vcs-flight-candidate";
+} from "@cogni/shared-ai-tools";
 export {
   createVcsGetCiStatusImplementation,
   VCS_GET_CI_STATUS_NAME,
@@ -361,7 +361,7 @@ export {
   vcsMergePrBoundTool,
   vcsMergePrContract,
   vcsMergePrStubImplementation,
-} from "./tools/vcs-merge-pr";
+} from "@cogni/shared-ai-tools";
 export {
   createWebSearchImplementation,
   WEB_SEARCH_NAME,
@@ -398,5 +398,6 @@ export type {
   ToolContract,
   ToolErrorCode,
   ToolImplementation,
+  ToolRequires,
   ToolResult,
 } from "./types";
