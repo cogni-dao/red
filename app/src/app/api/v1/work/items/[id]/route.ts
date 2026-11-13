@@ -27,7 +27,6 @@ import {
   CitesUnsupportedError,
   deleteWorkItem,
   EntryResolverUnavailableError,
-  EntryUnresolvedError,
   getWorkItem,
   patchWorkItem,
   WorkItemForbiddenError,
@@ -210,21 +209,8 @@ export const PATCH = wrapRouteHandlerWithLogging<{
           { status: 400 }
         );
       }
-      if (e instanceof EntryUnresolvedError) {
-        return NextResponse.json(
-          {
-            error: "invalid input",
-            errorCode: e.code,
-            ids: e.ids,
-            issues: e.ids.map((cited) => ({
-              code: "custom",
-              path: ["cites"],
-              message: `cited entry not found: ${cited}`,
-            })),
-          },
-          { status: 400 }
-        );
-      }
+      // EntryUnresolvedError (cites or moves) falls through to `workItemWriteErrorResponse`
+      // below: the package puts the issue at the field the ids came from.
       if (e instanceof CitesUnsupportedError) {
         return NextResponse.json(
           {

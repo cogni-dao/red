@@ -285,8 +285,12 @@ function rethrowBackendError(error: unknown): never {
   }
   if (errorName === "CitesUnsupportedError") throw new CitesUnsupportedError();
   if (errorName === "EntryUnresolvedError") {
-    const ids = (error as { ids?: unknown }).ids;
-    throw new EntryUnresolvedError(Array.isArray(ids) ? ids.map(String) : []);
+    const { ids, field } = error as { ids?: unknown; field?: unknown };
+    // Keep the request field: an unknown moves metric is reported at `moves`, not `cites`.
+    throw new EntryUnresolvedError(
+      Array.isArray(ids) ? ids.map(String) : [],
+      field === "moves" ? "moves" : "cites"
+    );
   }
   if (errorName === "EntryResolverUnavailableError") {
     throw new EntryResolverUnavailableError(message);
