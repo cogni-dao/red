@@ -2,12 +2,12 @@
 // SPDX-FileCopyrightText: 2026 Cogni-DAO
 
 /**
- * Module: `@tests/unit/app/knowledge-goals-tab`
- * Purpose: Prove red's mount of the published Goals capability (story.0021): the Goals tab renders the package board and its badge from one goals read, and the entry page hands `?observation=` to the evidence view. The board, chart and read client themselves are proven in packages/knowledge-base-ui.
+ * Module: `@tests/unit/app/metrics-page`
+ * Purpose: Prove red's mounts of the published Goals capability: the Metrics page (story.0039) renders the package's Metrics view; `/knowledge?mode=goals` redirects to it and the Knowledge modes no longer carry Goals; the entry page hands `?observation=` to the evidence view (story.0021). The board, chart and read client themselves are proven in packages/knowledge-base-ui.
  * Scope: React Query plus the browser fetch boundary, rendering the real `@cogni/knowledge-base-ui/goals` entry. No live network.
- * Invariants: ONE_CACHE_ENTRY (board and badge share one read).
+ * Invariants: OLD_LINKS_KEEP_WORKING (redirect before any read).
  * Side-effects: global (stubbed fetch)
- * Links: app/src/app/(app)/knowledge/view.tsx, app/src/app/(app)/knowledge/_components/GoalsMount.tsx
+ * Links: app/src/app/(app)/metrics/view.tsx, app/src/app/(app)/knowledge/page.tsx, app/src/app/(app)/knowledge/_components/GoalsMount.tsx
  * @vitest-environment jsdom
  * @internal
  */
@@ -19,11 +19,15 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KnowledgeMetricEvidence } from "@/app/(app)/knowledge/_components/GoalsMount";
 import { KnowledgeDashboardView } from "@/app/(app)/knowledge/view";
+import { MetricsView } from "@/app/(app)/metrics/view";
+
+const loaders = vi.hoisted(() => ({ loadKnowledgeList: vi.fn() }));
 
 const navigation = vi.hoisted(() => ({
   mode: "browse",
@@ -32,6 +36,9 @@ const navigation = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({
+  redirect: (to: string) => {
+    throw new Error(`REDIRECT:${to}`);
+  },
   useRouter: () => ({ push: navigation.push }),
   useSearchParams: () =>
     new URLSearchParams({
@@ -97,11 +104,25 @@ afterEach(() => {
   navigation.observation = null;
 });
 
-/** One goal whose only KPI is behind pace: the badge reads "1 goal needs attention". */
+/** One goal whose only KPI is behind pace, plus one metric that serves no KPI. */
 function oneBehindGoal() {
   return GoalsProgressSchema.parse({
     asOf: "2026-11-02T10:05:00.000Z",
     environment: "local",
+    orphans: [],
+    unbound: [
+      {
+        metric: { id: "loose", title: "Loose count", calculatorId: "work.count@1" },
+        assessment: null,
+        latest: {
+          viewState: "ok",
+          value: 3,
+          unit: "items",
+          observedAt: "2026-11-02T10:00:00.000Z",
+          reason: null,
+        },
+      },
+    ],
     goals: [
       {
         id: "goal-x",
@@ -145,12 +166,10 @@ function oneBehindGoal() {
   });
 }
 
-describe("Knowledge Goals tab", () => {
-  it("mounts the package board under one provider, sharing a single goals read with the tab badge", async () => {
+describe("Knowledge tabs after the Goals tab moved to /metrics", () => {
+  it("has no Goals tab and reads no goals, treating ?mode=goals as Browse", async () => {
     navigation.mode = "goals";
-    const data = oneBehindGoal();
     const fetchMock = vi.fn(async (url: string) => {
-      if (url === "/api/v1/metrics/goals") return Response.json(data);
       if (url.startsWith("/api/v1/knowledge/contributions"))
         return Response.json({ contributions: [] });
       return new Promise(() => {});
@@ -164,12 +183,56 @@ describe("Knowledge Goals tab", () => {
         />
       </QueryClientProvider>
     );
-    await screen.findByText("Goal: Ship it");
-    const goals = screen.getByRole("button", { name: /^Goals/ });
-    await waitFor(() => expect(goals.textContent).toContain("1"));
-    expect(
-      fetchMock.mock.calls.filter(([url]) => url === "/api/v1/metrics/goals")
-    ).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /^Goals/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Browse/ })).toBeTruthy();
+    expect(fetchMock.mock.calls.map(([url]) => url)).not.toContain(
+      "/api/v1/metrics/goals"
+    );
+  });
+});
+
+describe("/knowledge?mode=goals redirect", () => {
+  it("sends a signed-in visitor to /metrics before any goal or knowledge read, and leaves other modes alone", async () => {
+    vi.doMock("@/lib/auth/server", () => ({
+      getServerSessionUser: async () => ({ id: "u" }),
+    }));
+    vi.doMock("@/bootstrap/container", () => ({
+      getContainer: () => ({ knowledgeStorePort: {} }),
+    }));
+    vi.doMock("@/app/(app)/knowledge/_server/loaders", () => ({
+      ...loaders,
+      loadDomains: vi.fn(),
+      loadKnowledgeGraph: vi.fn(),
+    }));
+    vi.doMock("@/app/(app)/knowledge/view", () => ({
+      KnowledgeDashboardView: () => null,
+    }));
+    const { default: KnowledgePage } = await import("@/app/(app)/knowledge/page");
+    await expect(
+      KnowledgePage({ searchParams: Promise.resolve({ mode: "goals" }) })
+    ).rejects.toThrow("REDIRECT:/metrics");
+    expect(loaders.loadKnowledgeList).not.toHaveBeenCalled();
+    await expect(
+      KnowledgePage({ searchParams: Promise.resolve({ mode: "inbox" }) })
+    ).resolves.toBeTruthy();
+  });
+});
+
+describe("Metrics page", () => {
+  it("renders the package's Metrics view under the page title, from the SSR seed, with no extra read", () => {
+    const fetchMock = vi.fn(async () => new Promise(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <QueryClientProvider client={client()}>
+        <MetricsView initialData={oneBehindGoal()} />
+      </QueryClientProvider>
+    );
+    expect(screen.getByRole("heading", { level: 1, name: "Metrics" })).toBeTruthy();
+    const region = screen.getByRole("region", { name: "Metrics" });
+    expect(within(region).getByText("Goal: Ship it")).toBeTruthy();
+    expect(within(region).getByText("Not serving a KPI")).toBeTruthy();
+    expect(within(region).getByRole("button", { name: "Loose count" })).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
@@ -213,7 +276,18 @@ describe("Knowledge metric evidence mount", () => {
           })
         : url === `/api/v1/metrics/work/observations/${id}`
           ? Response.json({ definition, observation: reading })
-          : new Response("{}", { status: 404 })
+          : url === "/api/v1/metrics/goals"
+            ? Response.json({ goals: [], asOf: "2026-11-02T10:05:00.000Z", environment: "test" })
+            : url.includes("/history?")
+              ? Response.json({
+                  metricId: "work",
+                  unit: "items",
+                  step: "1h",
+                  from: "2026-11-01T10:00:00.000Z",
+                  to: "2026-11-02T10:00:00.000Z",
+                  buckets: [],
+                })
+              : new Response("{}", { status: 404 })
     );
     vi.stubGlobal("fetch", fetchMock);
     render(
@@ -222,9 +296,23 @@ describe("Knowledge metric evidence mount", () => {
       </QueryClientProvider>
     );
     await screen.findByText(/Linked immutable evidence/);
-    expect(fetchMock.mock.calls.map(([u]) => u)).toEqual([
-      "/api/v1/metrics/work",
-      `/api/v1/metrics/work/observations/${id}`,
-    ]);
+    await screen.findByRole("figure");
+    // The exact reads of a metric page: the metric, the linked reading, the goal read, and one 1D history window
+    // (the 24 hours before the goal read's server hour).
+    const historyUrl = `/api/v1/metrics/work/history?${new URLSearchParams({
+      from: "2026-11-01T10:00:00.000Z",
+      to: "2026-11-02T10:00:00.000Z",
+      step: "1h",
+    })}`;
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.map(([u]) => u).sort()).toEqual(
+        [
+          "/api/v1/metrics/work",
+          `/api/v1/metrics/work/observations/${id}`,
+          "/api/v1/metrics/goals",
+          historyUrl,
+        ].sort()
+      )
+    );
   });
 });

@@ -4,7 +4,7 @@
 /**
  * Module: `@tests/unit/bootstrap/work-prioritizer-tools`
  * Purpose: RED's work-prioritizer stays read-only and every tool it is offered is bound (task.0086).
- * Scope: Reads the program's tool ids from LANGGRAPH_CATALOG, the node tool catalog and createToolBindings. No tool executes.
+ * Scope: Reads the program's tool ids from LANGGRAPH_CATALOG, the node tool catalog, createToolBindings and the goal-metric tool bindings the container adds. No tool executes.
  * Invariants:
  *   - PRIORITIZER_READ_ONLY: triage writes are off on red until the program plumbing (program, sourceContext, run hooks) is ported, so the program is offered neither core__work_item_update nor core__work_item_transition.
  *   - PROGRAM_TOOLS_ARE_BOUND: each tool id the program lists has a catalog entry and a binding.
@@ -17,6 +17,7 @@ import { LANGGRAPH_CATALOG } from "@cogni/langgraph-graphs";
 import { describe, expect, it } from "vitest";
 
 import { createToolBindings } from "../../../src/bootstrap/ai/tool-bindings";
+import { createGoalMetricTools } from "../../../src/bootstrap/capabilities/goal-metrics";
 
 describe("work-prioritizer tool surface (task.0086)", () => {
   const toolIds = LANGGRAPH_CATALOG["work-prioritizer"]?.toolIds ?? [];
@@ -36,16 +37,26 @@ describe("work-prioritizer tool surface (task.0086)", () => {
   });
 
   it("has every offered tool in the node tool catalog and bound to an implementation", () => {
-    const bindings = createToolBindings({
-      knowledgeCapability: {} as never,
-      edoCapability: {} as never,
-      metricsCapability: {} as never,
-      webSearchCapability: {} as never,
-      repoCapability: {} as never,
-      scheduleCapability: {} as never,
-      vcsCapability: {} as never,
-      workItemCapability: {} as never,
-    });
+    // The container binds the goal-metric tools (core__goal_progress, core__metric_*) beside these.
+    const metricBindings = createGoalMetricTools({
+      metrics: () => undefined,
+      goalProgress: async () => {
+        throw new Error("not read");
+      },
+    }).bindings;
+    const bindings = {
+      ...createToolBindings({
+        knowledgeCapability: {} as never,
+        edoCapability: {} as never,
+        metricsCapability: {} as never,
+        webSearchCapability: {} as never,
+        repoCapability: {} as never,
+        scheduleCapability: {} as never,
+        vcsCapability: {} as never,
+        workItemCapability: {} as never,
+      }),
+      ...metricBindings,
+    };
     for (const id of toolIds) {
       expect(TOOL_CATALOG[id], `${id} in TOOL_CATALOG`).toBeDefined();
       expect(bindings[id], `${id} bound`).toBeDefined();

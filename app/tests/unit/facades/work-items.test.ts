@@ -379,6 +379,21 @@ describe("P0P1_IS_NODE_ADMIN — priority <= 1 needs node admin (story.5101)", (
     ).catch((e: unknown) => e);
     expect(unresolved).toBeInstanceOf(EntryUnresolvedError);
     expect((unresolved as EntryUnresolvedError).ids).toEqual(["nope"]);
+    expect((unresolved as EntryUnresolvedError).field).toBe("cites");
+    // An unknown moves metric keeps its field so the route reports it at `moves`, not `cites`.
+    store.patch.mockRejectedValueOnce(
+      Object.assign(new Error("gone"), {
+        name: "EntryUnresolvedError",
+        ids: ["metric-gone"],
+        field: "moves",
+      })
+    );
+    const movesUnresolved = await patchWorkItem(
+      { id: "task.5001", reason: "why", set: { moves: [{ metricId: "metric-gone" }] } } as never,
+      { id: "u1", walletAddress: null }
+    ).catch((e: unknown) => e);
+    expect(movesUnresolved).toBeInstanceOf(EntryUnresolvedError);
+    expect((movesUnresolved as EntryUnresolvedError).field).toBe("moves");
     store.patch.mockRejectedValueOnce(
       Object.assign(new Error("no resolver"), {
         name: "CitesUnsupportedError",

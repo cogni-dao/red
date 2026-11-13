@@ -158,7 +158,9 @@ import { stubVcsCapability } from "@/bootstrap/capabilities/vcs";
 import { createWebSearchCapability } from "@/bootstrap/capabilities/web-search";
 import { composeWorkItemContent } from "@/bootstrap/capabilities/work-item-composition";
 import { getExecutionScope } from "@/adapters/server";
+import { createCitationLinksPort } from "@/bootstrap/capabilities/citation-links";
 import { createWorkItemCapability } from "@/bootstrap/capabilities/work-item";
+import { createMoveMetricPorts } from "@/bootstrap/capabilities/work-item-moves";
 import { createApproversNodeAdminAuthority } from "@/bootstrap/node-admin-gate";
 import { localReadinessPreflight } from "@/bootstrap/local-readiness-preflight";
 import type { RateLimitBypassConfig } from "@/bootstrap/http/wrapPublicRoute";
@@ -718,9 +720,19 @@ function createContainer(): Container {
 	const workItemAdapter = new MarkdownWorkItemAdapter(
 		env.COGNI_REPO_ROOT ?? "/nonexistent"
 	);
+	// story.0033: the work-items `moves` ports over this node's metrics service.
+	// `goalMetrics` and `knowledgeStorePort` are assigned below and read only at call time.
+	const moveMetrics = createMoveMetricPorts(
+		() => goalMetrics,
+		() => knowledgeStorePort
+	);
 	const workItemCapability = createWorkItemCapability({
 		workItemQuery: workItemAdapter,
 		workItemCommand: workItemAdapter,
+		moveReadings: moveMetrics.readings,
+		// task.0118: first page of an item's citation links, the same read the UI and the route use.
+		links: createCitationLinksPort(() => knowledgeStorePort),
+		log: (event) => log.warn(event, "work.items.envelope_degraded"),
 		backlogReader: {
 			get: (id) => doltgresWorkItems.get(id),
 			list: (query) => doltgresWorkItems.list(query),
@@ -799,6 +811,8 @@ function createContainer(): Container {
 				// task.0086: pins a patch's cites to commits with lock-free reads on the
 				// knowledge pool, never on the writer connection that holds the lock.
 				entryResolver: createDoltgresEntryResolver(doltClient),
+				// story.0033: a `moves` entry pins the metric's latest good observation as its baseline.
+				metricBaseline: moveMetrics.baselines,
 			}),
 			new LegacyWorkItemAdapter(createLegacyWorkItemsClient(), {
 				logger: log,
@@ -978,6 +992,8 @@ function createContainer(): Container {
 		workItemCapability,
 	});
 	const goalProgress = createGoalProgressReader({
+		// knowledgeStorePort uses doltClient, not the reserved knowledgeWriter.
+		pooledGoalReads: true,
 		metrics: () => goalMetrics,
 		knowledge: () => knowledgeStorePort,
 		// Same fallback as createGoalMetrics, so payload environment == observation scope.

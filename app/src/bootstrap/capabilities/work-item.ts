@@ -8,6 +8,10 @@
  * Invariants:
  *   - PATCH_REASON_AND_CITES (task.0086): the required `reason` and the optional `cites` are forwarded to the Doltgres store, the one enforcer.
  *     The markdown fallback (development only) has no history, so it DROPS both reason and cites; the tool schema still requires a reason.
+ *   - MOVES_READ_AT_READ_TIME (story.0033): a read that returns exactly one item (core__work_item_read) adds each move's baseline,
+ *     current reading and verdict from `moveReadings`; a list read returns the stored moves only, so a page costs no metric lookup.
+ *   - ONE_ITEM_ENVELOPE (task.0118): `read` is the single-item envelope: it also adds each move's metric, KPI and goal (`moveReadings.context`)
+ *     and, on request, the first page of citation links (`links`); both through the package's `composeItemEnvelope`; `query` and `queryPage` never do.
  * Side-effects: none
  * @internal
  */
@@ -23,11 +27,27 @@ import type {
   WorkItemsContentPort,
   WorkQuery,
 } from "@cogni/work-items";
-import { toWorkItemDto, toWorkItemId } from "@cogni/work-items";
+import type {
+  EnvelopeDegradedEvent,
+  ItemLinksPort,
+  MoveReadingPort,
+} from "@cogni/work-items";
+import {
+  composeItemEnvelope,
+  judgeMoveSummaries,
+  toWorkItemDto,
+  toWorkItemId,
+} from "@cogni/work-items";
 
 export interface WorkItemCapabilityDeps {
   readonly workItemQuery: WorkItemQueryPort;
   readonly workItemCommand: WorkItemCommandPort;
+  /** Reads the metrics a single item moves; absent means no metrics service (every move reads `unknown`). */
+  readonly moveReadings?: MoveReadingPort | undefined;
+  /** First page of an item's citation links (`read` with `includeLinks`); absent reads `unavailable`. */
+  readonly links?: ItemLinksPort | undefined;
+  /** One event per degraded envelope part (chain or links). */
+  readonly log?: ((event: EnvelopeDegradedEvent) => void) | undefined;
   readonly backlogReader?: Pick<WorkItemsContentPort, "get" | "list">;
   readonly backlogWriter?: {
     readonly patch: WorkItemsContentPort["patch"];
@@ -53,8 +73,36 @@ export function createWorkItemCapability(
       ...(page.nextCursor && { nextCursor: page.nextCursor }),
     };
   };
+  /** A one-item read gets each move judged from its observations (bounded: at most 3 moves). */
+  const withMoveReadings = async (
+    items: readonly WorkItemInfo[]
+  ): Promise<readonly WorkItemInfo[]> => {
+    const only = items.length === 1 ? items[0] : undefined;
+    if (!only?.moves?.length) return items;
+    return judgeMoveSummaries([only], deps.moveReadings);
+  };
   return {
-    query: async (params) => (await queryPage(params)).items,
+    /**
+     * THE single-item envelope (task.0118), the same shape `GET /api/v1/work/items/{id}` serves: the
+     * item with each move's readings, verdict and metric → KPI → goal chain, and with `includeLinks`
+     * the first page of citation links.
+     */
+    read: async (id, options) => {
+      const page = await (deps.backlogReader ?? deps.workItemQuery).list({
+        ids: [toWorkItemId(id)],
+        limit: 1,
+      });
+      const item = page.items.map(toInfo).find((entry) => entry.id === id);
+      if (!item) return null;
+      // ONE_COMPOSITION: the same `composeItemEnvelope` the HTTP facade calls.
+      return composeItemEnvelope(
+        item,
+        { readings: deps.moveReadings, links: deps.links, log: deps.log },
+        { includeLinks: options?.includeLinks === true }
+      );
+    },
+    query: async (params) =>
+      withMoveReadings((await queryPage(params)).items),
     queryPage,
     transitionStatus: async (input) => {
       const current = await deps.workItemQuery.get(toWorkItemId(input.id));
