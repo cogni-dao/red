@@ -16,7 +16,7 @@
  * Notes: story.0002 — red-solver shell tool. Candidate-only prototype; caller authorization
  *   (shared OpenFGA/ToolRunner path) is a separate, later vertical. Workspaces are
  *   directory-separated, not a security boundary; external target egress is not guaranteed.
- * Links: docs/spec/tool-use.md, src/adapters/server/sandbox-workspace/, services/sandbox/README.md
+ * Links: https://github.com/cogni-dao/cogni/blob/2321821e61dd12aa0cf75d235bd668ff65739109/docs/spec/tool-use.md, src/adapters/server/sandbox-workspace/, services/sandbox/README.md
  * @public
  */
 

@@ -42,4 +42,4 @@ checks need the minted identity; body reads skip on a fresh empty node while dee
 authenticated graph discovery still prove the stack. The fast path for iterating on an agent is
 the hub guide [Improve a Cogni agent locally](https://cognidao.org/knowledge/local-agent-development).
 
-[PolyForm Shield license](LICENSE.md)
+[PolyForm Shield license](https://polyformproject.org/licenses/shield/1.0.0)

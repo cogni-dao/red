@@ -9,7 +9,7 @@
  *   - PACKAGES_NO_SRC_IMPORTS: This package cannot import from src/
  *   - GRAPH_OWNS_MESSAGES: Graph defines its own system prompt
  * Side-effects: none
- * Links: docs/spec/langgraph-patterns.md, docs/guides/agent-development.md
+ * Links: https://node-template.cognidao.org/knowledge/graph-execution-invariants, https://node-template.cognidao.org/knowledge/agent-development
  * @public
  */
 
