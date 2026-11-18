@@ -219,6 +219,11 @@ export const serverSchema = z.object({
   ),
   SANDBOX_BASE_URL: optionalUrl,
 
+  // Work items (task.0122) - Optional: one or more comma-separated owner/repo; when set, only a pull request of
+  // those repositories is a code deliverable. Unset, the gate accepts a PR of any github.com repository and the
+  // container logs `adapter.work_items.pr_repo_unpinned` once at boot. No default.
+  WORK_ITEMS_PR_REPO: optionalString,
+
   // Tavily Web Search - Optional
   // Required for research graph web search capability
   TAVILY_API_KEY: optionalString,

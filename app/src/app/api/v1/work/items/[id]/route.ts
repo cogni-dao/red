@@ -39,6 +39,7 @@ import {
 } from "@/app/_facades/work/items.server";
 import { getSessionUser } from "@/app/_lib/auth/session";
 import { wrapRouteHandlerWithLogging } from "@/bootstrap/http";
+import { EVENT_NAMES } from "@/shared/observability";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -115,11 +116,33 @@ export const PATCH = wrapRouteHandlerWithLogging<{
 
     const { id } = await context.params;
 
+    // Every refusal ends in ONE registered terminal event with its errorCode (task.0122): ids and codes, never the body.
+    const refuse = (
+      status: number,
+      errorCode: string,
+      body: unknown,
+      extra: Record<string, string> = {}
+    ): NextResponse => {
+      ctx.log.info(
+        {
+          event: EVENT_NAMES.WORK_ITEMS_PATCH_REFUSED,
+          routeId: "work.items.patch",
+          outcome: "refused",
+          workItemId: id,
+          status,
+          errorCode,
+          ...extra,
+        },
+        EVENT_NAMES.WORK_ITEMS_PATCH_REFUSED
+      );
+      return NextResponse.json(body, { status });
+    };
+
     let body: unknown;
     try {
       body = await request.json();
     } catch {
-      return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
+      return refuse(400, "invalid_json", { error: "invalid JSON body" });
     }
 
     if (
@@ -129,10 +152,7 @@ export const PATCH = wrapRouteHandlerWithLogging<{
       body.id !== undefined &&
       body.id !== id
     ) {
-      return NextResponse.json(
-        { error: "body id must match path id" },
-        { status: 400 }
-      );
+      return refuse(400, "id_mismatch", { error: "body id must match path id" });
     }
 
     const parseResult = workItemsPatchOperation.input.safeParse({
@@ -140,10 +160,10 @@ export const PATCH = wrapRouteHandlerWithLogging<{
       id,
     });
     if (!parseResult.success) {
-      return NextResponse.json(
-        { error: "invalid input", issues: parseResult.error.issues },
-        { status: 400 }
-      );
+      return refuse(400, "invalid_input", {
+        error: "invalid input",
+        issues: parseResult.error.issues,
+      });
     }
 
     try {
@@ -152,13 +172,22 @@ export const PATCH = wrapRouteHandlerWithLogging<{
         walletAddress: sessionUser.walletAddress,
       });
       ctx.log.info(
-        { workItemId: id, citeCount: parseResult.data.cites?.length ?? 0 },
-        "work.items.patch_success"
+        {
+          event: EVENT_NAMES.WORK_ITEMS_PATCH_SUCCESS,
+          routeId: "work.items.patch",
+          outcome: "success",
+          status: 200,
+          workItemId: id,
+          citeCount: parseResult.data.cites?.length ?? 0,
+        },
+        EVENT_NAMES.WORK_ITEMS_PATCH_SUCCESS
       );
       return NextResponse.json(workItemsPatchOperation.output.parse(patched));
     } catch (e) {
       if (e instanceof WorkItemWriteOutcomeUnknownError)
-        return NextResponse.json(
+        return refuse(
+          500,
+          e.code,
           {
             error: e.message,
             errorCode: e.code,
@@ -168,83 +197,85 @@ export const PATCH = wrapRouteHandlerWithLogging<{
             branch: e.branch,
             commitHash: e.commitHash ?? null,
             itemId: e.itemId ?? null,
-          },
-          { status: 500 }
+          }
         );
       if (e instanceof WorkItemScoresInvalidError)
-        return NextResponse.json(
-          { error: "invalid input", errorCode: e.code, issues: e.issues },
-          { status: 400 }
-        );
+        return refuse(400, e.code, {
+          error: "invalid input",
+          errorCode: e.code,
+          issues: e.issues,
+        });
       if (e instanceof WorkItemRevisionConflictError)
-        return NextResponse.json(
-          {
-            error: "revision_conflict",
-            expectedRevision: e.expectedRevision,
-            currentRevision: e.currentRevision,
-          },
-          { status: 409 }
-        );
+        return refuse(409, "revision_conflict", {
+          error: "revision_conflict",
+          expectedRevision: e.expectedRevision,
+          currentRevision: e.currentRevision,
+        });
       // The adapter is the one enforcer of reason and cites (task.0086); the schema above
       // says the same thing earlier, so these cover a rule the schema could not see.
       if (e instanceof ChangeReasonInvalidError) {
-        return NextResponse.json(
-          {
-            error: "invalid input",
-            issues: [{ code: "custom", path: ["reason"], message: e.message }],
-          },
-          { status: 400 }
-        );
+        return refuse(400, "invalid_input", {
+          error: "invalid input",
+          issues: [{ code: "custom", path: ["reason"], message: e.message }],
+        });
       }
       if (e instanceof CitesInvalidError) {
-        return NextResponse.json(
-          {
-            error: "invalid input",
-            issues: e.issues.map((message) => ({
-              code: "custom",
-              path: ["cites"],
-              message,
-            })),
-          },
-          { status: 400 }
-        );
+        return refuse(400, "invalid_input", {
+          error: "invalid input",
+          issues: e.issues.map((message) => ({
+            code: "custom",
+            path: ["cites"],
+            message,
+          })),
+        });
       }
       // EntryUnresolvedError (cites or moves) falls through to `workItemWriteErrorResponse`
       // below: the package puts the issue at the field the ids came from.
       if (e instanceof CitesUnsupportedError) {
-        return NextResponse.json(
-          {
-            error: "invalid input",
-            errorCode: e.code,
-            issues: [{ code: "custom", path: ["cites"], message: e.message }],
-          },
-          { status: 400 }
-        );
+        return refuse(400, e.code, {
+          error: "invalid input",
+          errorCode: e.code,
+          issues: [{ code: "custom", path: ["cites"], message: e.message }],
+        });
       }
       if (e instanceof EntryResolverUnavailableError) {
-        return NextResponse.json(
-          { error: "cites_unavailable", errorCode: e.code, message: e.message },
-          { status: 503 }
-        );
+        return refuse(503, e.code, {
+          error: "cites_unavailable",
+          errorCode: e.code,
+          message: e.message,
+        });
       }
       if (e instanceof WorkItemNotFoundError) {
-        return NextResponse.json({ error: e.message }, { status: 404 });
+        return refuse(404, "not_found", { error: e.message });
       }
       if (e instanceof WorkItemForbiddenError) {
-        return NextResponse.json({ error: e.message }, { status: 403 });
+        return refuse(403, "forbidden", { error: e.message });
       }
       if (e instanceof NodeAdminRequiredError) {
-        return NextResponse.json(
-          { error: e.message, errorCode: e.errorCode, action: e.action },
-          { status: e.status }
-        );
+        return refuse(e.status, e.errorCode, {
+          error: e.message,
+          errorCode: e.errorCode,
+          action: e.action,
+        });
       }
       if (e instanceof WorkItemsBackendNotReadyError) {
-        return NextResponse.json({ error: e.message }, { status: 503 });
+        return refuse(503, "backend_unavailable", { error: e.message });
       }
-      // The package owns the moves answers (unknown metric, bad list, unsupported, resolver and baseline failures).
+      // The package owns the answers of the rest (gate_unmet, moves, resolver and baseline failures).
       const mapped = workItemWriteErrorResponse(e, "patch");
-      if (mapped) return NextResponse.json(mapped.body, { status: mapped.status });
+      if (mapped) {
+        // What the gate found: the stage move and the missing artifact or fact, never a body.
+        const { from, to, missing } = mapped.body as {
+          from?: unknown;
+          to?: unknown;
+          missing?: unknown;
+        };
+        return refuse(mapped.status, mapped.errorCode, mapped.body, {
+          ...(typeof from === "string" ? { from } : {}),
+          ...(typeof to === "string" ? { to } : {}),
+          ...(typeof missing === "string" ? { missing } : {}),
+        });
+      }
       throw e;
     }
   }

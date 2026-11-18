@@ -23,6 +23,19 @@ export const EVENT_NAMES = {
 	WORK_EXPECTATIONS_READ: "work.expectations.read",
 	// Bounded work reads (task.0056): one terminal event per /work/summaries or /work/board request.
 	WORK_ITEMS_LIST_COMPLETE: "work.items.list_complete",
+	// Review and validation artifacts (task.0028): a write, a refusal (400, 404, 409) and a read, each one terminal event; codes and counts only, never a body, a row or a url.
+	// A refused work item write (task.0122): one terminal event per refusal with its errorCode (invalid_input, gate_unmet, revision_conflict, ...); codes and ids only, never a body.
+	WORK_ITEMS_CREATE_REFUSED: "work.items.create_refused",
+	WORK_ITEMS_PATCH_REFUSED: "work.items.patch_refused",
+	// The success twins: one terminal event per accepted create or patch, ids and counts only.
+	WORK_ITEMS_CREATE_SUCCESS: "work.items.create_success",
+	WORK_ITEMS_PATCH_SUCCESS: "work.items.patch_success",
+	WORK_ITEMS_ARTIFACT_RECORDED: "work.items.artifact_recorded",
+	WORK_ITEMS_ARTIFACT_REFUSED: "work.items.artifact_refused",
+	WORK_ITEMS_ARTIFACTS_READ: "work.items.artifacts_read",
+	// Work-item PR repo pin at boot (task.0122): unset or malformed leaves it unpinned; entries that are not owner/repo are ignored. Once at boot, never per request.
+	ADAPTER_WORK_ITEMS_PR_REPO_UNPINNED: "adapter.work_items.pr_repo_unpinned",
+	ADAPTER_WORK_ITEMS_PR_REPO_IGNORED: "adapter.work_items.pr_repo_ignored",
 	// AI Domain - Server
 	AI_COMPLETION: "ai.completion",
 	AI_LLM_CALL: "ai.llm_call",

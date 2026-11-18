@@ -23,7 +23,7 @@ export function composeWorkItemContent(
     "get" | "list" | "claim" | "heartbeat" | "release" | "delete"
   >
 ): WorkItemsDoltgresPort {
-  const { history, listBoardColumns } = content;
+  const { history, listBoardColumns, artifacts } = content;
   const refresh = async (item: WorkItem): Promise<WorkItem> => {
     const current = await content.get(item.id);
     if (!current) throw new Error(`Work item not found: ${item.id}`);
@@ -37,7 +37,8 @@ export function composeWorkItemContent(
     list: async (query = {}) => {
       const page = await content.list(query);
       if (!page.items.length) return page;
-      const oldPage = await legacy.list(query);
+      // The v1 store reads the status column as a string; the ladder's added statuses only widen the filter.
+      const oldPage = await legacy.list(query as Parameters<LegacyPort["list"]>[0]);
       const claims = new Map(oldPage.items.map((item) => [item.id, item]));
       return {
         ...page,
@@ -54,6 +55,8 @@ export function composeWorkItemContent(
         listBoardColumns.call(content, query, statuses, perColumn, options),
     }),
     ...(history && { history: (id) => history.call(content, id) }),
+    // task.0028: insert-only artifacts live on the content store; the v1 lease store has none.
+    ...(artifacts && { artifacts }),
     create: (input, principal) => content.create(input, principal),
     patch: async (input, principal) =>
       withClaim(
