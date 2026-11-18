@@ -30,6 +30,7 @@ import {
 } from "@/app/_facades/work/items.server";
 import { getSessionUser } from "@/app/_lib/auth/session";
 import { wrapRouteHandlerWithLogging } from "@/bootstrap/http";
+import { EVENT_NAMES } from "@/shared/observability";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -103,19 +104,38 @@ export const POST = wrapRouteHandlerWithLogging(
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
 
+    // Every refusal ends in ONE registered terminal event with its errorCode (task.0122): ids and codes, never the body.
+    const refuse = (
+      status: number,
+      errorCode: string,
+      body: unknown
+    ): NextResponse => {
+      ctx.log.info(
+        {
+          event: EVENT_NAMES.WORK_ITEMS_CREATE_REFUSED,
+          routeId: "work.items.create",
+          outcome: "refused",
+          status,
+          errorCode,
+        },
+        EVENT_NAMES.WORK_ITEMS_CREATE_REFUSED
+      );
+      return NextResponse.json(body, { status });
+    };
+
     let body: unknown;
     try {
       body = await request.json();
     } catch {
-      return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
+      return refuse(400, "invalid_json", { error: "invalid JSON body" });
     }
 
     const parseResult = workItemsCreateOperation.input.safeParse(body);
     if (!parseResult.success) {
-      return NextResponse.json(
-        { error: "invalid input", issues: parseResult.error.issues },
-        { status: 400 }
-      );
+      return refuse(400, "invalid_input", {
+        error: "invalid input",
+        issues: parseResult.error.issues,
+      });
     }
 
     try {
@@ -124,50 +144,53 @@ export const POST = wrapRouteHandlerWithLogging(
         walletAddress: sessionUser.walletAddress,
       });
       ctx.log.info(
-        { workItemId: created.id, node: created.node },
-        "work.items.create_success"
+        {
+          event: EVENT_NAMES.WORK_ITEMS_CREATE_SUCCESS,
+          routeId: "work.items.create",
+          outcome: "success",
+          status: 201,
+          workItemId: created.id,
+          node: created.node,
+        },
+        EVENT_NAMES.WORK_ITEMS_CREATE_SUCCESS
       );
       return NextResponse.json(workItemsCreateOperation.output.parse(created), {
         status: 201,
       });
     } catch (e) {
       if (e instanceof NodeAdminRequiredError) {
-        return NextResponse.json(
-          { error: e.message, errorCode: e.errorCode, action: e.action },
-          { status: e.status }
-        );
+        return refuse(e.status, e.errorCode, {
+          error: e.message,
+          errorCode: e.errorCode,
+          action: e.action,
+        });
       }
       if (e instanceof WorkItemWriteOutcomeUnknownError)
-        return NextResponse.json(
-          {
-            error: e.message,
-            errorCode: e.code,
-            retryable: false,
-            receipt: e.receipt,
-            operationId: e.operationId,
-            branch: e.branch,
-            commitHash: e.commitHash ?? null,
-            itemId: e.itemId ?? null,
-          },
-          { status: 500 }
-        );
+        return refuse(500, e.code, {
+          error: e.message,
+          errorCode: e.code,
+          retryable: false,
+          receipt: e.receipt,
+          operationId: e.operationId,
+          branch: e.branch,
+          commitHash: e.commitHash ?? null,
+          itemId: e.itemId ?? null,
+        });
       if (e instanceof WorkItemScoresInvalidError)
-        return NextResponse.json(
-          { error: "invalid input", errorCode: e.code, issues: e.issues },
-          { status: 400 }
-        );
+        return refuse(400, e.code, {
+          error: "invalid input",
+          errorCode: e.code,
+          issues: e.issues,
+        });
       if (e instanceof WorkItemsBackendNotReadyError) {
-        return NextResponse.json({ error: e.message }, { status: 503 });
+        return refuse(503, "backend_unavailable", { error: e.message });
       }
       if ((e as Error)?.name === "WorkItemAlreadyExistsError") {
-        return NextResponse.json(
-          { error: (e as Error).message },
-          { status: 409 }
-        );
+        return refuse(409, "already_exists", { error: (e as Error).message });
       }
       // The package owns the moves answers (unknown metric, bad list, unsupported, resolver and baseline failures).
       const mapped = workItemWriteErrorResponse(e, "create");
-      if (mapped) return NextResponse.json(mapped.body, { status: mapped.status });
+      if (mapped) return refuse(mapped.status, mapped.errorCode, mapped.body);
       throw e;
     }
   }

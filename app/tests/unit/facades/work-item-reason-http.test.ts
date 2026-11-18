@@ -124,7 +124,11 @@ describe("work-item PATCH reason and cites HTTP boundary (task.0086)", () => {
       "principal-1"
     );
     expect(info).toHaveBeenCalledWith(
-      { workItemId: "task.0001", citeCount: 2 },
+      expect.objectContaining({
+        event: "work.items.patch_success",
+        workItemId: "task.0001",
+        citeCount: 2,
+      }),
       "work.items.patch_success"
     );
   });
