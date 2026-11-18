@@ -23,6 +23,13 @@ export const EVENT_NAMES = {
 	WORK_EXPECTATIONS_READ: "work.expectations.read",
 	// Bounded work reads (task.0056): one terminal event per /work/summaries or /work/board request.
 	WORK_ITEMS_LIST_COMPLETE: "work.items.list_complete",
+	// Review and validation artifacts (task.0028): a write, a refusal (400, 404, 409) and a read, each one terminal event; codes and counts only, never a body, a row or a url.
+	WORK_ITEMS_ARTIFACT_RECORDED: "work.items.artifact_recorded",
+	WORK_ITEMS_ARTIFACT_REFUSED: "work.items.artifact_refused",
+	WORK_ITEMS_ARTIFACTS_READ: "work.items.artifacts_read",
+	// Work-item PR repo pin at boot (task.0122): unset or malformed leaves it unpinned; entries that are not owner/repo are ignored. Once at boot, never per request.
+	ADAPTER_WORK_ITEMS_PR_REPO_UNPINNED: "adapter.work_items.pr_repo_unpinned",
+	ADAPTER_WORK_ITEMS_PR_REPO_IGNORED: "adapter.work_items.pr_repo_ignored",
 	// AI Domain - Server
 	AI_COMPLETION: "ai.completion",
 	AI_LLM_CALL: "ai.llm_call",

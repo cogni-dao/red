@@ -68,11 +68,13 @@ import {
 	DoltgresEdoResolverAdapter,
 	DoltgresKnowledgeContributionAdapter,
 	DoltgresKnowledgeStoreAdapter,
+	createDoltgresInboxStates,
 	wrapPushSafe,
 } from "@cogni/knowledge-store/adapters/doltgres";
 import { parseMcpConfigFromEnv } from "@cogni/langgraph-graphs";
 import {
 	COGNI_SYSTEM_PRINCIPAL_USER_ID,
+	EVENT_NAMES,
 	initAnalytics,
 	shutdownAnalytics,
 } from "@cogni/node-shared";
@@ -85,7 +87,7 @@ import { PrivyOperatorWalletAdapter } from "@cogni/operator-wallet/adapters/priv
 import type { ScheduleControlPort } from "@cogni/scheduler-core";
 import type { ScheduleRunReader } from "@cogni/scheduling";
 import { PostgresScheduleRunReader } from "@cogni/scheduling/adapters/postgres";
-import type { WorkItemQueryPort } from "@cogni/work-items";
+import type { WorkItemArtifactDeps, WorkItemQueryPort } from "@cogni/work-items";
 import { DoltgresWorkItemAdapter as LegacyWorkItemAdapter } from "@cogni/work-items-legacy/adapters/doltgres";
 import { DoltgresWorkItemAdapter } from "@cogni/work-items/adapters/doltgres";
 import { MarkdownWorkItemAdapter } from "@cogni/work-items/markdown";
@@ -161,6 +163,10 @@ import { getExecutionScope } from "@/adapters/server";
 import { createCitationLinksPort } from "@/bootstrap/capabilities/citation-links";
 import { createWorkItemCapability } from "@/bootstrap/capabilities/work-item";
 import { createMoveMetricPorts } from "@/bootstrap/capabilities/work-item-moves";
+import {
+	createPrFactsPort,
+	resolveWorkItemsPrRepos,
+} from "@/bootstrap/capabilities/work-item-pr-facts";
 import { createApproversNodeAdminAuthority } from "@/bootstrap/node-admin-gate";
 import { localReadinessPreflight } from "@/bootstrap/local-readiness-preflight";
 import type { RateLimitBypassConfig } from "@/bootstrap/http/wrapPublicRoute";
@@ -288,6 +294,8 @@ export interface Container {
 	workItemQuery: WorkItemQueryPort;
 	/** Node-local Doltgres work-item query/create/patch/delete surface. */
 	doltgresWorkItems: WorkItemsDoltgresPort;
+	/** Review and validation artifacts of work items (task.0028): the item store and the insert-only artifact store. Undefined when DOLTGRES_URL is unset. */
+	workItemArtifacts: WorkItemArtifactDeps | undefined;
 	/** Run event streaming — publish/subscribe via Redis Streams */
 	runStream: RunStreamPort;
 	/** Node-level event streaming — undefined when REDIS_URL not set */
@@ -774,6 +782,7 @@ function createContainer(): Container {
 	const nodeAdmin = createApproversNodeAdminAuthority();
 	let knowledgeStorePort: KnowledgeStorePort | undefined;
 	let doltgresWorkItems: WorkItemsDoltgresPort;
+	let workItemArtifacts: WorkItemArtifactDeps | undefined;
 	if (env.DOLTGRES_URL) {
 		const doltClient = buildDoltgresClient({
 			connectionString: env.DOLTGRES_URL,
@@ -800,6 +809,28 @@ function createContainer(): Container {
 				applicationName: `cogni_work_items_read_${env.SERVICE_NAME ?? "app"}`,
 				max: 1,
 			});
+		// task.0122: optional pin of the repository whose PRs are code deliverables. Unset (runtime env is operator
+		// custody and not provisioned everywhere) the gate accepts a PR on any github.com repo; say so once, never silently.
+		const prRepos = resolveWorkItemsPrRepos(env.WORK_ITEMS_PR_REPO);
+		if (!prRepos.repos.length) {
+			log.warn(
+				{
+					event: EVENT_NAMES.ADAPTER_WORK_ITEMS_PR_REPO_UNPINNED,
+					reason: prRepos.reason,
+				},
+				"work items accept a pull request of any github.com repository as a code deliverable; set WORK_ITEMS_PR_REPO=owner/repo to pin one"
+			);
+		}
+		if (prRepos.ignored.length) {
+			log.warn(
+				{
+					event: EVENT_NAMES.ADAPTER_WORK_ITEMS_PR_REPO_IGNORED,
+					ignored: prRepos.ignored,
+					pinned: prRepos.repos,
+				},
+				"WORK_ITEMS_PR_REPO entries that are not owner/repo were ignored"
+			);
+		}
 		doltgresWorkItems = composeWorkItemContent(
 			new DoltgresWorkItemAdapter(workItemsClient, {
 				writerLockProtocol: "bridge",
@@ -813,12 +844,29 @@ function createContainer(): Container {
 				entryResolver: createDoltgresEntryResolver(doltClient),
 				// story.0033: a `moves` entry pins the metric's latest good observation as its baseline.
 				metricBaseline: moveMetrics.baselines,
+				// task.0122: the status gates read a PR's head and merge state (before the writer lock) through an
+				// unauthenticated GitHub read, and an inbox's head and merge state locally on the knowledge pool.
+				prFacts: createPrFactsPort(),
+				inboxes: createDoltgresInboxStates(doltClient),
+				...(prRepos.repos.length ? { prRepos: prRepos.repos } : {}),
+				...(env.APP_BASE_URL
+					? { hubOrigin: new URL(env.APP_BASE_URL).origin }
+					: {}),
 			}),
 			new LegacyWorkItemAdapter(createLegacyWorkItemsClient(), {
 				logger: log,
 				recreateClient: createLegacyWorkItemsClient,
 			})
 		);
+		// task.0028: artifacts go through the work-items writer path. The artifact records its author for audit.
+		workItemArtifacts = doltgresWorkItems.artifacts
+			? {
+					items: doltgresWorkItems,
+					artifacts: doltgresWorkItems.artifacts,
+					// A story validation names its origin; only this hub's own is accepted.
+					ownOrigin: env.APP_BASE_URL,
+				}
+			: undefined;
 		const createKnowledgeBranchClient = () =>
 			buildDoltgresClient({
 				connectionString: env.DOLTGRES_URL as string,
@@ -1167,6 +1215,7 @@ function createContainer(): Container {
 		attributionStore: new DrizzleAttributionAdapter(serviceDb, getScopeId()),
 		workItemQuery: workItemAdapter,
 		doltgresWorkItems,
+		workItemArtifacts,
 		runStream,
 		nodeStream,
 		get webhookRegistrations() {
