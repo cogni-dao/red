@@ -18,7 +18,6 @@ import type {
 	EdoCapability,
 	MetricsCapability,
 	RepoCapability,
-	SandboxExecCapability,
 	WebSearchCapability,
 } from "@cogni/ai-tools";
 import { CORE_TOOL_BUNDLE } from "@cogni/ai-tools";
@@ -154,7 +153,7 @@ import {
 	derivePrometheusQueryUrl,
 } from "@/bootstrap/capabilities/metrics";
 import { createRepoCapability } from "@/bootstrap/capabilities/repo";
-import { createSandboxWorkspaceClient } from "@/bootstrap/capabilities/sandbox-workspace";
+import { createSandboxShellCapability } from "@/bootstrap/capabilities/sandbox-workspace";
 import { createScheduleCapability } from "@/bootstrap/capabilities/schedule";
 import { stubVcsCapability } from "@/bootstrap/capabilities/vcs";
 import { createWebSearchCapability } from "@/bootstrap/capabilities/web-search";
@@ -1001,31 +1000,6 @@ function createContainer(): Container {
 		log.warn("Knowledge store not configured (DOLTGRES_URL not set)");
 	}
 
-	// Sandbox shell-exec capability (story.0002). The factory returns null when the
-	// execd token or a derivable sandbox origin is absent (e.g. local dev), in which
-	// case the sandbox tool resolves to its structured-unavailable binding. This is the
-	// candidate-only prototype transport; shared caller authorization (OpenFGA/ToolRunner)
-	// is a separate, later vertical and is NOT a prerequisite for the first native solve.
-	const sandboxWorkspaceClient = createSandboxWorkspaceClient(env);
-	const sandboxExecCapability: SandboxExecCapability | undefined =
-		sandboxWorkspaceClient
-			? {
-					exec: async ({ command, timeoutMs }) => {
-						const result = await sandboxWorkspaceClient.runCommand({
-							command,
-							...(timeoutMs !== undefined && { timeoutMs }),
-						});
-						return {
-							exitCode: result.exitCode,
-							stdout: result.stdout,
-							stderr: result.stderr,
-							truncated: result.truncated,
-							errorName: result.errorName,
-						};
-					},
-				}
-			: undefined;
-
 	// ToolSource with real implementations (per CAPABILITY_INJECTION)
 	const toolBindings = createToolBindings({
 		nodePublicOrigin: env.APP_BASE_URL,
@@ -1034,7 +1008,7 @@ function createContainer(): Container {
 		metricsCapability,
 		webSearchCapability,
 		repoCapability,
-		sandboxExecCapability,
+		sandboxShellCapability: createSandboxShellCapability(env),
 		scheduleCapability,
 		vcsCapability: stubVcsCapability,
 		workItemCapability,

@@ -24,7 +24,6 @@ import {
   createKnowledgeSearchImplementation,
   createWorkItemQueryImplementation,
   createWorkItemReadImplementation,
-  createWorkItemTransitionImplementation,
   WORK_ITEM_READ_NAME,
 } from "@cogni/shared-ai-tools";
 
@@ -32,7 +31,7 @@ import type {
   EdoCapability,
   MetricsCapability,
   RepoCapability,
-  SandboxExecCapability,
+  SandboxShellCapability,
   ScheduleCapability,
   ToolImplementation,
   VcsCapability,
@@ -48,7 +47,7 @@ import {
   createRepoListImplementation,
   createRepoOpenImplementation,
   createRepoSearchImplementation,
-  createSandboxExecImplementation,
+  createSandboxShellImplementation,
   createScheduleListImplementation,
   createScheduleManageImplementation,
   createVcsCreateBranchImplementation,
@@ -71,8 +70,8 @@ import {
   REPO_LIST_NAME,
   REPO_OPEN_NAME,
   REPO_SEARCH_NAME,
-  SANDBOX_EXEC_NAME,
-  sandboxExecUnavailableImplementation,
+  SANDBOX_SHELL_NAME,
+  sandboxShellUnavailableImplementation,
   SCHEDULE_LIST_NAME,
   SCHEDULE_MANAGE_NAME,
   VCS_CREATE_BRANCH_NAME,
@@ -82,7 +81,6 @@ import {
   VCS_MERGE_PR_NAME,
   WEB_SEARCH_NAME,
   WORK_ITEM_QUERY_NAME,
-  WORK_ITEM_TRANSITION_NAME,
 } from "@cogni/ai-tools";
 
 /**
@@ -96,8 +94,8 @@ export interface ToolBindingDeps {
   readonly metricsCapability: MetricsCapability;
   readonly webSearchCapability: WebSearchCapability;
   readonly repoCapability: RepoCapability;
-  /** Optional: when absent, the sandbox tool resolves to the unavailable binding. */
-  readonly sandboxExecCapability?: SandboxExecCapability | undefined;
+  /** Null when no sandbox token or host is configured: the shell tool then answers `unavailable`. */
+  readonly sandboxShellCapability: SandboxShellCapability | null;
   readonly scheduleCapability: ScheduleCapability;
   readonly vcsCapability: VcsCapability;
   readonly workItemCapability: WorkItemCapability;
@@ -133,13 +131,13 @@ export function createToolBindings(deps: ToolBindingDeps): ToolBindings {
       getCurrentTimeImplementation as AnyToolImplementation,
     [HTTP_REQUEST_NAME]: httpRequestImplementation as AnyToolImplementation,
 
-    // Sandbox shell exec (story.0002): real impl when a capability is injected,
+    // Sandbox shell (story.0064): real impl when a capability is injected,
     // else the structured-unavailable binding (local dev / no execd token).
-    [SANDBOX_EXEC_NAME]: (deps.sandboxExecCapability
-      ? createSandboxExecImplementation({
-          sandboxExecCapability: deps.sandboxExecCapability,
+    [SANDBOX_SHELL_NAME]: (deps.sandboxShellCapability
+      ? createSandboxShellImplementation({
+          sandboxShellCapability: deps.sandboxShellCapability,
         })
-      : sandboxExecUnavailableImplementation) as AnyToolImplementation,
+      : sandboxShellUnavailableImplementation) as AnyToolImplementation,
 
     [GOAL_LIST_NAME]: createGoalListImplementation({
       knowledgeCapability: deps.knowledgeCapability,
@@ -227,10 +225,6 @@ export function createToolBindings(deps: ToolBindingDeps): ToolBindings {
     [WORK_ITEM_READ_NAME]: createWorkItemReadImplementation({
       workItemCapability: deps.workItemCapability,
       nodePublicOrigin: deps.nodePublicOrigin,
-    }) as AnyToolImplementation,
-
-    [WORK_ITEM_TRANSITION_NAME]: createWorkItemTransitionImplementation({
-      workItemCapability: deps.workItemCapability,
     }) as AnyToolImplementation,
   };
 }

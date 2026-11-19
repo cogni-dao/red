@@ -90,20 +90,22 @@ interface CatalogEntry {
 }
 
 /**
- * RED's work-prioritizer: the released entry with its write tool removed, so it is read-only.
+ * RED's work-prioritizer: the released entry with its write tools (update, artifact record) removed, so it is read-only.
  *
  * Triage writes are off on red until the program plumbing (program, sourceContext, run hooks) is ported.
  * RED's in-proc runner does not pass `program` to the graph factory, so the released prioritizer would run
  * as a plain ReAct agent holding the full-schema `core__work_item_update` with no triage guard, no
- * five-change cap and no receipt. `core__work_item_read` stays; the update tool is neither offered nor bound.
+ * five-change cap and no receipt. `core__work_item_read` stays; the update and artifact-record tools are neither offered nor bound.
  */
 const SHARED_WORK_PRIORITIZER = SHARED_NODE_CATALOG["work-prioritizer"];
 const RED_WORK_PRIORITIZER: CatalogEntry = {
   ...SHARED_WORK_PRIORITIZER,
   toolIds: SHARED_WORK_PRIORITIZER.toolIds.filter(
-    (id) => id !== "core__work_item_update"
+    (id) =>
+      id !== "core__work_item_update" &&
+      id !== "core__work_item_artifact_record"
   ),
-  systemPrompt: `${SHARED_WORK_PRIORITIZER.systemPrompt} READ-ONLY ON THIS NODE: triage writes are off, so core__work_item_update is not available. Do not try to change any item. Read as above, then report in your final answer the routes, scores and cancels you would make, one line per item, with the reason for each. Reporting them satisfies the run; ignore the instruction to write.`,
+  systemPrompt: `${SHARED_WORK_PRIORITIZER.systemPrompt} READ-ONLY ON THIS NODE: triage writes are off, so core__work_item_update and core__work_item_artifact_record are not available. Do not try to change any item. Read as above, then report in your final answer the routes, scores and cancels you would make, one line per item, with the reason for each. Reporting them satisfies the run; ignore the instruction to write.`,
 };
 
 const createAutoresearchCatalogEntry = (

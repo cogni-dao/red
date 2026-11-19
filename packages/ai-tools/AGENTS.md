@@ -61,8 +61,9 @@ Pure tool definitions for AI agent execution. Defines `ToolContract`, `ToolImple
   - `vcsFlightCandidateBoundTool`, `VCS_FLIGHT_CANDIDATE_NAME`, `createVcsFlightCandidateImplementation` - VCS dispatch candidate-flight tool (NO_AUTO_FLIGHT)
   - `VcsCapability`, `CiStatusResult`, `MergeResult`, `PrSummary`, `CreateBranchResult`, `CheckInfo`, `DispatchCandidateFlightResult` - VCS capability types
   - `workItemQueryBoundTool`, `WORK_ITEM_QUERY_NAME`, `createWorkItemQueryImplementation` - Work item query tool
-  - `WORK_ITEM_TRANSITION_NAME` - Id of the released shared work item transition tool (re-exported; the tool itself ships in `@cogni/shared-ai-tools`)
-  - `WorkItemCapability`, `WorkItemInfo`, `WorkItemQueryParams`, `WorkItemTransitionResult` - Work item capability types
+  - `WORK_ITEM_READ_NAME` - Id of the released shared work item read tool (re-exported; the tool itself ships in `@cogni/shared-ai-tools`)
+  - `WorkItemCapability`, `WorkItemInfo`, `WorkItemQueryParams` - Work item capability types
+  - `sandboxShellBoundTool`, `SANDBOX_SHELL_NAME`, `createSandboxShellImplementation`, `SandboxShellCapability` - Sandbox shell tool (re-exported from the released `@cogni/shared-ai-tools`; the transport is `@cogni/sandbox`, composed in `app/src/bootstrap/capabilities/sandbox-workspace.ts`)
   - `knowledgeReadBoundTool`, `KNOWLEDGE_READ_NAME`, `createKnowledgeReadImplementation` - Knowledge read tool (read_only: get by id or list by domain+tags)
   - `knowledgeSearchBoundTool`, `KNOWLEDGE_SEARCH_NAME`, `createKnowledgeSearchImplementation` - Knowledge search tool (read_only: text search by domain+query)
   - `knowledgeWriteBoundTool`, `KNOWLEDGE_WRITE_NAME`, `createKnowledgeWriteImplementation` - Knowledge write tool (state_change: upsert + auto dolt_commit)

@@ -25,7 +25,6 @@ import { metricsQueryBoundTool } from "./tools/metrics-query";
 import { repoListBoundTool } from "./tools/repo-list";
 import { repoOpenBoundTool } from "./tools/repo-open";
 import { repoSearchBoundTool } from "./tools/repo-search";
-import { sandboxExecBoundTool } from "./tools/sandbox-exec";
 import { scheduleListBoundTool } from "./tools/schedule-list";
 import { scheduleManageBoundTool } from "./tools/schedule-manage";
 import { vcsCreateBranchBoundTool } from "./tools/vcs-create-branch";
@@ -135,7 +134,7 @@ export const CORE_TOOL_BUNDLE: readonly CatalogBoundTool[] = [
   repoListBoundTool as CatalogBoundTool,
   repoOpenBoundTool as CatalogBoundTool,
   repoSearchBoundTool as CatalogBoundTool,
-  sandboxExecBoundTool as CatalogBoundTool,
+  sharedTool("core__sandbox_shell"),
   scheduleListBoundTool as CatalogBoundTool,
   scheduleManageBoundTool as CatalogBoundTool,
   vcsCreateBranchBoundTool as CatalogBoundTool,
@@ -149,7 +148,6 @@ export const CORE_TOOL_BUNDLE: readonly CatalogBoundTool[] = [
   // deliberately not in this catalog: no red program may write through it until the program plumbing
   // (program, sourceContext, run hooks) is ported.
   sharedTool("core__work_item_read"),
-  sharedTool("core__work_item_transition"),
 ];
 
 /**

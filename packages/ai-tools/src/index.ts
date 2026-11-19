@@ -49,9 +49,6 @@ export type {
   RepoSearchHit,
   RepoSearchParams,
   RepoSearchResult,
-  SandboxExecCapability,
-  SandboxExecParams,
-  SandboxExecResult,
   ScheduleCapability,
   ScheduleCreateParams,
   ScheduleInfo,
@@ -68,7 +65,6 @@ export type {
   WorkItemCapability,
   WorkItemInfo,
   WorkItemQueryParams,
-  WorkItemTransitionResult,
 } from "./capabilities";
 // Capabilities
 export {
@@ -161,19 +157,24 @@ export {
   httpRequestContract,
   httpRequestImplementation,
 } from "./tools/http-request";
+// The sandbox shell tool is the released shared one; only its names, schemas, implementations and capability types are re-exported.
 export {
-  createSandboxExecImplementation,
-  SANDBOX_EXEC_NAME,
-  type SandboxExecDeps,
-  type SandboxExecInput,
-  SandboxExecInputSchema,
-  type SandboxExecOutput,
-  SandboxExecOutputSchema,
-  type SandboxExecRedacted,
-  sandboxExecBoundTool,
-  sandboxExecContract,
-  sandboxExecUnavailableImplementation,
-} from "./tools/sandbox-exec";
+  createSandboxShellImplementation,
+  SANDBOX_SHELL_NAME,
+  type SandboxShellCapability,
+  type SandboxShellDeps,
+  type SandboxShellErrorCode,
+  type SandboxShellInput,
+  SandboxShellInputSchema,
+  type SandboxShellOutput,
+  SandboxShellOutputSchema,
+  type SandboxShellParams,
+  type SandboxShellRedacted,
+  type SandboxShellResult,
+  sandboxShellBoundTool,
+  sandboxShellContract,
+  sandboxShellUnavailableImplementation,
+} from "@cogni/shared-ai-tools";
 export {
   createKnowledgeReadImplementation,
   KNOWLEDGE_READ_NAME,
@@ -390,8 +391,8 @@ export {
   workItemQueryContract,
   workItemQueryStubImplementation,
 } from "./tools/work-item-query";
-// The transition tool is the released shared one; only its id constant is re-exported for graph tool lists.
-export { WORK_ITEM_TRANSITION_NAME } from "@cogni/shared-ai-tools";
+// The work item read tool is the released shared one; only its id constant is re-exported for graph tool lists.
+export { WORK_ITEM_READ_NAME } from "@cogni/shared-ai-tools";
 // Tool types
 export type {
   BoundTool,
