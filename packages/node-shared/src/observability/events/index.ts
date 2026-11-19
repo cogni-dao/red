@@ -30,6 +30,8 @@ export const EVENT_NAMES = {
 	// The success twins: one terminal event per accepted create or patch, ids and counts only.
 	WORK_ITEMS_CREATE_SUCCESS: "work.items.create_success",
 	WORK_ITEMS_PATCH_SUCCESS: "work.items.patch_success",
+	// A node run wrote with no run record to name (the record was missing, had no kind, or could not be read; task.0175): the write still happens as the principal, with no Run line. One warn per such write, with runId when known.
+	WORK_ITEMS_ATTRIBUTION_RUN_MISSING: "work.items.attribution_run_missing",
 	WORK_ITEMS_ARTIFACT_RECORDED: "work.items.artifact_recorded",
 	WORK_ITEMS_ARTIFACT_REFUSED: "work.items.artifact_refused",
 	WORK_ITEMS_ARTIFACTS_READ: "work.items.artifacts_read",
