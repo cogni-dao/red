@@ -289,8 +289,8 @@ describe("Red released read-envelope and wrapper compatibility", () => {
     const dto = toWorkItemDto(workItem);
     const workItemCapability: WorkItemCapability = {
       query: async () => [dto],
-      transitionStatus: async () => {
-        throw new Error("read proof must not transition");
+      patch: async () => {
+        throw new Error("read proof must not patch");
       },
     };
     const result = await createWorkItemQueryImplementation({

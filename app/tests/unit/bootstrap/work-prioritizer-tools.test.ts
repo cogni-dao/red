@@ -26,6 +26,7 @@ describe("work-prioritizer tool surface (task.0086)", () => {
     expect(toolIds.length).toBeGreaterThan(0);
     expect(toolIds).not.toContain("core__work_item_update");
     expect(toolIds).not.toContain("core__work_item_transition");
+    expect(toolIds).not.toContain("core__work_item_artifact_record");
     expect(toolIds).toContain("core__work_item_read");
     expect(toolIds).toContain("core__work_item_query");
   });
@@ -53,6 +54,7 @@ describe("work-prioritizer tool surface (task.0086)", () => {
         repoCapability: {} as never,
         scheduleCapability: {} as never,
         vcsCapability: {} as never,
+        sandboxShellCapability: null,
         workItemCapability: {} as never,
       }),
       ...metricBindings,

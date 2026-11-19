@@ -299,6 +299,7 @@ export function runGraphWithScope(params: {
   return runInScope(
     {
       billing,
+      runId: req.runId,
       llmService,
       usageSource,
       ...(ctx?.actorUserId ? { actorUserId: ctx.actorUserId } : {}),

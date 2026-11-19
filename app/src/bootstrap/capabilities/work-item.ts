@@ -104,22 +104,6 @@ export function createWorkItemCapability(
     query: async (params) =>
       withMoveReadings((await queryPage(params)).items),
     queryPage,
-    transitionStatus: async (input) => {
-      const current = await deps.workItemQuery.get(toWorkItemId(input.id));
-      if (!current) throw new Error(`Work item not found: ${input.id}`);
-      const updated = await deps.workItemCommand.transitionStatus({
-        id: current.id,
-        expectedRevision: String(current.revision),
-        toStatus: input.toStatus as WorkItem["status"],
-        ...(input.reason && { reason: input.reason }),
-      });
-      return {
-        id: updated.id,
-        previousStatus: current.status,
-        newStatus: updated.status,
-        revision: Number(updated.revision),
-      };
-    },
     patch: async (input) => {
       if (
         input.set.priority != null &&

@@ -58,12 +58,6 @@ export type {
   RepoSearchResult,
 } from "./repo";
 export { makeRepoCitation, REPO_CITATION_REGEX } from "./repo";
-// Sandbox shell-exec capability (story.0002)
-export type {
-  SandboxExecCapability,
-  SandboxExecParams,
-  SandboxExecResult,
-} from "./sandbox";
 // Schedule management capability
 export type {
   ScheduleCapability,
@@ -101,7 +95,6 @@ export type {
   WorkItemCapability,
   WorkItemInfo,
   WorkItemQueryParams,
-  WorkItemTransitionResult,
 } from "./work-item";
 
 import type { AuthCapability, ClockCapability } from "./types";
