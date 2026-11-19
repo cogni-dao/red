@@ -31,6 +31,7 @@ import type {
   WorkItemId,
   WorkItemScoresIssue,
   WorkSummaryReadOptions,
+  WriteAttribution,
 } from "@cogni/work-items";
 import {
   ChangeReasonInvalidError,
@@ -54,6 +55,7 @@ import {
 import { createCitationLinksPort } from "@/bootstrap/capabilities/citation-links";
 import { createMoveMetricPorts } from "@/bootstrap/capabilities/work-item-moves";
 import { getContainer } from "@/bootstrap/container";
+import { routeAttribution } from "@/bootstrap/write-attribution";
 
 /**
  * Thrown when the opaque pagination cursor cannot be decoded — translated
@@ -547,16 +549,18 @@ export async function getWorkItem(
   return mdItem ? withItemEnvelope(toDto(mdItem), options) : null;
 }
 
+/** `attribution` is the route's one host-built value (`routeAttribution(caller)`): the same object the route's terminal event names, so the record and the log cannot disagree. */
 export async function createWorkItem(
   input: ContractCreateInput,
-  sessionUser: WorkItemActor
+  sessionUser: WorkItemActor,
+  attribution: WriteAttribution
 ): Promise<WorkItemDto> {
   await assertPriorityAuthority(input.priority, sessionUser);
   const container = getContainer();
   try {
     const created = await container.doltgresWorkItems.create(
       toWorkItemsCreateInput(input),
-      sessionUser.id
+      attribution
     );
     return await withMoveReadings(toDto(created));
   } catch (e) {
@@ -566,14 +570,15 @@ export async function createWorkItem(
 
 export async function patchWorkItem(
   input: ContractPatchInput,
-  sessionUser: WorkItemActor
+  sessionUser: WorkItemActor,
+  attribution: WriteAttribution
 ): Promise<WorkItemDto> {
   await assertPriorityAuthority(input.set.priority, sessionUser);
   const container = getContainer();
   try {
     const patched = await container.doltgresWorkItems.patch(
       toWorkItemsPatchInput(input),
-      sessionUser.id
+      attribution
     );
     if (!patched) throw new WorkItemNotFoundError(input.id);
     return await withMoveReadings(toDto(patched));
@@ -590,7 +595,7 @@ export async function deleteWorkItem(
   try {
     return await container.doltgresWorkItems.delete(
       toWorkItemId(id),
-      sessionUser.id
+      routeAttribution(sessionUser.id)
     );
   } catch (e) {
     rethrowBackendError(e);

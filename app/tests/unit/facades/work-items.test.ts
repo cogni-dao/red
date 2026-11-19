@@ -305,7 +305,8 @@ describe("P0P1_IS_NODE_ADMIN — priority <= 1 needs node admin (story.5101)", (
       const store = withAuthority(false);
       const err = await patchWorkItem(
         { id: "task.5001", reason: "test change", set: { priority } } as never,
-        { id: "agent-1", walletAddress: null }
+        { id: "agent-1", walletAddress: null },
+        { actor: "agent-1" }
       ).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(NodeAdminRequiredError);
       expect((err as NodeAdminRequiredError).status).toBe(403);
@@ -316,14 +317,18 @@ describe("P0P1_IS_NODE_ADMIN — priority <= 1 needs node admin (story.5101)", (
   it("a non-admin create at p1 is refused; p2 is open", async () => {
     const store = withAuthority(false);
     await expect(
-      createWorkItem({ type: "task", title: "t", priority: 1 } as never, {
-        id: "agent-1",
-      })
+      createWorkItem(
+        { type: "task", title: "t", priority: 1 } as never,
+        { id: "agent-1" },
+        { actor: "agent-1" }
+      )
     ).rejects.toBeInstanceOf(NodeAdminRequiredError);
     expect(store.create).not.toHaveBeenCalled();
-    await createWorkItem({ type: "task", title: "t", priority: 2 } as never, {
-      id: "agent-1",
-    });
+    await createWorkItem(
+      { type: "task", title: "t", priority: 2 } as never,
+      { id: "agent-1" },
+      { actor: "agent-1" }
+    );
     expect(store.create).toHaveBeenCalledTimes(1);
   });
 
@@ -338,12 +343,13 @@ describe("P0P1_IS_NODE_ADMIN — priority <= 1 needs node admin (story.5101)", (
       {
         id: "u1",
         walletAddress: "0xabc",
-      }
+      },
+      { actor: "u1" }
     );
     expect(store.patch).toHaveBeenCalledTimes(1);
     expect(store.patch).toHaveBeenCalledWith(
       expect.objectContaining({ reason: "test change" }),
-      "u1"
+      { actor: "u1" }
     );
   });
 
@@ -357,14 +363,15 @@ describe("P0P1_IS_NODE_ADMIN — priority <= 1 needs node admin (story.5101)", (
         cites,
         set: { rank: 2 },
       } as never,
-      { id: "u1", walletAddress: null }
+      { id: "u1", walletAddress: null },
+      { actor: "u1" }
     );
     expect(store.patch).toHaveBeenLastCalledWith(
       expect.objectContaining({
         reason: "scope follows the design",
         cites,
       }),
-      "u1"
+      { actor: "u1" }
     );
     // Root and adapter entrypoints may bundle separate classes: match by name.
     store.patch.mockRejectedValueOnce(
@@ -375,7 +382,8 @@ describe("P0P1_IS_NODE_ADMIN — priority <= 1 needs node admin (story.5101)", (
     );
     const unresolved = await patchWorkItem(
       { id: "task.5001", reason: "why", cites: [{ id: "nope" }], set: { rank: 2 } } as never,
-      { id: "u1", walletAddress: null }
+      { id: "u1", walletAddress: null },
+      { actor: "u1" }
     ).catch((e: unknown) => e);
     expect(unresolved).toBeInstanceOf(EntryUnresolvedError);
     expect((unresolved as EntryUnresolvedError).ids).toEqual(["nope"]);
@@ -390,7 +398,8 @@ describe("P0P1_IS_NODE_ADMIN — priority <= 1 needs node admin (story.5101)", (
     );
     const movesUnresolved = await patchWorkItem(
       { id: "task.5001", reason: "why", set: { moves: [{ metricId: "metric-gone" }] } } as never,
-      { id: "u1", walletAddress: null }
+      { id: "u1", walletAddress: null },
+      { actor: "u1" }
     ).catch((e: unknown) => e);
     expect(movesUnresolved).toBeInstanceOf(EntryUnresolvedError);
     expect((movesUnresolved as EntryUnresolvedError).field).toBe("moves");
@@ -402,7 +411,8 @@ describe("P0P1_IS_NODE_ADMIN — priority <= 1 needs node admin (story.5101)", (
     await expect(
       patchWorkItem(
         { id: "task.5001", reason: "why", cites, set: { rank: 2 } } as never,
-        { id: "u1", walletAddress: null }
+        { id: "u1", walletAddress: null },
+        { actor: "u1" }
       )
     ).rejects.toBeInstanceOf(CitesUnsupportedError);
   });

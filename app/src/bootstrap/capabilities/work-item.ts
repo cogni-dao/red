@@ -6,6 +6,7 @@
  * Purpose: RED's WorkItemCapability over the live Doltgres backlog and the markdown ports.
  * Scope: Capability composition only. The store, not this module, enforces the reason and cites.
  * Invariants:
+ *   - ACTING_PRINCIPAL_FOR_WRITES (task.0175): `patch` goes through the Doltgres store attributed to `backlogWriter.attribution()`, built at invocation (never at construction) from the run's scope.
  *   - PATCH_REASON_AND_CITES (task.0086): the required `reason` and the optional `cites` are forwarded to the Doltgres store, the one enforcer.
  *     The markdown fallback (development only) has no history, so it DROPS both reason and cites; the tool schema still requires a reason.
  *   - MOVES_READ_AT_READ_TIME (story.0033): a read that returns exactly one item (core__work_item_read) adds each move's baseline,
@@ -26,6 +27,7 @@ import type {
   WorkItemQueryPort,
   WorkItemsContentPort,
   WorkQuery,
+  WriteAttribution,
 } from "@cogni/work-items";
 import type {
   EnvelopeDegradedEvent,
@@ -51,7 +53,13 @@ export interface WorkItemCapabilityDeps {
   readonly backlogReader?: Pick<WorkItemsContentPort, "get" | "list">;
   readonly backlogWriter?: {
     readonly patch: WorkItemsContentPort["patch"];
-    readonly principalId: () => string;
+    /** Host-built at invocation: the run's acting principal and the run (task.0175). */
+    readonly attribution: () => WriteAttribution;
+    /** One terminal refusal when the attribution could not be built (a run with no acting principal): nothing was written. */
+    readonly attributionDenied?: (event: {
+      workItemId: string;
+      error: unknown;
+    }) => void;
   };
 }
 const toInfo: (item: WorkItem) => WorkItemInfo = toWorkItemDto;
@@ -113,9 +121,17 @@ export function createWorkItemCapability(
           `authz_denied: priority ${input.set.priority} requires node admin — propose it instead`
         );
       if (deps.backlogWriter) {
-        const principal = deps.backlogWriter.principalId();
-        if (!principal)
-          throw new Error("WorkItemCapability: authenticated actor required");
+        let attribution: WriteAttribution;
+        try {
+          attribution = deps.backlogWriter.attribution();
+        } catch (error) {
+          // Fail closed, and say so in the same terminal event a refused patch always uses.
+          deps.backlogWriter.attributionDenied?.({
+            workItemId: input.id,
+            error,
+          });
+          throw error;
+        }
         return toInfo(
           await deps.backlogWriter.patch(
             {
@@ -129,7 +145,7 @@ export function createWorkItemCapability(
                 WorkItemsContentPort["patch"]
               >[0]["set"],
             },
-            principal
+            attribution
           )
         );
       }
