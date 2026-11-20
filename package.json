@@ -8,6 +8,7 @@
     "build:packages": "pnpm -r --if-present --filter \"./packages/**\" --filter \"./graphs\" build && tsc -b packages/*/tsconfig.json packages/langgraph-graphs/tsconfig.build.json packages/doltgres-schema/tsconfig.json",
     "packages:build": "pnpm build:packages",
     "build:app": "pnpm --filter @cogni/node-template-app build",
+    "check:design-tokens": "pnpm --filter @cogni/node-template-app exec ui-theme-check src/styles/tailwind.css",
     "check:workflow": "node scripts/check-node-ci-workflow.mjs && node scripts/check-node-ci-workflow.test.mjs",
     "check:declarations": "node scripts/check-node-declarations.mjs",
     "check:markdown-refs": "node scripts/check-markdown-refs.mjs",
