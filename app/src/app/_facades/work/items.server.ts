@@ -19,6 +19,7 @@ import type {
   WorkItemsPatchInput as ContractPatchInput,
   WorkItemCoordinationOutput,
   WorkItemDto,
+  WorkItemsGetOutput,
   WorkItemsListInput,
   WorkItemsListOutput,
   WorkItemSummariesListInput,
@@ -40,6 +41,7 @@ import {
   EntryResolverUnavailableError,
   EntryUnresolvedError,
   composeItemEnvelope,
+  createItemRefPorts,
   judgeMoveSummaries,
   toWorkItemDto,
   toWorkItemId,
@@ -493,9 +495,15 @@ export async function listWorkBoardColumns(
   return { columns, queryCount: columns.length };
 }
 
-/** Single-item read options; `includeLinks` adds the first page of citation links (`?include=links`). */
+/**
+ * Single-item read options; `includeLinks` adds the first page of citation links (`?include=links`), `includeArtifacts`
+ * and `includeHistory` the first page of artifact and history refs, `artifactId` one artifact in full (story.0058).
+ */
 export interface WorkItemReadOptions extends WorkSummaryReadOptions {
   readonly includeLinks?: boolean;
+  readonly includeArtifacts?: boolean;
+  readonly includeHistory?: boolean;
+  readonly artifactId?: string;
   /** Set false for a caller that needs only the stored move ids (the EDO expectations read). Default: resolve the chain. */
   readonly chain?: boolean;
 }
@@ -509,8 +517,9 @@ export interface WorkItemReadOptions extends WorkSummaryReadOptions {
 async function withItemEnvelope(
   dto: WorkItemDto,
   options?: WorkItemReadOptions
-): Promise<WorkItemDto> {
+): Promise<WorkItemsGetOutput> {
   const container = getContainer();
+  const artifactStore = container.workItemArtifacts?.artifacts;
   const readings = container.goalMetrics
     ? createMoveMetricPorts(
         () => container.goalMetrics,
@@ -523,6 +532,11 @@ async function withItemEnvelope(
     {
       readings,
       links: createCitationLinksPort(() => container.knowledgeStorePort),
+      // story.0058: refs first, then one read; the package builds the ports over red's artifact and history stores.
+      ...createItemRefPorts({
+        artifacts: artifactStore,
+        history: container.doltgresWorkItems,
+      }),
       log: (event) => container.log.warn(event, "work.items.envelope_degraded"),
     },
     options
@@ -532,7 +546,7 @@ async function withItemEnvelope(
 export async function getWorkItem(
   id: string,
   options?: WorkItemReadOptions
-): Promise<WorkItemDto | null> {
+): Promise<WorkItemsGetOutput | null> {
   const container = getContainer();
   // Doltgres-first: legacy markdown IDs (e.g. bug.0002) can also live in Doltgres
   // after the markdown→Doltgres import (task.5002). Fall back to markdown only when

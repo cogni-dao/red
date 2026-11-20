@@ -83,8 +83,8 @@ import {
 
 import {
   fetchWorkBoard,
-  fetchWorkItem,
   fetchWorkItems,
+  workItemClient,
 } from "./_api/fetchWorkItems";
 import { columns } from "./_components/columns";
 import { WorkItemDetail } from "./_components/WorkItemDetail";
@@ -144,9 +144,19 @@ export function WorkDashboardView({
   const boardView = searchParams.get("view") === "board";
   const cursor = searchParams.get("cursor") ?? "";
 
+  // story.0058, story.0085: the package client reads every part the view draws, and the selected artifact in full.
+  const selectedArtifact = searchParams.get("artifact") ?? undefined;
   const selectedItemQuery = useQuery({
-    queryKey: ["work-item", selectedItemId],
-    queryFn: ({ signal }) => fetchWorkItem(selectedItemId as string, signal),
+    queryKey: ["work-item", selectedItemId, selectedArtifact ?? null],
+    queryFn: ({ signal }) =>
+      workItemClient.fetchItem(
+        selectedItemId as string,
+        { artifact: selectedArtifact },
+        signal
+      ),
+    // Selecting another artifact of the same item keeps the item on screen while it loads.
+    placeholderData: (previous) =>
+      previous?.id === selectedItemId ? previous : undefined,
     enabled: selectedItemId !== undefined,
     retry: false,
     staleTime: 30_000,
