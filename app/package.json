@@ -45,7 +45,7 @@
     "@cogni/node-ui-kit": "workspace:*",
     "@cogni/operator-wallet": "workspace:*",
     "@cogni/repo-spec": "workspace:*",
-    "@cogni/sandbox": "https://github.com/cogni-dao/node-template/releases/download/sandbox-v0.1.0/cogni-dao-sandbox-0.1.0.tgz",
+    "@cogni/sandbox": "https://github.com/cogni-dao/node-template/releases/download/sandbox-v0.2.0/cogni-dao-sandbox-0.2.0.tgz",
     "@cogni/scheduler-core": "workspace:*",
     "@cogni/scheduling": "https://github.com/cogni-dao/node-template/releases/download/scheduling-v0.1.0/cogni-dao-scheduling-0.1.0.tgz",
     "@cogni/substrate-health": "https://github.com/cogni-dao/node-template/releases/download/substrate-health-v0.3.0/cogni-dao-substrate-health-0.3.0.tgz",

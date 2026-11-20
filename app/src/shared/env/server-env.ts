@@ -219,6 +219,14 @@ export const serverSchema = z.object({
   ),
   SANDBOX_BASE_URL: optionalUrl,
 
+  // Node AI push token (hub node-ai-push-token): NODE_AI_OPERATOR_KEY (the node AI's operator principal, role
+  // developer) + COGNI_OPERATOR_URL; the operator mints from its App, narrowed to this repo. Optional: without
+  // them only git push fails.
+  NODE_AI_OPERATOR_KEY: optionalString,
+  COGNI_OPERATOR_URL: optionalUrl.refine((url) => !url || url.startsWith("https://"), {
+    message: "COGNI_OPERATOR_URL must be https: the node AI's operator key travels to it",
+  }),
+
   // Work items (task.0122) - Optional: one or more comma-separated owner/repo; when set, only a pull request of
   // those repositories is a code deliverable. Unset, the gate accepts a PR of any github.com repository and the
   // container logs `adapter.work_items.pr_repo_unpinned` once at boot. No default.

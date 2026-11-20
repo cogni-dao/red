@@ -16,6 +16,7 @@ import { EVENT_NAMES as NODE_SHARED_EVENT_NAMES } from "@cogni/node-shared";
 export const EVENT_NAMES = {
   ...NODE_SHARED_EVENT_NAMES,
   DB_POOL_CONFIGURED: "adapter.db_pool.configured",
+  ADAPTER_SANDBOX_PUSH_TOKEN: "adapter.sandbox.push_token",
   // Auth perimeter (proxy): request rejected before reaching any route handler,
   // so the request-scoped logger never sees it — emitted directly from the proxy.
   AUTH_PERIMETER_DENIED: "auth.perimeter.denied",
