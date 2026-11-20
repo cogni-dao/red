@@ -53,6 +53,7 @@ import {
 	type ContributionService,
 	createContributionService,
 	createEdoCapability,
+	type EdoCapability as EdoWriteCapability,
 	createKnowledgeCapability,
 	defaultCanMergeKnowledge,
 	type KnowledgeStorePort,
@@ -158,9 +159,10 @@ import { createScheduleCapability } from "@/bootstrap/capabilities/schedule";
 import { stubVcsCapability } from "@/bootstrap/capabilities/vcs";
 import { createWebSearchCapability } from "@/bootstrap/capabilities/web-search";
 import { composeWorkItemContent } from "@/bootstrap/capabilities/work-item-composition";
-import { getExecutionScope } from "@/adapters/server";
 import { createCitationLinksPort } from "@/bootstrap/capabilities/citation-links";
 import { createWorkItemCapability } from "@/bootstrap/capabilities/work-item";
+import { createWorkItemWriters } from "@/bootstrap/capabilities/work-item-writers";
+import { bindEdoToolCapability } from "@/bootstrap/write-attribution";
 import { createMoveMetricPorts } from "@/bootstrap/capabilities/work-item-moves";
 import {
 	createPrFactsPort,
@@ -281,8 +283,10 @@ export interface Container {
 	nodeAdmin: NodeAdminAuthority;
 	/** Direct knowledge store port — exposed for the cookie-only browse endpoint. Undefined when DOLTGRES_URL is unset. */
 	knowledgeStorePort: KnowledgeStorePort | undefined;
-	/** EDO hypothesis-loop capability for the langgraph tool bindings AND the bearer-auth REST routes under /api/v1/edo. Always present (stubs throw when DOLTGRES_URL is unset). */
-	edoCapability: EdoCapability;
+	/** EDO hypothesis-loop capability for the bearer-auth REST routes under /api/v1/edo. Every write takes the host-built attribution (task.0175). Always present (stubs throw when DOLTGRES_URL is unset). */
+	edoCapability: EdoWriteCapability;
+	/** The same capability for the langgraph tools: each write is attributed from the run's execution scope (acting principal, run). */
+	edoToolCapability: EdoCapability;
 	/** Thread persistence scoped to a user (RLS enforced) */
 	threadPersistenceForUser(userId: UserId): ThreadPersistencePort;
 	/** Governance status queries (system tenant scope) */
@@ -733,6 +737,11 @@ function createContainer(): Container {
 		() => goalMetrics,
 		() => knowledgeStorePort
 	);
+	// ACTING_PRINCIPAL_FOR_WRITES (task.0175): every tool write of the work-item capability is attributed here, and only here: see `work-item-writers.ts`.
+	const workItemWriters = createWorkItemWriters({
+		log,
+		store: () => doltgresWorkItems,
+	});
 	const workItemCapability = createWorkItemCapability({
 		workItemQuery: workItemAdapter,
 		workItemCommand: workItemAdapter,
@@ -744,17 +753,7 @@ function createContainer(): Container {
 			get: (id) => doltgresWorkItems.get(id),
 			list: (query) => doltgresWorkItems.list(query),
 		},
-		backlogWriter: {
-			patch: (input, principal) => doltgresWorkItems.patch(input, principal),
-			principalId: () => {
-				const actor = getExecutionScope().actorUserId;
-				if (!actor)
-					throw new Error(
-						"WorkItemCapability: authenticated execution actor required"
-					);
-				return actor;
-			},
-		},
+		backlogWriter: workItemWriters.backlogWriter,
 	});
 
 	// ScheduleCapability for AI tools (reads actorUserId from ALS at invocation time)
@@ -775,7 +774,7 @@ function createContainer(): Container {
 
 	// KnowledgeCapability + EdoCapability for AI tools (require DOLTGRES_URL)
 	let knowledgeCapability: KnowledgeCapability;
-	let edoCapability: EdoCapability;
+	let edoCapability: EdoWriteCapability;
 	let knowledgeContributionService: ContributionService | undefined;
 	let goalMetrics: MetricService | undefined;
 	const nodeAdmin = createApproversNodeAdminAuthority();
@@ -1000,11 +999,14 @@ function createContainer(): Container {
 		log.warn("Knowledge store not configured (DOLTGRES_URL not set)");
 	}
 
+	// ACTING_PRINCIPAL_FOR_WRITES (task.0175): a tool never builds an attribution; the host binds the run's at each call.
+	const edoToolCapability: EdoCapability = bindEdoToolCapability(edoCapability);
+
 	// ToolSource with real implementations (per CAPABILITY_INJECTION)
 	const toolBindings = createToolBindings({
 		nodePublicOrigin: env.APP_BASE_URL,
 		knowledgeCapability,
-		edoCapability,
+		edoCapability: edoToolCapability,
 		metricsCapability,
 		webSearchCapability,
 		repoCapability,
@@ -1180,6 +1182,7 @@ function createContainer(): Container {
 		nodeAdmin,
 		knowledgeStorePort,
 		edoCapability,
+		edoToolCapability,
 		threadPersistenceForUser: (userId: UserId) =>
 			new DrizzleThreadPersistenceAdapter(db, userActor(userId)),
 		governanceStatus: new DrizzleGovernanceStatusAdapter(

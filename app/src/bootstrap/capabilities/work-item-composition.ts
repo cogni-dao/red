@@ -57,13 +57,14 @@ export function composeWorkItemContent(
     ...(history && { history: (id) => history.call(content, id) }),
     // task.0028: insert-only artifacts live on the content store; the v1 lease store has none.
     ...(artifacts && { artifacts }),
-    create: (input, principal) => content.create(input, principal),
-    patch: async (input, principal) =>
+    create: (input, attribution) => content.create(input, attribution),
+    patch: async (input, attribution) =>
       withClaim(
-        await content.patch(input, principal),
+        await content.patch(input, attribution),
         await legacy.get(input.id)
       ),
-    delete: (id, principal) => legacy.delete(id, principal),
+    // The v1 lease store owns delete and records its actor only (task.0175): the attribution's actor is the principal it commits as.
+    delete: (id, attribution) => legacy.delete(id, attribution.actor),
     claim: async (input) => refresh(await legacy.claim(input)),
     heartbeat: async (input) => refresh(await legacy.heartbeat(input)),
     release: async (input) => refresh(await legacy.release(input)),
