@@ -239,6 +239,13 @@
       "when": 1794015298311,
       "tag": "0033_past_earthquake",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1795144912321,
+      "tag": "0034_legal_vivisector",
+      "breakpoints": true
     }
   ]
 }
