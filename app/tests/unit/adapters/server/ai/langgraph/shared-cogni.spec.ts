@@ -270,6 +270,7 @@ describe("trusted chat workflow identity", () => {
 		nodeId: "red",
 		lane: "candidate",
 		idempotencyKey: "claim",
+		transportKey: "api:run",
 		requestHash: "hash",
 		runId: "run",
 		graphId: "langgraph:cogni",

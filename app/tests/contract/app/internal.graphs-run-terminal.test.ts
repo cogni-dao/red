@@ -238,7 +238,7 @@ describe("POST /api/internal/graphs/{graphId}/runs terminal publication", () => 
 });
 
 describe("shared Cogni receiver ownership", () => {
-	const key = "ai:trusted-claim";
+	const key = `ai:${"b".repeat(64)}`;
 	const hash = "a".repeat(64);
 	const secret = "test-secret-123456789012345678901234";
 	const payload = {
@@ -250,6 +250,7 @@ describe("shared Cogni receiver ownership", () => {
 		nodeId: "red",
 		lane: "candidate",
 		idempotencyKey: key,
+		transportKey: `api:${RUN_ID}`,
 		requestHash: hash,
 		runId: RUN_ID,
 		graphId: "langgraph:cogni",
@@ -258,7 +259,10 @@ describe("shared Cogni receiver ownership", () => {
 		virtualKeyId: VIRTUAL_KEY_ID,
 		payload,
 	};
-	const request = (requestKey = key, overrides: Record<string, unknown> = {}) =>
+	const request = (
+		requestKey = `api:${RUN_ID}`,
+		overrides: Record<string, unknown> = {},
+	) =>
 		new NextRequest(
 			"http://localhost/api/internal/graphs/langgraph:cogni/runs",
 			{
@@ -277,6 +281,7 @@ describe("shared Cogni receiver ownership", () => {
 						billingAccountId: BILLING_ID,
 						virtualKeyId: VIRTUAL_KEY_ID,
 						executionRequestHash: hash,
+						executionClaimKey: key,
 						chatActorProof: signChatActor(identity, secret),
 						...overrides,
 					},
@@ -300,7 +305,36 @@ describe("shared Cogni receiver ownership", () => {
 		const params = { params: Promise.resolve({ graphId: "langgraph:cogni" }) };
 		expect((await POST(request("ai:other"), params)).status).toBe(403);
 		expect(
-			(await POST(request(key, { actorUserId: "other" }), params)).status,
+			(await POST(request(`api:${RUN_ID}`, { actorUserId: "other" }), params))
+				.status,
+		).toBe(403);
+		expect(
+			(
+				await POST(
+					request(`api:${RUN_ID}`, {
+						executionClaimKey: `ai:${"c".repeat(64)}`,
+					}),
+					params,
+				)
+			).status,
+		).toBe(403);
+		expect(
+			(
+				await POST(
+					request(`api:${RUN_ID}`, { executionRequestHash: "d".repeat(64) }),
+					params,
+				)
+			).status,
+		).toBe(403);
+		expect(
+			(
+				await POST(
+					request(`api:${RUN_ID}`, {
+						messages: [{ role: "user", content: "tampered" }],
+					}),
+					params,
+				)
+			).status,
 		).toBe(403);
 		expect(mocks.executeCount).toBe(0);
 		expect(mocks.createPendingRequest).not.toHaveBeenCalled();
@@ -319,6 +353,13 @@ describe("shared Cogni receiver ownership", () => {
 		]);
 		expect(responses.map((r) => r.status).sort()).toEqual([200, 409]);
 		expect(mocks.createPendingRequest).toHaveBeenCalledTimes(2);
+		expect(mocks.createPendingRequest).toHaveBeenCalledWith(
+			key,
+			hash,
+			RUN_ID,
+			expect.any(String),
+			expect.any(String),
+		);
 		expect(mocks.executeCount).toBe(1);
 	});
 });

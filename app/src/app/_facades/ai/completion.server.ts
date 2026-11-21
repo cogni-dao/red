@@ -500,12 +500,16 @@ export async function completionStream(
 						chatWorkflowId: workflowId,
 						executionRequestHash: requestHash,
 						...(graphId === "langgraph:cogni"
+							? { executionClaimKey: idempotencyKey }
+							: {}),
+						...(graphId === "langgraph:cogni"
 							? {
 									chatActorProof: signChatActor(
 										{
 											nodeId,
 											lane: serverEnv().DEPLOY_ENVIRONMENT ?? "",
 											idempotencyKey,
+											transportKey: `api:${runId}`,
 											requestHash,
 											runId,
 											graphId,

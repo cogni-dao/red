@@ -7,6 +7,7 @@ interface ChatActorIdentity {
 	readonly nodeId: string;
 	readonly lane: string;
 	readonly idempotencyKey: string;
+	readonly transportKey: string;
 	readonly requestHash: string;
 	readonly runId: string;
 	readonly graphId: string;
@@ -30,12 +31,13 @@ export function signChatActor(
 	secret: string,
 ): string {
 	return createHmac("sha256", secret)
-		.update("shared-cogni-chat-actor:v2\0")
+		.update("shared-cogni-chat-actor:v3\0")
 		.update(
 			JSON.stringify([
 				identity.nodeId,
 				identity.lane,
 				identity.idempotencyKey,
+				identity.transportKey,
 				identity.requestHash,
 				identity.runId,
 				identity.graphId,

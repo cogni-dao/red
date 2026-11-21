@@ -188,8 +188,8 @@ export const POST = wrapRouteHandlerWithLogging<RouteParams>(
 		const graphId = rawGraphId as `${string}:${string}`;
 
 		// --- 3. Idempotency-Key header (required) ---
-		const idempotencyKey = request.headers.get("idempotency-key");
-		if (!idempotencyKey) {
+		const transportKey = request.headers.get("idempotency-key");
+		if (!transportKey) {
 			log.warn("Missing Idempotency-Key header");
 			return NextResponse.json(
 				{ error: "Idempotency-Key header required" },
@@ -222,6 +222,21 @@ export const POST = wrapRouteHandlerWithLogging<RouteParams>(
 			runId: providedRunId,
 		} = parseResult.data;
 		let runId = providedRunId ?? randomUUID();
+		const claimKey = input.executionClaimKey;
+		if (
+			graphId === "langgraph:cogni" &&
+			(!providedRunId ||
+				transportKey !== `api:${providedRunId}` ||
+				typeof claimKey !== "string" ||
+				!/^ai:[a-f0-9]{64}$/.test(claimKey))
+		) {
+			return NextResponse.json(
+				{ error: "Untrusted shared graph identity" },
+				{ status: 403 },
+			);
+		}
+		const idempotencyKey =
+			graphId === "langgraph:cogni" ? (claimKey as string) : transportKey;
 
 		// --- 5. Compute request hash for idempotency ---
 		// API completions preclaim the slot before Temporal start and pass the
@@ -252,6 +267,7 @@ export const POST = wrapRouteHandlerWithLogging<RouteParams>(
 						nodeId: container.nodeId,
 						lane: serverEnv().DEPLOY_ENVIRONMENT ?? "",
 						idempotencyKey,
+						transportKey,
 						requestHash,
 						runId,
 						graphId,
