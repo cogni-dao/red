@@ -73,10 +73,12 @@ BEGIN
   END IF;
 END $$;
 --> statement-breakpoint
-CREATE OR REPLACE FUNCTION pg_temp.authority_constraint(tab text, cname text, ddl text)
+CREATE OR REPLACE FUNCTION pg_temp.authority_constraint(tab text, cname text, ddl text, validate_only boolean DEFAULT false)
 RETURNS void LANGUAGE plpgsql AS $$
 DECLARE expected text; actual text; fk text[]; source_col smallint; target_col smallint; target_table regclass; source_force boolean; target_force boolean;
 BEGIN
+  IF validate_only AND NOT EXISTS (SELECT 1 FROM pg_constraint
+    WHERE conrelid = to_regclass('public.' || tab) AND conname = cname) THEN RETURN; END IF;
   IF position('FOREIGN KEY' IN ddl) > 0 THEN
     fk := regexp_match(ddl, 'FOREIGN KEY \("([^" ]+)"\) REFERENCES "public"\."([^" ]+)"\("([^" ]+)"\)');
     IF fk IS NULL THEN RAISE EXCEPTION 'unsupported generated authority foreign key'; END IF;
@@ -109,11 +111,12 @@ BEGIN
   SELECT pg_get_constraintdef(oid) INTO expected FROM pg_constraint
     WHERE conrelid = 'pg_temp.authority_expected'::regclass AND conname = cname;
   SELECT pg_get_constraintdef(oid) INTO actual FROM pg_constraint
-    WHERE conrelid = to_regclass('public.' || tab) AND conname = cname
-    AND convalidated AND NOT condeferrable;
+    WHERE conrelid = to_regclass('public.' || tab) AND conname = cname;
   IF FOUND THEN
-    IF actual IS DISTINCT FROM expected THEN RAISE EXCEPTION 'incompatible authority constraint: %.%', tab, cname; END IF;
-  ELSE
+    IF actual IS DISTINCT FROM expected THEN
+      RAISE EXCEPTION 'incompatible authority constraint: %.%: actual %, required %', tab, cname, actual, expected;
+    END IF;
+  ELSIF NOT validate_only THEN
     EXECUTE ddl;
   END IF;
   DROP TABLE pg_temp.authority_expected;
@@ -144,17 +147,10 @@ SELECT pg_temp.authority_columns('agent_principals', $spec${"id": ["uuid", true,
 --> statement-breakpoint
 SELECT pg_temp.authority_columns('agent_roles', $spec${"id": ["uuid", true, true, "gen_random_uuid()"], "principal_user_id": ["text", true, true], "scope": ["text", true, true], "approved_by": ["text", false, true], "granted_at": ["timestamp with time zone", false, true], "requested_by": ["text", false, true], "created_at": ["timestamp with time zone", true, true, "now()"], "revoked_at": ["timestamp with time zone", false, true], "owner_user_id": ["text", false, false], "resource_kind": ["text", true, false, "'node'::text"], "resource": ["text", true, false, "'node'::text"], "account_id": ["text", false, false], "expires_at": ["timestamp with time zone", false, false], "link_hash": ["text", false, false], "link_expires_at": ["timestamp with time zone", false, false], "link_consumed_at": ["timestamp with time zone", false, false]}$spec$::jsonb);
 --> statement-breakpoint
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid IN (to_regclass('public.agent_roles'), to_regclass('public.agent_principals'))
-    AND contype = 'c' AND conname <> ALL(ARRAY[
-      'agent_principals_kind_canonical','agent_principals_internal_has_slug',
-      'agent_roles_owner_shape','agent_roles_personal_approver','agent_roles_personal_scope_delegable','agent_roles_resource_kind_canonical',
-      'agent_roles_resource_canonical','agent_roles_node_shape','agent_roles_account_live_shape','agent_roles_no_self_approval','agent_roles_link_consumed_has_no_hash'])) THEN
-    RAISE EXCEPTION 'unknown authority check constraint';
-  END IF;
-END $$;
---> statement-breakpoint
+-- Additional legacy CHECKs only restrict writes. Keep their exact definitions,
+-- validation state and identity: Postgres intersects them with the required
+-- canonical CHECKs below and in 0036. Never infer authority from a CHECK name.
+-- Other unknown shapes (columns, ownership, keys, policies, triggers) still fail.
 SELECT set_config('red.authority_fresh_principals', (to_regclass('public.agent_principals') IS NULL)::text, true);
 --> statement-breakpoint
 DO $$ BEGIN IF to_regclass('public.agent_principals') IS NULL THEN

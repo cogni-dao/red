@@ -1,10 +1,22 @@
 -- story.0090: separately generated additive 0.8.1 target; no capability is approved.
 -- Baseline helpers are session-local in the same locked migration transaction.
+-- Only the exact superseded #366 definition may be retired (source 803a05b0).
+SELECT pg_temp.authority_constraint('agent_roles', 'agent_roles_owner_shape', $ddl$ALTER TABLE "agent_roles" ADD CONSTRAINT "agent_roles_owner_shape" CHECK (("agent_roles"."resource_kind" = 'node') = ("agent_roles"."owner_user_id" IS NULL))$ddl$, true);
+--> statement-breakpoint
 ALTER TABLE "agent_roles" DROP CONSTRAINT IF EXISTS "agent_roles_owner_shape";
+--> statement-breakpoint
+-- Only the exact superseded #366 definition may be retired (source 803a05b0).
+SELECT pg_temp.authority_constraint('agent_roles', 'agent_roles_personal_approver', $ddl$ALTER TABLE "agent_roles" ADD CONSTRAINT "agent_roles_personal_approver" CHECK ("agent_roles"."resource_kind" = 'node' OR "agent_roles"."approved_by" IS NULL OR ("agent_roles"."approved_by" = "agent_roles"."owner_user_id" AND "agent_roles"."approved_by" <> "agent_roles"."principal_user_id" AND "agent_roles"."expires_at" IS NOT NULL))$ddl$, true);
 --> statement-breakpoint
 ALTER TABLE "agent_roles" DROP CONSTRAINT IF EXISTS "agent_roles_personal_approver";
 --> statement-breakpoint
+-- Only the exact superseded #366 definition may be retired (source 803a05b0).
+SELECT pg_temp.authority_constraint('agent_roles', 'agent_roles_personal_scope_delegable', $ddl$ALTER TABLE "agent_roles" ADD CONSTRAINT "agent_roles_personal_scope_delegable" CHECK ("agent_roles"."resource_kind" = 'node' OR "agent_roles"."scope" IN ('knowledge:read','knowledge:contribute'))$ddl$, true);
+--> statement-breakpoint
 ALTER TABLE "agent_roles" DROP CONSTRAINT IF EXISTS "agent_roles_personal_scope_delegable";
+--> statement-breakpoint
+-- Only the exact superseded #366 definition may be retired (source 803a05b0).
+SELECT pg_temp.authority_constraint('agent_roles', 'agent_roles_resource_kind_canonical', $ddl$ALTER TABLE "agent_roles" ADD CONSTRAINT "agent_roles_resource_kind_canonical" CHECK ("agent_roles"."resource_kind" IN ('node','delegated'))$ddl$, true);
 --> statement-breakpoint
 ALTER TABLE "agent_roles" DROP CONSTRAINT IF EXISTS "agent_roles_resource_kind_canonical";
 --> statement-breakpoint
@@ -37,27 +49,17 @@ SELECT pg_temp.authority_constraint('agent_roles', 'agent_roles_account_id_billi
 --> statement-breakpoint
 SELECT pg_temp.authority_index('agent_roles', 'agent_roles_link_hash_unique', ARRAY['link_hash']::text[], true, '', $ddl$CREATE UNIQUE INDEX "agent_roles_link_hash_unique" ON "agent_roles" USING btree ("link_hash")$ddl$);
 --> statement-breakpoint
-ALTER TABLE "agent_roles" DROP CONSTRAINT IF EXISTS "agent_roles_resource_canonical";
---> statement-breakpoint
-ALTER TABLE "agent_roles" ADD CONSTRAINT "agent_roles_resource_canonical" CHECK ("agent_roles"."resource" IN ('node','account'));
+SELECT pg_temp.authority_constraint('agent_roles', 'agent_roles_resource_canonical', $ddl$ALTER TABLE "agent_roles" ADD CONSTRAINT "agent_roles_resource_canonical" CHECK ("agent_roles"."resource" IN ('node','account'))$ddl$);
 --> statement-breakpoint
 UPDATE "agent_roles" SET "expires_at" = NULL WHERE "expires_at" IS NOT NULL AND "resource" = 'node';
 --> statement-breakpoint
-ALTER TABLE "agent_roles" DROP CONSTRAINT IF EXISTS "agent_roles_node_shape";
+SELECT pg_temp.authority_constraint('agent_roles', 'agent_roles_node_shape', $ddl$ALTER TABLE "agent_roles" ADD CONSTRAINT "agent_roles_node_shape" CHECK ("agent_roles"."resource" <> 'node' OR ("agent_roles"."account_id" IS NULL AND "agent_roles"."expires_at" IS NULL))$ddl$);
 --> statement-breakpoint
-ALTER TABLE "agent_roles" ADD CONSTRAINT "agent_roles_node_shape" CHECK ("agent_roles"."resource" <> 'node' OR ("agent_roles"."account_id" IS NULL AND "agent_roles"."expires_at" IS NULL));
+SELECT pg_temp.authority_constraint('agent_roles', 'agent_roles_account_live_shape', $ddl$ALTER TABLE "agent_roles" ADD CONSTRAINT "agent_roles_account_live_shape" CHECK ("agent_roles"."resource" <> 'account' OR "agent_roles"."approved_by" IS NULL OR ("agent_roles"."account_id" IS NOT NULL AND "agent_roles"."granted_at" IS NOT NULL AND ("agent_roles"."expires_at" IS NULL OR "agent_roles"."expires_at" > "agent_roles"."granted_at")))$ddl$);
 --> statement-breakpoint
-ALTER TABLE "agent_roles" DROP CONSTRAINT IF EXISTS "agent_roles_account_live_shape";
+SELECT pg_temp.authority_constraint('agent_roles', 'agent_roles_no_self_approval', $ddl$ALTER TABLE "agent_roles" ADD CONSTRAINT "agent_roles_no_self_approval" CHECK ("agent_roles"."approved_by" IS NULL OR "agent_roles"."approved_by" <> "agent_roles"."principal_user_id")$ddl$);
 --> statement-breakpoint
-ALTER TABLE "agent_roles" ADD CONSTRAINT "agent_roles_account_live_shape" CHECK ("agent_roles"."resource" <> 'account' OR "agent_roles"."approved_by" IS NULL OR ("agent_roles"."account_id" IS NOT NULL AND "agent_roles"."granted_at" IS NOT NULL AND ("agent_roles"."expires_at" IS NULL OR "agent_roles"."expires_at" > "agent_roles"."granted_at")));
---> statement-breakpoint
-ALTER TABLE "agent_roles" DROP CONSTRAINT IF EXISTS "agent_roles_no_self_approval";
---> statement-breakpoint
-ALTER TABLE "agent_roles" ADD CONSTRAINT "agent_roles_no_self_approval" CHECK ("agent_roles"."approved_by" IS NULL OR "agent_roles"."approved_by" <> "agent_roles"."principal_user_id");
---> statement-breakpoint
-ALTER TABLE "agent_roles" DROP CONSTRAINT IF EXISTS "agent_roles_link_consumed_has_no_hash";
---> statement-breakpoint
-ALTER TABLE "agent_roles" ADD CONSTRAINT "agent_roles_link_consumed_has_no_hash" CHECK ("agent_roles"."link_consumed_at" IS NULL OR "agent_roles"."link_hash" IS NULL);
+SELECT pg_temp.authority_constraint('agent_roles', 'agent_roles_link_consumed_has_no_hash', $ddl$ALTER TABLE "agent_roles" ADD CONSTRAINT "agent_roles_link_consumed_has_no_hash" CHECK ("agent_roles"."link_consumed_at" IS NULL OR "agent_roles"."link_hash" IS NULL)$ddl$);
 --> statement-breakpoint
 DO $$
 DECLARE previous text;

@@ -200,17 +200,75 @@ describe("agent authority migration", () => {
     });
   });
 
+  it.each(["", " NOT VALID", " NO INHERIT"])(
+    "retains additional legacy CHECKs%s and intersects them with canonical authority",
+    async (mode) => {
+      await fixture(async ({ app, service, adopt }) => {
+        await app.unsafe(legacy);
+        // Exact principal restrictions from reverted #366 (803a05b0), plus a
+        // node-local narrower role scope. None is a canonical target name.
+        await app.unsafe(`ALTER TABLE agent_principals ADD COLUMN owner_user_id text;
+          ALTER TABLE agent_principals ADD CONSTRAINT agent_principals_owner_external_only
+            CHECK (kind = 'external' OR owner_user_id IS NULL)${mode};
+          ALTER TABLE agent_principals ADD CONSTRAINT agent_principals_owner_not_self
+            CHECK (owner_user_id IS NULL OR owner_user_id <> user_id)${mode};
+          ALTER TABLE agent_roles ADD CONSTRAINT red_scope_restricted CHECK (scope <> 'forbidden')${mode};
+          ALTER TABLE agent_roles ADD CONSTRAINT agent_roles_no_self_approval
+            CHECK (approved_by IS NULL OR approved_by <> principal_user_id);`);
+        await seed(service);
+        await service`INSERT INTO agent_roles(principal_user_id,scope,approved_by,granted_at)
+          VALUES ('agent','sandbox:exec','owner','2026-01-01')`;
+        const checks =
+          () => service`SELECT oid, conname, pg_get_constraintdef(oid) AS definition, convalidated, connoinherit
+          FROM pg_constraint WHERE conrelid IN ('agent_principals'::regclass,'agent_roles'::regclass)
+          AND conname IN ('agent_principals_owner_external_only','agent_principals_owner_not_self','red_scope_restricted','agent_roles_no_self_approval')
+          ORDER BY conname`;
+        const before = await checks();
+        await adopt();
+        expect(await checks()).toEqual(before);
+        await expect(service`INSERT INTO agent_principals(kind,slug,user_id,owner_user_id)
+          VALUES ('internal','owned-internal','agent','owner')`).rejects.toMatchObject({
+          code: "23514",
+          constraint_name: "agent_principals_owner_external_only",
+        });
+        await expect(service`INSERT INTO agent_principals(kind,user_id,owner_user_id)
+          VALUES ('external','agent','agent')`).rejects.toMatchObject({
+          code: "23514",
+          constraint_name: "agent_principals_owner_not_self",
+        });
+        await expect(service`INSERT INTO agent_roles(principal_user_id,scope)
+          VALUES ('agent','forbidden')`).rejects.toMatchObject({
+          code: "23514",
+          constraint_name: "red_scope_restricted",
+        });
+        await expect(service`INSERT INTO agent_roles(principal_user_id,scope,approved_by)
+          VALUES ('agent','self:grant','agent')`).rejects.toMatchObject({
+          code: "23514",
+          constraint_name: "agent_roles_no_self_approval",
+        });
+        const store = createPostgresAgentGrantsStore(service as unknown as SqlTag);
+        expect(await store.liveScopes("agent", ["sandbox:exec"])).toEqual(["sandbox:exec"]);
+        await service`UPDATE agent_roles SET revoked_at = now() WHERE principal_user_id = 'agent'`;
+        expect(await store.liveScopes("agent", ["sandbox:exec"])).toEqual([]);
+        expect(await app`SELECT * FROM agent_roles`).toHaveLength(0);
+      });
+    },
+  );
+
   it("reconciles historical delegated grants without minting live node authority", async () => {
     await fixture(async ({ app, service, adopt }) => {
       await app.unsafe(legacy);
       await app.unsafe(`ALTER TABLE agent_roles ADD COLUMN resource_kind text NOT NULL DEFAULT 'node';
         ALTER TABLE agent_roles ADD COLUMN owner_user_id text;
         ALTER TABLE agent_roles ADD COLUMN expires_at timestamptz;
-        ALTER TABLE agent_roles ADD CONSTRAINT agent_roles_resource_kind_canonical CHECK(resource_kind IN ('node','delegated'));`);
+        ALTER TABLE agent_roles ADD CONSTRAINT agent_roles_resource_kind_canonical CHECK(resource_kind IN ('node','delegated'));
+        ALTER TABLE agent_roles ADD CONSTRAINT agent_roles_owner_shape CHECK ((resource_kind = 'node') = (owner_user_id IS NULL));
+        ALTER TABLE agent_roles ADD CONSTRAINT agent_roles_personal_approver CHECK (resource_kind = 'node' OR approved_by IS NULL OR (approved_by = owner_user_id AND approved_by <> principal_user_id AND expires_at IS NOT NULL));
+        ALTER TABLE agent_roles ADD CONSTRAINT agent_roles_personal_scope_delegable CHECK (resource_kind = 'node' OR scope IN ('knowledge:read','knowledge:contribute'));`);
       await seed(service);
-      await service`INSERT INTO agent_roles(principal_user_id,scope,approved_by,granted_at,resource_kind,expires_at)
-        VALUES ('agent','sandbox:exec','owner','2026-01-01','delegated','2026-02-01'), ('agent','previously-off','owner','2026-01-01','delegated','2026-02-01')`;
-      await service`UPDATE agent_roles SET revoked_at = '2026-01-02T00:00:00Z' WHERE scope = 'previously-off'`;
+      await service`INSERT INTO agent_roles(principal_user_id,scope,approved_by,granted_at,resource_kind,expires_at,owner_user_id)
+        VALUES ('agent','knowledge:read','owner','2026-01-01','delegated','2026-02-01','owner'), ('agent','knowledge:contribute','owner','2026-01-01','delegated','2026-02-01','owner')`;
+      await service`UPDATE agent_roles SET revoked_at = '2026-01-02T00:00:00Z' WHERE scope = 'knowledge:contribute'`;
       await adopt();
       const rows =
         await service`SELECT scope, approved_by, revoked_at, expires_at FROM agent_roles ORDER BY scope`;
@@ -224,7 +282,8 @@ describe("agent authority migration", () => {
       expect(rows[1]?.expires_at).toBeNull();
       expect(
         await createPostgresAgentGrantsStore(service as unknown as SqlTag).liveScopes("agent", [
-          "sandbox:exec",
+          "knowledge:read",
+          "knowledge:contribute",
         ]),
       ).toEqual([]);
     });
@@ -258,6 +317,41 @@ describe("agent authority migration", () => {
   });
 
   it.each([
+    [
+      "principal kind CHECK",
+      `ALTER TABLE agent_principals DROP CONSTRAINT agent_principals_kind_canonical;
+      ALTER TABLE agent_principals ADD CONSTRAINT agent_principals_kind_canonical CHECK (true)`,
+    ],
+    [
+      "principal slug CHECK",
+      `ALTER TABLE agent_principals DROP CONSTRAINT agent_principals_internal_has_slug;
+      ALTER TABLE agent_principals ADD CONSTRAINT agent_principals_internal_has_slug CHECK (true)`,
+    ],
+    ...[
+      "resource_canonical",
+      "node_shape",
+      "account_live_shape",
+      "no_self_approval",
+      "link_consumed_has_no_hash",
+    ].map((name) => [
+      `${name} CHECK`,
+      `ALTER TABLE agent_roles ADD CONSTRAINT agent_roles_${name} CHECK (true)`,
+    ]),
+    [
+      "narrower canonical CHECK",
+      `ALTER TABLE agent_roles ADD CONSTRAINT agent_roles_no_self_approval CHECK (approved_by IS NULL)`,
+    ],
+    [
+      "unvalidated canonical CHECK",
+      `ALTER TABLE agent_roles ADD CONSTRAINT agent_roles_no_self_approval
+      CHECK (approved_by IS NULL OR approved_by <> principal_user_id) NOT VALID`,
+    ],
+    [
+      "superseded canonical CHECK",
+      `ALTER TABLE agent_roles ADD COLUMN resource_kind text NOT NULL DEFAULT 'node';
+      ALTER TABLE agent_roles ADD COLUMN owner_user_id text;
+      ALTER TABLE agent_roles ADD CONSTRAINT agent_roles_owner_shape CHECK (true)`,
+    ],
     ["column", `ALTER TABLE agent_roles ALTER COLUMN scope TYPE integer USING 1`],
     [
       "key",
