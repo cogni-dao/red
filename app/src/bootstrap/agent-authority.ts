@@ -23,8 +23,34 @@ export function createSharedAgentAuthority(
 	log: Logger,
 ) {
 	const withStore: WithStore = async (fn) => {
+		let operation = "other";
 		try {
-			return await sql.begin((tx) => fn(createPostgresAgentGrantsStore(tx)));
+			return await sql.begin((tx) => {
+				const store = createPostgresAgentGrantsStore(tx);
+				return fn({
+					...store,
+					findInternalPrincipal: (...args) => {
+						operation = "findInternalPrincipal";
+						return store.findInternalPrincipal(...args);
+					},
+					liveScopes: (...args) => {
+						operation = "liveScopes";
+						return store.liveScopes(...args);
+					},
+					liveAccountScopes: (...args) => {
+						operation = "liveAccountScopes";
+						return store.liveAccountScopes(...args);
+					},
+					hasLiveRole: (...args) => {
+						operation = "hasLiveRole";
+						return store.hasLiveRole(...args);
+					},
+					hasLiveAccountGrant: (...args) => {
+						operation = "hasLiveAccountGrant";
+						return store.hasLiveAccountGrant(...args);
+					},
+				});
+			});
 		} catch (error) {
 			// Do not log SQL messages or values. Retain the class and SQLSTATE to diagnose missing schema.
 			const code =
@@ -34,11 +60,32 @@ export function createSharedAgentAuthority(
 				typeof error.code === "string"
 					? error.code
 					: undefined;
+			// PostgreSQL's undefined-column message contains the identifier, not a
+			// value. Only expose columns from the released authority lookup contract.
+			const columns = new Set([
+				"principal_user_id",
+				"scope",
+				"resource",
+				"approved_by",
+				"revoked_at",
+				"account_id",
+				"expires_at",
+			]);
+			const missing =
+				code === "42703" && error instanceof Error
+					? /column (?:[a-z_]+\.)?"?([a-z_]+)"? does not exist/i.exec(
+							error.message,
+						)?.[1]
+					: undefined;
+			const missingColumn =
+				missing && columns.has(missing) ? missing : undefined;
 			log.error(
 				{
 					event: "agent_authority.store_unavailable",
+					operation,
 					errorName: error instanceof Error ? error.name : "unknown",
 					...(code && { code }),
+					...(missingColumn && { missingColumn }),
 				},
 				"agent authority store unavailable",
 			);
