@@ -637,3 +637,87 @@ describe("released shared coordinator scheduling", () => {
 		expect(changes).toBe(1);
 	});
 });
+
+describe("released preflight around eager shared provider", () => {
+	it.each(["policy", "credit", "approved"])(
+		"holds the provider until %s resolves",
+		async (outcome) => {
+			const { PreflightCreditCheckDecorator } = await import(
+				"@cogni/graph-execution-host"
+			);
+			let settle!: (value: boolean) => void;
+			const gate = new Promise<boolean>((resolve) => {
+				settle = resolve;
+			});
+			const check = vi.fn(async () => {
+				if (!(await gate)) throw new Error("credit denied");
+			});
+			const policy = vi.fn(async () => {
+				if (outcome === "policy") {
+					await gate;
+					throw new Error("policy denied");
+				}
+				return true;
+			});
+			let innerRuns = 0;
+			const provider = new LangGraphInProcProvider(
+				adapter as any,
+				source as any,
+				async () => null,
+				[{ contract } as any],
+				deps as any,
+			);
+			const eager = {
+				runGraph: (request: any, ctx: any) => {
+					innerRuns++;
+					return provider.runGraph(request, ctx);
+				},
+			};
+			const preflight = new PreflightCreditCheckDecorator(
+				eager as any,
+				check,
+				"account",
+				{ resolve: () => ({ requiresPlatformCredits: policy }) } as any,
+				{} as any,
+			);
+			const run = runInScope(
+				{
+					actorUserId: actor,
+					billing: { billingAccountId: "account", virtualKeyId: "key" },
+					usageSource: "litellm",
+					llmService: {},
+				} as any,
+				() => preflight.runGraph(req as any, { actorUserId: actor } as any),
+			);
+			const stream = (async () => {
+				for await (const _ of run.stream) {
+					/* drain */
+				}
+			})();
+			const final = run.final;
+			await Promise.resolve();
+			expect([
+				innerRuns,
+				adapter.executeCompletionUnit.mock.calls.length,
+				state.sandbox,
+				state.mint,
+			]).toEqual([0, 0, 0, 0]);
+			settle(outcome === "approved");
+			if (outcome === "approved") {
+				await expect(final).resolves.toMatchObject({ ok: true });
+				await expect(stream).resolves.toBeUndefined();
+				expect(innerRuns).toBe(1);
+				expect(adapter.executeCompletionUnit).toHaveBeenCalledOnce();
+			} else {
+				await expect(final).rejects.toThrow(`${outcome} denied`);
+				await expect(stream).rejects.toThrow(`${outcome} denied`);
+				expect([
+					innerRuns,
+					adapter.executeCompletionUnit.mock.calls.length,
+					state.sandbox,
+					state.mint,
+				]).toEqual([0, 0, 0, 0]);
+			}
+		},
+	);
+});
