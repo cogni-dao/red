@@ -246,6 +246,20 @@
       "when": 1795144912321,
       "tag": "0034_legal_vivisector",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1795241020115,
+      "tag": "0035_high_mockingbird",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1795241042644,
+      "tag": "0036_secret_red_wolf",
+      "breakpoints": true
     }
   ]
 }

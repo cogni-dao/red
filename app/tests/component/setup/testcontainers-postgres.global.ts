@@ -45,7 +45,7 @@ function resolveProvisionSh(): string {
   }
   throw new Error(
     `Could not locate ${PROVISION_REL} walking up from ${__dirname}. ` +
-      `Forks must ship it at the repo root (mirror node-template).`
+      `Forks must ship it at the repo root (mirror node-template).`,
   );
 }
 const PROVISION_SH = resolveProvisionSh();
@@ -61,12 +61,27 @@ const APP_DB_SERVICE_USER = `service_${NODE}`;
 const APP_DB_SERVICE_PASSWORD = "service_pass";
 
 export async function setup() {
+  // A caller may supply an explicitly isolated native Postgres cluster for the
+  // migration test. It owns database/role setup and teardown just like the container.
+  const nativeUrl = process.env.TEST_POSTGRES_ADMIN_URL;
+  if (nativeUrl) {
+    const url = new URL(nativeUrl);
+    if (
+      !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) ||
+      !url.port ||
+      url.port === "5432"
+    ) {
+      throw new Error("Native component Postgres must use an explicit nondefault loopback port");
+    }
+    Object.assign(process.env, CORE_TEST_ENV, { APP_ENV: "test" });
+    return;
+  }
   // Start Postgres with provision.sh copied into the container
   const c = await new PostgreSqlContainer("postgres:15-alpine")
-    .withCopyFilesToContainer([
-      { source: PROVISION_SH, target: "/tmp/provision.sh" },
-    ])
+    .withCopyFilesToContainer([{ source: PROVISION_SH, target: "/tmp/provision.sh" }])
     .start();
+
+  process.env.TEST_POSTGRES_ADMIN_URL = c.getConnectionUri();
 
   const superuser = c.getUsername();
   const superpass = c.getPassword();
@@ -97,9 +112,7 @@ export async function setup() {
   ]);
 
   if (result.exitCode !== 0) {
-    throw new Error(
-      `provision.sh failed (exit ${result.exitCode}):\n${result.output}`
-    );
+    throw new Error(`provision.sh failed (exit ${result.exitCode}):\n${result.output}`);
   }
 
   // Build role-separated connection URIs against the provisioned database
@@ -128,7 +141,7 @@ export async function setup() {
   if (serviceCheck.exitCode !== 0 || serviceUser !== APP_DB_SERVICE_USER) {
     throw new Error(
       `Preflight failed: cannot connect as ${APP_DB_SERVICE_USER}. ` +
-        `provision.sh may not have created the service role.\n${serviceCheck.output}`
+        `provision.sh may not have created the service role.\n${serviceCheck.output}`,
     );
   }
 
@@ -149,7 +162,7 @@ export async function setup() {
   if (missingForceRls.length > 0) {
     throw new Error(
       `Preflight failed: tables have ENABLE RLS but missing FORCE RLS: ${missingForceRls.join(", ")}. ` +
-        `The DB owner (${APP_DB_USER}) will bypass RLS without FORCE.`
+        `The DB owner (${APP_DB_USER}) will bypass RLS without FORCE.`,
     );
   }
 
@@ -180,7 +193,7 @@ export async function setup() {
       `Preflight failed: tables with a FK to users lack RLS: ${uncoveredUserTables.join(", ")}. ` +
         `Every tenant-scoped table (a foreign key to users) must ENABLE + FORCE row-level security. ` +
         `Add an owner-scoped policy, or ENABLE+FORCE with no policy (deny-all) if the table is ` +
-        `service-role-only. See https://github.com/cogni-dao/cogni/blob/2321821e61dd12aa0cf75d235bd668ff65739109/docs/spec/database-rls.md (RLS_COVERAGE).`
+        `service-role-only. See https://github.com/cogni-dao/cogni/blob/2321821e61dd12aa0cf75d235bd668ff65739109/docs/spec/database-rls.md (RLS_COVERAGE).`,
     );
   }
 
@@ -193,7 +206,7 @@ export async function setup() {
   const rlsTableCount = parseInt(rlsCountCheck.output.trim(), 10);
   if (!rlsTableCount || rlsTableCount === 0) {
     throw new Error(
-      "Preflight failed: no tables have RLS enabled. Migration 0004_enable_rls.sql may not have run."
+      "Preflight failed: no tables have RLS enabled. Migration 0004_enable_rls.sql may not have run.",
     );
   }
 
