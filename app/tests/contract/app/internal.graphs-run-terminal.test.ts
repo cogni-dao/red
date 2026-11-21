@@ -339,6 +339,13 @@ describe("shared Cogni receiver ownership", () => {
 		expect(mocks.executeCount).toBe(0);
 		expect(mocks.createPendingRequest).not.toHaveBeenCalled();
 	});
+	it("refuses an otherwise valid worker payload without the launcher's persisted claim", async () => {
+		mocks.checkIdempotency.mockResolvedValue({ status: "new" });
+		const params = { params: Promise.resolve({ graphId: "langgraph:cogni" }) };
+		expect((await POST(request(), params)).status).toBe(403);
+		expect(mocks.createPendingRequest).not.toHaveBeenCalled();
+		expect(mocks.executeCount).toBe(0);
+	});
 	it("uses the atomic lease claim for simultaneous deliveries", async () => {
 		let claimed = false;
 		mocks.createPendingRequest.mockImplementation(async () => {
