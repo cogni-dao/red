@@ -478,6 +478,90 @@ describe("scheduled Cogni ingress", () => {
 		expect(mocks.executeCount).toBe(1);
 		expect(mocks.executeArgs[1]).toMatchObject({ actorUserId: USER_ID });
 	});
+	it("persists the trusted complete initiating model and admits the resulting scheduled tick", async () => {
+		const { bindScheduleModel } = await import(
+			"@/bootstrap/capabilities/schedule-model"
+		);
+		const { createScheduleManageImplementation } = await import(
+			"@cogni/shared-ai-tools"
+		);
+		const saved: Record<string, unknown>[] = [];
+		const capability = {
+			list: async () => [],
+			create: async (input: any) => {
+				saved.push(input.input);
+				return {
+					...input,
+					id: "schedule-1",
+					enabled: true,
+					nextRunAt: null,
+					lastRunAt: null,
+					createdAt: "2026-01-01T00:00:00Z",
+					updatedAt: "2026-01-01T00:00:00Z",
+				};
+			},
+			update: async () => {
+				throw new Error("unexpected update");
+			},
+			remove: async () => {},
+			setEnabled: async () => {
+				throw new Error("unexpected toggle");
+			},
+		};
+		const models = [
+			{ providerKey: "platform", modelId: "free" },
+			{
+				providerKey: "codex",
+				modelId: "byo",
+				connectionId: "50000000-0000-4000-a000-000000000001",
+			},
+		];
+		await Promise.all(
+			models.map((modelRef) =>
+				createScheduleManageImplementation({
+					scheduleCapability: bindScheduleModel(capability, modelRef),
+				}).execute({
+					action: "create",
+					graphId: "langgraph:cogni",
+					cron: "0 * * * *",
+					timezone: "UTC",
+					instruction: "coordinate",
+					purpose: modelRef.modelId,
+					input: { modelRef: { providerKey: "spoof", modelId: "spoof" } },
+				}),
+			),
+		);
+		expect(saved.map((x) => x.modelRef)).toEqual(models);
+		for (const input of saved) {
+			const response = await POST(
+				new NextRequest(
+					"http://localhost/api/internal/graphs/langgraph:cogni/runs",
+					{
+						method: "POST",
+						headers: {
+							authorization: "Bearer scheduler-secret-value-1234567890",
+							"content-type": "application/json",
+							"idempotency-key": key,
+						},
+						body: JSON.stringify({
+							runId: RUN_ID,
+							executionGrantId: grantId,
+							input,
+						}),
+					},
+				),
+				{ params: Promise.resolve({ graphId: "langgraph:cogni" }) },
+			);
+			expect(response.status).toBe(200);
+			expect(mocks.executeArgs[0]).toMatchObject({
+				graphId: "langgraph:cogni",
+				modelRef: input.modelRef,
+			});
+			expect(mocks.executeArgs[1]).toMatchObject({ actorUserId: USER_ID });
+		}
+		expect(mocks.validateGrant).toHaveBeenCalledTimes(2);
+	});
+
 	it("rejects revoked grant before cache or execution", async () => {
 		mocks.validateGrant.mockRejectedValue(new Error("revoked"));
 		const response = await POST(request(), {

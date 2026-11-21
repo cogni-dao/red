@@ -90,6 +90,7 @@ import {
 	issueAgentApiKey,
 	resolveRequestIdentity,
 } from "@/app/_lib/auth/request-identity";
+import { bindScheduleModel } from "@/bootstrap/capabilities/schedule-model";
 import { signChatActor, verifyChatActor } from "@/bootstrap/chat-actor-proof";
 
 const shell = "core__sandbox_shell";
@@ -491,7 +492,10 @@ describe("released shared coordinator scheduling", () => {
 		const manageRuntime = tools.contractToRuntime(
 			tools.scheduleManageContract,
 			tools.createScheduleManageImplementation({
-				scheduleCapability: capability,
+				scheduleCapability: bindScheduleModel(capability, {
+					providerKey: "platform",
+					modelId: "test",
+				}),
 			}),
 		);
 		const all = {
@@ -616,6 +620,10 @@ describe("released shared coordinator scheduling", () => {
 		expect((await runner.final).ok).toBe(true);
 		expect(observed).toContain("core__knowledge_read");
 		expect(changes).toBe(1);
+		expect(schedules[0].input.modelRef).toEqual({
+			providerKey: "platform",
+			modelId: "test",
+		});
 		const lookup = await toolRunner.exec("core__schedule_list", {
 			purpose: create.purpose,
 		});

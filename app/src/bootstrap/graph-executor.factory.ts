@@ -62,6 +62,7 @@ import { runInScope } from "@/adapters/server/ai/execution-scope";
 import { createLangGraphDispatch } from "@/adapters/server/ai/langgraph/dispatch";
 import { loadCogniSourceContext } from "@/adapters/server/ai/langgraph/source-context";
 import { resolveSandboxWorkspaceOrigin } from "@/bootstrap/capabilities/sandbox-workspace";
+import { bindScheduleModel } from "@/bootstrap/capabilities/schedule-model";
 import type {
 	AiExecutionErrorCode,
 	BillingContext,
@@ -553,7 +554,7 @@ function createInProcProvider(
 		() => cache.getSource(),
 		[...CORE_TOOL_BUNDLE],
 		{
-			sharedTools: {
+			sharedTools: (req) => ({
 				[scheduleListContract.name]: {
 					contract:
 						scheduleListContract as unknown as CatalogBoundTool["contract"],
@@ -570,11 +571,14 @@ function createInProcProvider(
 					runtime: contractToRuntime(
 						scheduleManageContract,
 						createScheduleManageImplementation({
-							scheduleCapability: container.sharedScheduleCapability,
+							scheduleCapability: bindScheduleModel(
+								container.sharedScheduleCapability,
+								req.modelRef,
+							),
 						}),
 					),
 				},
-			},
+			}),
 			...createSharedAgentAuthority(
 				resolveServiceDb().$client as unknown as AgentAuthoritySql,
 				container.nodeAdmin,

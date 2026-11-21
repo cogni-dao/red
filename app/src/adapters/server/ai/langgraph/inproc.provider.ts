@@ -108,7 +108,7 @@ interface ProviderCatalogEntry {
  * Note: Discovery (listAgents) is in LangGraphInProcAgentCatalogProvider.
  */
 export interface SharedCogniDeps {
-	readonly sharedTools?: Readonly<
+	readonly sharedTools?: (req: GraphRunRequest) => Readonly<
 		Record<
 			string,
 			{
@@ -391,12 +391,13 @@ export class LangGraphInProcProvider implements GraphExecutorPort {
 			if (!principalId) throw new Error("shared_principal_unavailable");
 			const sourceContext = await deps.sourceContext();
 			const audience = deps.isCodingActor(actor);
+			const sharedTools = deps.sharedTools?.(req);
 			const requested = new Set(req.toolIds ?? entry.toolIds);
 			const ids = entry.toolIds.filter((id) => requested.has(id));
 			const runtimes: Record<string, BoundToolRuntime> = {};
 			const requires: Record<string, ToolRequires> = {};
 			for (const id of ids) {
-				const override = deps.sharedTools?.[id];
+				const override = sharedTools?.[id];
 				const bound = override ?? this.boundToolMap.get(id);
 				const runtime = override?.runtime ?? this.toolSource.getBoundTool(id);
 				if (!bound || !runtime) {
@@ -522,8 +523,7 @@ export class LangGraphInProcProvider implements GraphExecutorPort {
 			const contracts = allowed
 				.map(
 					(id) =>
-						deps.sharedTools?.[id]?.contract ??
-						this.boundToolMap.get(id)?.contract,
+						sharedTools?.[id]?.contract ?? this.boundToolMap.get(id)?.contract,
 				)
 				.filter((x): x is NonNullable<typeof x> => !!x);
 			const runner = createSharedInProcGraphRunner({
