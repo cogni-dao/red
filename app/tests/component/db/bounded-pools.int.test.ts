@@ -46,9 +46,6 @@ describe("bounded runtime pools", () => {
 	beforeAll(async () => {
 		container = await new PostgreSqlContainer("postgres:15-alpine").start();
 		admin = postgres(container.getConnectionUri(), { max: 1 });
-		await migrate(drizzle(admin), {
-			migrationsFolder: resolve("src/adapters/server/db/migrations"),
-		});
 		// This entire cluster belongs to this file. Do not alter the global fixture's roles.
 		await admin.unsafe(
 			"CREATE ROLE pool_app LOGIN PASSWORD 'test_app_only' CONNECTION LIMIT 2 NOSUPERUSER NOBYPASSRLS",
@@ -56,15 +53,24 @@ describe("bounded runtime pools", () => {
 		await admin.unsafe(
 			"CREATE ROLE pool_service LOGIN PASSWORD 'test_service_only' CONNECTION LIMIT 4 NOSUPERUSER BYPASSRLS",
 		);
+		await admin`ALTER DATABASE ${admin(container.getDatabase())} OWNER TO pool_app`;
+		const appUrl = new URL(container.getConnectionUri());
+		appUrl.username = "pool_app";
+		appUrl.password = "test_app_only";
+		const migration = postgres(appUrl.toString(), { max: 1 });
+		try {
+			await migrate(drizzle(migration), {
+				migrationsFolder: resolve("src/adapters/server/db/migrations"),
+			});
+		} finally {
+			await migration.end();
+		}
 		await admin.unsafe(
 			"GRANT USAGE ON SCHEMA public TO pool_app, pool_service",
 		);
 		await admin.unsafe(
 			"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO pool_app, pool_service",
 		);
-		const appUrl = new URL(container.getConnectionUri());
-		appUrl.username = "pool_app";
-		appUrl.password = "test_app_only";
 		const serviceUrl = new URL(container.getConnectionUri());
 		serviceUrl.username = "pool_service";
 		serviceUrl.password = "test_service_only";
