@@ -721,3 +721,64 @@ describe("released preflight around eager shared provider", () => {
 		},
 	);
 });
+
+describe("released sandbox billing custody", () => {
+	it.each(["missing", "platform", "byo"])(
+		"handles %s sandbox usage without changing provenance",
+		async (mode) => {
+			const { UsageCommitDecorator } = await import(
+				"@cogni/graph-execution-host"
+			);
+			const log = {
+				debug() {},
+				info() {},
+				warn() {},
+				error() {},
+				child() {
+					return this;
+				},
+			};
+			const commit = vi.fn(async () => {});
+			const fact = {
+				runId: "sandbox-run",
+				attempt: 0,
+				source: mode === "byo" ? ("codex" as const) : ("litellm" as const),
+				executorType: "sandbox" as const,
+				billingAccountId: "account",
+				virtualKeyId: "key",
+				graphId: "sandbox:agent",
+				...(mode === "missing" ? {} : { usageUnitId: "unit-1" }),
+			};
+			const inner: import("@cogni/graph-execution-core").GraphExecutorPort = {
+				runGraph: () => ({
+					stream: (async function* () {
+						yield { type: "usage_report" as const, fact };
+						yield { type: "done" as const };
+					})(),
+					final: Promise.resolve({
+						ok: true as const,
+						runId: "sandbox-run",
+						requestId: "sandbox-run",
+					}),
+				}),
+			};
+			const result = new UsageCommitDecorator(inner, log, commit).runGraph({
+				runId: "sandbox-run",
+				graphId: "sandbox:agent",
+				modelRef: { providerKey: "platform", modelId: "model" },
+				messages: [],
+			});
+			const drain = (async () => {
+				const events = [];
+				for await (const event of result.stream) events.push(event.type);
+				return events;
+			})();
+			if (mode === "missing")
+				await expect(drain).rejects.toThrow("Billing validation failed");
+			else await expect(drain).resolves.toEqual(["done"]);
+			if (mode === "byo")
+				expect(commit).toHaveBeenCalledExactlyOnceWith(fact, log);
+			else expect(commit).not.toHaveBeenCalled();
+		},
+	);
+});
