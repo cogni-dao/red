@@ -539,7 +539,7 @@ export class LangGraphInProcProvider implements GraphExecutorPort {
 				"shared_identity_unavailable",
 				"shared_principal_unavailable",
 				"node_source_context_unavailable",
-				"bounded_governing_index_unavailable",
+				"node_source_context_overflow",
 				"authz_unavailable",
 				"policy_denied",
 				"sandbox_unavailable",

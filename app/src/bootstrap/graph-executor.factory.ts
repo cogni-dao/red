@@ -53,6 +53,7 @@ import {
 } from "@/adapters/server";
 import { runInScope } from "@/adapters/server/ai/execution-scope";
 import { createLangGraphDispatch } from "@/adapters/server/ai/langgraph/dispatch";
+import { loadCogniSourceContext } from "@/adapters/server/ai/langgraph/source-context";
 import { resolveSandboxWorkspaceOrigin } from "@/bootstrap/capabilities/sandbox-workspace";
 import type {
 	AiExecutionErrorCode,
@@ -528,10 +529,6 @@ export async function closeMcpConnections(): Promise<void> {
  * Per CAPABILITY_INJECTION: toolSource contains real implementations with I/O.
  * MCP tools resolved via shared cache with reconnect-on-error.
  */
-async function loadBoundedGoverningIndex(): Promise<never> {
-	throw new Error("bounded_governing_index_unavailable");
-}
-
 function createInProcProvider(
 	deps: AiAdapterDeps,
 	completionStreamFn: CompletionStreamFn,
@@ -570,16 +567,13 @@ function createInProcProvider(
 				const mission = getNodeMission();
 				if (!mission || !env.APP_BASE_URL || !container.knowledgeStorePort)
 					throw new Error("node_source_context_unavailable");
-				return {
+				return loadCogniSourceContext({
+					store: container.knowledgeStorePort,
 					nodeId: container.nodeId,
 					origin: env.APP_BASE_URL,
-					mission: {
-						content: mission,
-						sourceRef: ".cogni/repo-spec.yaml",
-						buildSha: env.APP_BUILD_SHA ?? null,
-					},
-					governingIndex: await loadBoundedGoverningIndex(),
-				};
+					mission,
+					buildSha: env.APP_BUILD_SHA,
+				});
 			},
 		},
 	);

@@ -82,6 +82,11 @@ import {
 import { createLangGraphDispatch } from "@/adapters/server/ai/langgraph/dispatch";
 import { LangGraphInProcProvider } from "@/adapters/server/ai/langgraph/inproc.provider";
 import {
+	loadCogniSourceContext,
+	SOURCE_CONTEXT_MAX_BYTES,
+	SOURCE_CONTEXT_MAX_ROWS,
+} from "@/adapters/server/ai/langgraph/source-context";
+import {
 	issueAgentApiKey,
 	resolveRequestIdentity,
 } from "@/app/_lib/auth/request-identity";
@@ -155,7 +160,11 @@ const source = {
 	listToolSpecs: () => [runtime.spec],
 	hasToolId: (id: string) => id === shell,
 };
-async function launch(user: string, extra: Record<string, unknown> = {}) {
+async function launch(
+	user: string,
+	extra: Record<string, unknown> = {},
+	sourceContext = deps.sourceContext,
+) {
 	const scope = {
 		actorUserId: user,
 		billing: { billingAccountId: "account", virtualKeyId: "key" },
@@ -167,7 +176,7 @@ async function launch(user: string, extra: Record<string, unknown> = {}) {
 		source as any,
 		async () => null,
 		[{ contract } as any],
-		deps as any,
+		{ ...deps, sourceContext } as any,
 	);
 	return runInScope(scope, async () => {
 		const run = provider.runGraph(
@@ -357,4 +366,80 @@ describe("chat ingress identity", () => {
 		expect(parsed).not.toHaveProperty("program");
 		expect(parsed).not.toHaveProperty("codingActorIds");
 	});
+});
+
+describe("released cognition source binding", () => {
+	const rows = [
+		"skill",
+		"guide",
+		"playbook",
+		"rule",
+		"design",
+		"roadmap",
+		"decision",
+		"reference",
+	].map((entryType) => ({
+		id: entryType,
+		domain: "red",
+		entryType,
+		useWhen: `use ${entryType}`,
+	}));
+	function fixture() {
+		const store = {
+			currentCommit: vi.fn(async () => "revision"),
+			listDomainsFull: vi.fn(async () => []),
+			listGoverningIndex: vi.fn(async () => rows),
+			getKnowledge: vi.fn(async (_id: string) => null),
+			listActiveGoals: vi.fn(async () => []),
+		};
+		const input = {
+			store,
+			nodeId: "red",
+			origin: "https://red.cognidao.org",
+			mission: "Protect Red",
+			buildSha: "sha",
+		};
+		return { store, input, read: () => loadCogniSourceContext(input as any) };
+	}
+	it("feeds the full canonical snapshot to the graph with fixed orientation IDs", async () => {
+		const { store, read } = fixture();
+		const opts = await launch(actor, {}, read);
+		expect(opts.sourceContext.governingIndex).toEqual(rows);
+		expect(opts.sourceContext.mission.content).toBe("Protect Red");
+		expect(store.getKnowledge.mock.calls.map(([id]) => id)).toEqual([
+			"red-agent-orientation",
+			"cogni-agent-orientation",
+		]);
+		expect(store.listDomainsFull).toHaveBeenCalledOnce();
+		expect(store.listActiveGoals).toHaveBeenCalledOnce();
+	});
+	it.each(["failed", "degraded", "stale", "rows", "bytes"])(
+		"refuses %s source before model, sandbox or mint",
+		async (kind) => {
+			const { store, input, read } = fixture();
+			if (kind === "stale") {
+				await read();
+				store.currentCommit.mockRejectedValue(new Error("head unavailable"));
+			}
+			if (kind === "failed")
+				store.listGoverningIndex.mockRejectedValue(new Error("unavailable"));
+			if (kind === "degraded")
+				store.listActiveGoals.mockRejectedValue(new Error("unavailable"));
+			if (kind === "rows")
+				store.listGoverningIndex.mockResolvedValue(
+					Array.from({ length: SOURCE_CONTEXT_MAX_ROWS + 1 }, (_, i) => ({
+						id: `${i}`,
+						domain: "d",
+						entryType: "rule",
+						useWhen: "x",
+					})),
+				);
+			if (kind === "bytes")
+				input.mission = "é".repeat(SOURCE_CONTEXT_MAX_BYTES);
+			expect(await launch(actor, {}, read)).toBeUndefined();
+			expect(adapter.executeCompletionUnit).not.toHaveBeenCalled();
+			expect(state.sandbox).toBe(0);
+			expect(state.mint).toBe(0);
+		},
+	);
 });
