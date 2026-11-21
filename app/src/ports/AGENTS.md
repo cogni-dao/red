@@ -53,6 +53,7 @@ Does NOT re-export packages with `node:` transitive dependencies.
 - SandboxRunnerPort, SandboxRunSpec, SandboxRunResult, SandboxProgramContract
 - ThreadPersistencePort, ThreadConflictError, ThreadSummary
 - OperatorWalletPort
+- `node-admin.port.ts`: opaque `AdminSession` and `NodeAdminPort` for AI permission acts only; the sole mint is `(admin)/_lib/admin-session.ts`
 - IdentityBindingRepositoryPort, IdentityBindingTransactionPort
 - TreasurySettlementPort, TreasurySettlementOutcome
 - Types (ChargeReceiptParams, LlmCaller, BillingAccount, CreditLedgerEntry, etc.)

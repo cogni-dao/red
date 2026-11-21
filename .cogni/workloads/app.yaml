@@ -12,6 +12,8 @@ metadata:
 containers:
   app:
     image: .
+    variables:
+      COGNI_CODING_ACTOR_IDS: "dfa8570f-d487-4239-b40a-2e39ee4513f9,0acd8b06-5408-4c49-a284-c30cb489d92d"
     resources:
       requests:
         cpu: "2"

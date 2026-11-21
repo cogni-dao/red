@@ -13,15 +13,15 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import {
-  createAppDbClient,
-  DrizzleExecutionRequestAdapter,
-  withTenantScope,
+	createAppDbClient,
+	DrizzleExecutionRequestAdapter,
+	withTenantScope,
 } from "@cogni/db-client";
 import { createServiceDbClient } from "@cogni/db-client/service";
 import { toUserId, userActor } from "@cogni/ids";
 import {
-  PostgreSqlContainer,
-  type StartedPostgreSqlContainer,
+	PostgreSqlContainer,
+	type StartedPostgreSqlContainer,
 } from "@testcontainers/postgresql";
 import { BASE_VALID_ENV } from "@tests/_fixtures/env/base-env";
 import { sql } from "drizzle-orm";
@@ -33,159 +33,199 @@ import { DrizzleThreadPersistenceAdapter } from "@/adapters/server/ai/thread-per
 import { serverSchema } from "@/shared/env/server-env";
 
 const poolSchema = serverSchema.pick({
-  DB_POOL_MAX: true,
-  DB_SERVICE_POOL_MAX: true,
+	DB_POOL_MAX: true,
+	DB_SERVICE_POOL_MAX: true,
 });
 
 describe("bounded runtime pools", () => {
-  let container: StartedPostgreSqlContainer;
-  let admin: ReturnType<typeof postgres>;
-  let app: ReturnType<typeof createAppDbClient>;
-  let service: ReturnType<typeof createServiceDbClient>;
+	let container: StartedPostgreSqlContainer;
+	let admin: ReturnType<typeof postgres>;
+	let app: ReturnType<typeof createAppDbClient>;
+	let service: ReturnType<typeof createServiceDbClient>;
 
-  beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:15-alpine").start();
-    admin = postgres(container.getConnectionUri(), { max: 1 });
-    await migrate(drizzle(admin), {
-      migrationsFolder: resolve("src/adapters/server/db/migrations"),
-    });
-    // This entire cluster belongs to this file. Do not alter the global fixture's roles.
-    await admin.unsafe(
-      "CREATE ROLE pool_app LOGIN PASSWORD 'test_app_only' CONNECTION LIMIT 2 NOSUPERUSER NOBYPASSRLS"
-    );
-    await admin.unsafe(
-      "CREATE ROLE pool_service LOGIN PASSWORD 'test_service_only' CONNECTION LIMIT 4 NOSUPERUSER BYPASSRLS"
-    );
-    await admin.unsafe(
-      "GRANT USAGE ON SCHEMA public TO pool_app, pool_service"
-    );
-    await admin.unsafe(
-      "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO pool_app, pool_service"
-    );
-    const appUrl = new URL(container.getConnectionUri());
-    appUrl.username = "pool_app";
-    appUrl.password = "test_app_only";
-    const serviceUrl = new URL(container.getConnectionUri());
-    serviceUrl.username = "pool_service";
-    serviceUrl.password = "test_service_only";
-    const limits = poolSchema.parse({});
-    app = createAppDbClient(appUrl.toString(), { max: limits.DB_POOL_MAX });
-    service = createServiceDbClient(serviceUrl.toString(), {
-      max: limits.DB_SERVICE_POOL_MAX,
-    });
-  }, 120_000);
+	beforeAll(async () => {
+		container = await new PostgreSqlContainer("postgres:15-alpine").start();
+		admin = postgres(container.getConnectionUri(), { max: 1 });
+		// This entire cluster belongs to this file. Do not alter the global fixture's roles.
+		await admin.unsafe(
+			"CREATE ROLE pool_app LOGIN PASSWORD 'test_app_only' CONNECTION LIMIT 2 NOSUPERUSER NOBYPASSRLS",
+		);
+		await admin.unsafe(
+			"CREATE ROLE pool_service LOGIN PASSWORD 'test_service_only' CONNECTION LIMIT 4 NOSUPERUSER BYPASSRLS",
+		);
+		await admin`ALTER DATABASE ${admin(container.getDatabase())} OWNER TO pool_app`;
+		const appUrl = new URL(container.getConnectionUri());
+		appUrl.username = "pool_app";
+		appUrl.password = "test_app_only";
+		const migration = postgres(appUrl.toString(), { max: 1 });
+		try {
+			await migrate(drizzle(migration), {
+				migrationsFolder: resolve("src/adapters/server/db/migrations"),
+			});
+		} finally {
+			await migration.end();
+		}
+		await admin.unsafe(
+			"GRANT USAGE ON SCHEMA public TO pool_app, pool_service",
+		);
+		await admin.unsafe(
+			"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO pool_app, pool_service",
+		);
+		const serviceUrl = new URL(container.getConnectionUri());
+		serviceUrl.username = "pool_service";
+		serviceUrl.password = "test_service_only";
+		const limits = poolSchema.parse({});
+		app = createAppDbClient(appUrl.toString(), { max: limits.DB_POOL_MAX });
+		service = createServiceDbClient(serviceUrl.toString(), {
+			max: limits.DB_SERVICE_POOL_MAX,
+		});
+	}, 120_000);
 
-  afterAll(async () => {
-    await app?.$client.end({ timeout: 1 });
-    await service?.$client.end({ timeout: 1 });
-    await admin?.end({ timeout: 1 });
-    await container?.stop();
-  });
+	afterAll(async () => {
+		await app?.$client.end({ timeout: 1 });
+		await service?.$client.end({ timeout: 1 });
+		await admin?.end({ timeout: 1 });
+		await container?.stop();
+	});
 
-  it("validates node policy and preserves configurable, finite factory limits", () => {
-    expect(poolSchema.parse({})).toEqual({
-      DB_POOL_MAX: 1,
-      DB_SERVICE_POOL_MAX: 2,
-    });
-    expect(
-      poolSchema.parse({ DB_POOL_MAX: "3", DB_SERVICE_POOL_MAX: "4" })
-    ).toEqual({ DB_POOL_MAX: 3, DB_SERVICE_POOL_MAX: 4 });
-    for (const invalid of [
-      "0",
-      "-1",
-      "1.5",
-      "Infinity",
-      "NaN",
-      "",
-      "9007199254740992",
-    ]) {
-      expect(poolSchema.safeParse({ DB_POOL_MAX: invalid }).success).toBe(
-        false
-      );
-    }
-    expect(poolSchema.safeParse({ DB_SERVICE_POOL_MAX: "1" }).success).toBe(
-      false
-    );
-    expect(
-      serverSchema.safeParse({ ...BASE_VALID_ENV, DB_POOL_MAX: "0" }).success
-    ).toBe(false);
-    expect(() =>
-      createAppDbClient("postgres://unused:unused@localhost/unused", { max: 0 })
-    ).toThrow("positive safe integer");
-  });
+	it("validates node policy and preserves configurable, finite factory limits", () => {
+		expect(poolSchema.parse({})).toEqual({
+			DB_POOL_MAX: 1,
+			DB_SERVICE_POOL_MAX: 2,
+		});
+		expect(
+			poolSchema.parse({ DB_POOL_MAX: "3", DB_SERVICE_POOL_MAX: "4" }),
+		).toEqual({ DB_POOL_MAX: 3, DB_SERVICE_POOL_MAX: 4 });
+		for (const invalid of [
+			"0",
+			"-1",
+			"1.5",
+			"Infinity",
+			"NaN",
+			"",
+			"9007199254740992",
+		]) {
+			expect(poolSchema.safeParse({ DB_POOL_MAX: invalid }).success).toBe(
+				false,
+			);
+		}
+		expect(poolSchema.safeParse({ DB_SERVICE_POOL_MAX: "1" }).success).toBe(
+			false,
+		);
+		expect(
+			serverSchema.safeParse({ ...BASE_VALID_ENV, DB_POOL_MAX: "0" }).success,
+		).toBe(false);
+		expect(() =>
+			createAppDbClient("postgres://unused:unused@localhost/unused", {
+				max: 0,
+			}),
+		).toThrow("positive safe integer");
+	});
 
-  it("queues concurrent RLS thread operations, idempotency reads and heartbeats within one app session", async () => {
-    const alice = toUserId(randomUUID());
-    const bob = toUserId(randomUUID());
-    const a = new DrizzleThreadPersistenceAdapter(app, userActor(alice));
-    const b = new DrizzleThreadPersistenceAdapter(app, userActor(bob));
-    const messages = [
-      {
-        id: "answer",
-        role: "assistant" as const,
-        parts: [{ type: "text" as const, text: "verified" }],
-      },
-    ];
-    await a.saveThread(alice, "poolproof", messages, 0);
-    expect(await b.loadThread(alice, "poolproof")).toEqual([]);
-    const executions = new DrizzleExecutionRequestAdapter(app);
-    const key = `pool:${randomUUID()}`;
-    await executions.createPendingRequest(
-      key,
-      "hash",
-      randomUUID(),
-      null,
-      new Date(Date.now() + 60_000).toISOString()
-    );
-    const held = await app.$client.reserve();
-    const operations = Promise.all(
-      Array.from({ length: 8 }, async (_, n) => {
-        const actor = n % 2 === 0 ? alice : bob;
-        const scoped = await withTenantScope(app, userActor(actor), (tx) =>
-          tx.execute(
-            sql`select current_setting('app.current_user_id') as actor`
-          )
-        );
-        expect(scoped[0]?.actor).toBe(actor);
-        await executions.heartbeatRequest(
-          key,
-          new Date(Date.now() + 60_000).toISOString()
-        );
-        expect((await executions.checkIdempotency(key, "hash")).status).toBe(
-          "pending"
-        );
-        expect(await a.loadThread(alice, "poolproof")).toEqual(messages);
-      })
-    );
-    try {
-      const sessions =
-        await admin`select count(*)::int as count from pg_stat_activity where usename = 'pool_app'`;
-      expect(sessions[0]?.count).toBe(1);
-    } finally {
-      held.release();
-    }
-    await operations;
-    const identity =
-      await app.$client`select current_user as role, current_setting('application_name') as name`;
-    expect(identity[0]).toEqual({
-      role: "pool_app",
-      name: "cogni_template_app",
-    });
-    const sessions =
-      await admin`select count(*)::int as count from pg_stat_activity where usename = 'pool_app'`;
-    expect(sessions[0]?.count).toBe(1);
-  }, 10_000);
+	it("atomically leases a null-lease preclaim once and returns the finalized result", async () => {
+		const executions = new DrizzleExecutionRequestAdapter(service);
+		const key = `claim:${randomUUID()}`;
+		const runId = randomUUID();
+		const requestHash = "request-hash";
+		await executions.createPendingRequest(key, requestHash, runId, null);
+		const lease = new Date(Date.now() + 60_000).toISOString();
+		const results = await Promise.all([
+			executions.createPendingRequest(key, requestHash, runId, null, lease),
+			executions.createPendingRequest(key, requestHash, runId, null, lease),
+		]);
+		expect(results.map((r) => r.status).sort()).toEqual(["claimed", "pending"]);
+		for (const result of results)
+			if (result.status === "claimed" || result.status === "pending")
+				expect(result.request.runId).toBe(runId);
+		expect(
+			(
+				await executions.createPendingRequest(
+					key,
+					"changed-hash",
+					runId,
+					null,
+					lease,
+				)
+			).status,
+		).toBe("mismatch");
+		await executions.finalizeRequest(key, { ok: true, errorCode: null });
+		const retry = await executions.checkIdempotency(key, requestHash);
+		expect(retry.status).toBe("cached");
+		if (retry.status === "cached") expect(retry.request.runId).toBe(runId);
+	});
 
-  it("makes service queries progress while one session is reserved", async () => {
-    const held = await service.$client.reserve();
-    try {
-      const rows = await service.$client`select current_user as role`;
-      expect(rows[0]?.role).toBe("pool_service");
-      const sessions =
-        await admin`select count(*)::int as count from pg_stat_activity where usename = 'pool_service'`;
-      expect(sessions[0]?.count).toBe(2);
-    } finally {
-      held.release();
-    }
-  }, 5_000);
+	it("queues concurrent RLS thread operations, idempotency reads and heartbeats within one app session", async () => {
+		const alice = toUserId(randomUUID());
+		const bob = toUserId(randomUUID());
+		const a = new DrizzleThreadPersistenceAdapter(app, userActor(alice));
+		const b = new DrizzleThreadPersistenceAdapter(app, userActor(bob));
+		const messages = [
+			{
+				id: "answer",
+				role: "assistant" as const,
+				parts: [{ type: "text" as const, text: "verified" }],
+			},
+		];
+		await a.saveThread(alice, "poolproof", messages, 0);
+		expect(await b.loadThread(alice, "poolproof")).toEqual([]);
+		const executions = new DrizzleExecutionRequestAdapter(app);
+		const key = `pool:${randomUUID()}`;
+		await executions.createPendingRequest(
+			key,
+			"hash",
+			randomUUID(),
+			null,
+			new Date(Date.now() + 60_000).toISOString(),
+		);
+		const held = await app.$client.reserve();
+		const operations = Promise.all(
+			Array.from({ length: 8 }, async (_, n) => {
+				const actor = n % 2 === 0 ? alice : bob;
+				const scoped = await withTenantScope(app, userActor(actor), (tx) =>
+					tx.execute(
+						sql`select current_setting('app.current_user_id') as actor`,
+					),
+				);
+				expect(scoped[0]?.actor).toBe(actor);
+				await executions.heartbeatRequest(
+					key,
+					new Date(Date.now() + 60_000).toISOString(),
+				);
+				expect((await executions.checkIdempotency(key, "hash")).status).toBe(
+					"pending",
+				);
+				expect(await a.loadThread(alice, "poolproof")).toEqual(messages);
+			}),
+		);
+		try {
+			const sessions =
+				await admin`select count(*)::int as count from pg_stat_activity where usename = 'pool_app'`;
+			expect(sessions[0]?.count).toBe(1);
+		} finally {
+			held.release();
+		}
+		await operations;
+		const identity =
+			await app.$client`select current_user as role, current_setting('application_name') as name`;
+		expect(identity[0]).toEqual({
+			role: "pool_app",
+			name: "cogni_template_app",
+		});
+		const sessions =
+			await admin`select count(*)::int as count from pg_stat_activity where usename = 'pool_app'`;
+		expect(sessions[0]?.count).toBe(1);
+	}, 10_000);
+
+	it("makes service queries progress while one session is reserved", async () => {
+		const held = await service.$client.reserve();
+		try {
+			const rows = await service.$client`select current_user as role`;
+			expect(rows[0]?.role).toBe("pool_service");
+			const sessions =
+				await admin`select count(*)::int as count from pg_stat_activity where usename = 'pool_service'`;
+			expect(sessions[0]?.count).toBe(2);
+		} finally {
+			held.release();
+		}
+	}, 5_000);
 });

@@ -17,17 +17,17 @@
 import type { GraphId, ModelRef } from "@cogni/ai-core";
 import { useEffect, useState } from "react";
 import {
-  type GraphOption,
-  GraphPicker,
+	type GraphOption,
+	GraphPicker,
 } from "@/features/ai/components/GraphPicker";
 import {
-  CHATGPT_MODELS,
-  ModelPicker,
+	CHATGPT_MODELS,
+	ModelPicker,
 } from "@/features/ai/components/ModelPicker";
 import { useModels } from "@/features/ai/hooks/useModels";
 import {
-  setPreferredModelId,
-  validatePreferredModel,
+	setPreferredModelId,
+	validatePreferredModel,
 } from "@/features/ai/preferences/model-preference";
 
 /**
@@ -36,124 +36,130 @@ import {
  * See AGENT_DISCOVERY.md Phase 2 checklist.
  */
 const AVAILABLE_GRAPHS: readonly GraphOption[] = [
-  {
-    graphId: "langgraph:poly-brain" satisfies GraphId,
-    name: "Poly Brain",
-    description: "Prediction market analyst with live market data",
-  },
-  {
-    graphId: "langgraph:brain" satisfies GraphId,
-    name: "Brain",
-    description: "Code-aware assistant with repo access",
-  },
-  {
-    graphId: "langgraph:poet" satisfies GraphId,
-    name: "Poet",
-    description: "Poetic AI assistant with structured verse",
-  },
-  {
-    graphId: "langgraph:ponderer" satisfies GraphId,
-    name: "Ponderer",
-    description: "Philosophical thinker",
-  },
-  {
-    graphId: "langgraph:research" satisfies GraphId,
-    name: "Research",
-    description: "Deep research with web search",
-  },
-  {
-    graphId: "langgraph:red-solver" satisfies GraphId,
-    name: "Red Solver",
-    description: "Authorized ethical red-team solver — scope-bound HTTP attack loop",
-  },
-  {
-    graphId: "langgraph:browser" satisfies GraphId,
-    name: "Browser",
-    description: "Web browsing agent with Playwright MCP",
-  },
-  {
-    graphId: "langgraph:frontend-tester" satisfies GraphId,
-    name: "Frontend Tester",
-    description: "QA agent — tests web UIs via Playwright",
-  },
-  {
-    graphId: "langgraph:operating-review" satisfies GraphId,
-    name: "Operating Review",
-    description:
-      "Periodic review — triages backlog, flags risks, produces structured briefs",
-  },
+	{
+		graphId: "langgraph:cogni" satisfies GraphId,
+		name: "Cogni",
+		description: "Coordinates node duties and answers questions",
+	},
+	{
+		graphId: "langgraph:poly-brain" satisfies GraphId,
+		name: "Poly Brain",
+		description: "Prediction market analyst with live market data",
+	},
+	{
+		graphId: "langgraph:brain" satisfies GraphId,
+		name: "Brain",
+		description: "Code-aware assistant with repo access",
+	},
+	{
+		graphId: "langgraph:poet" satisfies GraphId,
+		name: "Poet",
+		description: "Poetic AI assistant with structured verse",
+	},
+	{
+		graphId: "langgraph:ponderer" satisfies GraphId,
+		name: "Ponderer",
+		description: "Philosophical thinker",
+	},
+	{
+		graphId: "langgraph:research" satisfies GraphId,
+		name: "Research",
+		description: "Deep research with web search",
+	},
+	{
+		graphId: "langgraph:red-solver" satisfies GraphId,
+		name: "Red Solver",
+		description:
+			"Authorized ethical red-team solver — scope-bound HTTP attack loop",
+	},
+	{
+		graphId: "langgraph:browser" satisfies GraphId,
+		name: "Browser",
+		description: "Web browsing agent with Playwright MCP",
+	},
+	{
+		graphId: "langgraph:frontend-tester" satisfies GraphId,
+		name: "Frontend Tester",
+		description: "QA agent — tests web UIs via Playwright",
+	},
+	{
+		graphId: "langgraph:operating-review" satisfies GraphId,
+		name: "Operating Review",
+		description:
+			"Periodic review — triages backlog, flags risks, produces structured briefs",
+	},
 ];
 
 /** Default graph ID - exported for page initialization */
 export const DEFAULT_GRAPH_ID: GraphId = "langgraph:brain";
 
 export interface ChatComposerExtrasProps {
-  selectedModel: string;
-  onModelChange: (ref: ModelRef) => void;
-  defaultModelId: string;
-  balance?: number;
-  selectedGraph?: GraphId;
-  onGraphChange?: (graphId: GraphId) => void;
+	selectedModel: string;
+	onModelChange: (ref: ModelRef) => void;
+	defaultModelId: string;
+	balance?: number;
+	selectedGraph?: GraphId;
+	onGraphChange?: (graphId: GraphId) => void;
 }
 
 export function ChatComposerExtras({
-  selectedModel,
-  onModelChange,
-  defaultModelId,
-  balance = 0,
-  selectedGraph = DEFAULT_GRAPH_ID,
-  onGraphChange,
+	selectedModel,
+	onModelChange,
+	defaultModelId,
+	balance = 0,
+	selectedGraph = DEFAULT_GRAPH_ID,
+	onGraphChange,
 }: Readonly<ChatComposerExtrasProps>) {
-  const modelsQuery = useModels();
-  const [localModel, setLocalModel] = useState(selectedModel);
+	const modelsQuery = useModels();
+	const [localModel, setLocalModel] = useState(selectedModel);
 
-  // Initialize from localStorage on mount, validate against API models
-  useEffect(() => {
-    if (modelsQuery.data) {
-      // Valid model IDs = OpenRouter models + ChatGPT subscription models
-      const modelIds = [
-        ...modelsQuery.data.models.map((m) => m.ref.modelId),
-        ...CHATGPT_MODELS.map((m) => m.id),
-      ];
-      const validated = validatePreferredModel(modelIds, defaultModelId);
-      if (validated !== localModel) {
-        setLocalModel(validated);
-        // Find the matching ref from API models (defaults to platform provider)
-        const matchedModel = modelsQuery.data.models.find(
-          (m) => m.ref.modelId === validated
-        );
-        onModelChange(
-          matchedModel?.ref ?? { providerKey: "platform", modelId: validated }
-        );
-      }
-    }
-  }, [modelsQuery.data, defaultModelId, localModel, onModelChange]);
+	// Initialize from localStorage on mount, validate against API models
+	useEffect(() => {
+		if (modelsQuery.data) {
+			// Valid model IDs = OpenRouter models + ChatGPT subscription models
+			const modelIds = [
+				...modelsQuery.data.models.map((m) => m.ref.modelId),
+				...CHATGPT_MODELS.map((m) => m.id),
+			];
+			const validated = validatePreferredModel(modelIds, defaultModelId);
+			if (validated !== localModel) {
+				setLocalModel(validated);
+				// Find the matching ref from API models (defaults to platform provider)
+				const matchedModel = modelsQuery.data.models.find(
+					(m) => m.ref.modelId === validated,
+				);
+				onModelChange(
+					matchedModel?.ref ?? { providerKey: "platform", modelId: validated },
+				);
+			}
+		}
+	}, [modelsQuery.data, defaultModelId, localModel, onModelChange]);
 
-  const handleModelChange = (ref: ModelRef) => {
-    setLocalModel(ref.modelId);
-    setPreferredModelId(ref.modelId);
-    onModelChange(ref);
-  };
+	const handleModelChange = (ref: ModelRef) => {
+		setLocalModel(ref.modelId);
+		setPreferredModelId(ref.modelId);
+		onModelChange(ref);
+	};
 
-  const handleGraphChange = (graphId: GraphId) => {
-    onGraphChange?.(graphId);
-  };
+	const handleGraphChange = (graphId: GraphId) => {
+		onGraphChange?.(graphId);
+	};
 
-  return (
-    <div className="flex items-center gap-1">
-      <ModelPicker
-        models={modelsQuery.data?.models ?? []}
-        value={localModel}
-        onValueChange={handleModelChange}
-        disabled={modelsQuery.isLoading || modelsQuery.isError}
-        balance={balance}
-      />
-      <GraphPicker
-        graphs={AVAILABLE_GRAPHS}
-        value={selectedGraph}
-        onValueChange={handleGraphChange}
-        disabled={!onGraphChange}
-      />
-    </div>
-  );
+	return (
+		<div className="flex items-center gap-1">
+			<ModelPicker
+				models={modelsQuery.data?.models ?? []}
+				value={localModel}
+				onValueChange={handleModelChange}
+				disabled={modelsQuery.isLoading || modelsQuery.isError}
+				balance={balance}
+			/>
+			<GraphPicker
+				graphs={AVAILABLE_GRAPHS}
+				value={selectedGraph}
+				onValueChange={handleGraphChange}
+				disabled={!onGraphChange}
+			/>
+		</div>
+	);
 }
