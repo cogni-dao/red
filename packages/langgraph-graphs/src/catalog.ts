@@ -79,6 +79,7 @@ import type { CreateGraphFn } from "./inproc/types";
  */
 interface CatalogEntry {
   readonly displayName: string;
+	readonly sharedRuntime?: boolean;
   readonly description: string;
   /** Native tool IDs this graph may use. Providers resolve from TOOL_CATALOG. */
   readonly toolIds: readonly string[];
@@ -103,7 +104,7 @@ const RED_WORK_PRIORITIZER: CatalogEntry = {
   toolIds: SHARED_WORK_PRIORITIZER.toolIds.filter(
     (id) =>
       id !== "core__work_item_update" &&
-      id !== "core__work_item_artifact_record"
+			id !== "core__work_item_artifact_record",
   ),
   systemPrompt: `${SHARED_WORK_PRIORITIZER.systemPrompt} READ-ONLY ON THIS NODE: triage writes are off, so core__work_item_update and core__work_item_artifact_record are not available. Do not try to change any item. Read as above, then report in your final answer the routes, scores and cancels you would make, one line per item, with the reason for each. Reporting them satisfies the run; ignore the instruction to write.`,
 };
@@ -111,7 +112,7 @@ const RED_WORK_PRIORITIZER: CatalogEntry = {
 const createAutoresearchCatalogEntry = (
   displayName: string,
   description: string,
-  systemPrompt: string
+	systemPrompt: string,
 ): CatalogEntry => ({
   displayName,
   description,
@@ -131,23 +132,24 @@ const createAutoresearchCatalogEntry = (
  * Per CATALOG_SINGLE_SOURCE_OF_TRUTH: graphs are defined here, not in bootstrap.
  */
 export const LANGGRAPH_CATALOG: Readonly<Record<string, CatalogEntry>> = {
+	cogni: { ...SHARED_NODE_CATALOG.cogni, sharedRuntime: true },
   "work-prioritizer": RED_WORK_PRIORITIZER,
   [AUTORESEARCH_SINGLE_LANE_GRAPH_NAME]: createAutoresearchCatalogEntry(
     "Autoresearch Single Lane",
     "Karpathy-style single-lane experiment loop with Thinker, Flasher, Eval, and Judge",
-    AUTORESEARCH_SINGLE_LANE_PROMPT
+		AUTORESEARCH_SINGLE_LANE_PROMPT,
   ),
 
   [AUTORESEARCH_SYNTROPY_LOOP_GRAPH_NAME]: createAutoresearchCatalogEntry(
     "Autoresearch Syntropy Loop",
     "Knowledge-syntropy autoresearch loop with Librarian, Archivist, Curator, Thinker, Flasher, and Judge",
-    AUTORESEARCH_SYNTROPY_LOOP_PROMPT
+		AUTORESEARCH_SYNTROPY_LOOP_PROMPT,
   ),
 
   [AUTORESEARCH_REGISTRY_SWARM_GRAPH_NAME]: createAutoresearchCatalogEntry(
     "Autoresearch Registry Swarm",
     "Registry-aware autoresearch tournament across conservative, retrieval, and topology lanes",
-    AUTORESEARCH_REGISTRY_SWARM_PROMPT
+		AUTORESEARCH_REGISTRY_SWARM_PROMPT,
   ),
 
   /**
@@ -286,6 +288,7 @@ export const LANGGRAPH_PROVIDER_ID = "langgraph" as const;
  * Per GRAPH_ID_NAMESPACED: format is ${providerId}:${graphName}
  */
 export const LANGGRAPH_GRAPH_IDS = {
+	cogni: `${LANGGRAPH_PROVIDER_ID}:cogni`,
   "work-prioritizer": `${LANGGRAPH_PROVIDER_ID}:work-prioritizer`,
   "autoresearch-single-lane": `${LANGGRAPH_PROVIDER_ID}:${AUTORESEARCH_SINGLE_LANE_GRAPH_NAME}`,
   "autoresearch-syntropy-loop": `${LANGGRAPH_PROVIDER_ID}:${AUTORESEARCH_SYNTROPY_LOOP_GRAPH_NAME}`,

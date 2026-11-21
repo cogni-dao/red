@@ -21,6 +21,7 @@
  * @public
  */
 
+import { signChatActor } from "@/bootstrap/chat-actor-proof";
 import { createHash, createHmac } from "node:crypto";
 import { AiExecutionError } from "@cogni/ai-core";
 import { toUserId } from "@cogni/ids";
@@ -492,6 +493,7 @@ export async function completionStream(
             chatMessageId: input.messageId,
             chatWorkflowId: workflowId,
             executionRequestHash: requestHash,
+            ...(graphId === "langgraph:cogni" ? { chatActorProof: signChatActor({ runId, graphId, actorUserId: input.sessionUser.id, billingAccountId: billingAccount.id, virtualKeyId: billingAccount.defaultVirtualKeyId, payload: { messages: input.messages, modelRef: input.modelRef, stateKey: input.stateKey ?? null } }, serverEnv().AUTH_SECRET) } : {}),
           },
           runKind: "user_immediate" as const,
           triggerSource: "api",

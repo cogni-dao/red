@@ -57,6 +57,15 @@ export const serverSchema = z.object({
   // Application environment (controls adapter wiring)
   APP_ENV: z.enum(["test", "production"]),
   APP_BASE_URL: z.string().url().optional(),
+  // Exact authenticated actors permitted to use shared Cogni coding.
+  COGNI_CODING_ACTOR_IDS: z.string().default("").transform((value, ctx) => {
+    const ids = value.split(",").map((id) => id.trim()).filter(Boolean);
+    if (ids.some((id) => !z.string().uuid().safeParse(id).success)) {
+      ctx.addIssue({ code: "custom", message: "Expected comma-separated UUIDs" });
+      return z.NEVER;
+    }
+    return ids;
+  }),
   DOMAIN: z.string().optional(),
 
   // Deployment environment (for observability labels and analytics filtering)

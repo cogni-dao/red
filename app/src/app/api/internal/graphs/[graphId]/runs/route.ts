@@ -21,6 +21,7 @@
  * @internal
  */
 
+import { verifyChatActor } from "@/bootstrap/chat-actor-proof";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import type { AiEvent } from "@cogni/ai-core";
 import { RUN_STREAM_DEFAULT_TTL_SECONDS } from "@cogni/graph-execution-core";
@@ -435,6 +436,13 @@ export const POST = wrapRouteHandlerWithLogging<RouteParams>(
             .slice(0, 32)}`
         : `run:${runId}`;
     }
+
+    // Only a chat launcher can bind the actor of shared Cogni. Internal request
+    // payloads and scheduled runs cannot manufacture a trusted chat identity.
+    if (graphId === "langgraph:cogni" && (executionGrantId || !verifyChatActor(
+      { runId, graphId, actorUserId, billingAccountId, virtualKeyId, payload: { messages: input.messages, modelRef: input.modelRef, stateKey: input.stateKey ?? null } },
+      serverEnv().AUTH_SECRET, input.chatActorProof
+    ))) return NextResponse.json({ error: "Untrusted shared graph identity" }, { status: 403 });
 
     // --- 9. Execute graph ---
     // Use OTel trace ID (same one passed to executor, used by Langfuse decorator)

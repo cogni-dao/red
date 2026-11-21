@@ -36,6 +36,11 @@ import {
  * See AGENT_DISCOVERY.md Phase 2 checklist.
  */
 const AVAILABLE_GRAPHS: readonly GraphOption[] = [
+	{
+		graphId: "langgraph:cogni" satisfies GraphId,
+		name: "Cogni",
+		description: "Coordinates node duties and answers questions",
+	},
   {
     graphId: "langgraph:poly-brain" satisfies GraphId,
     name: "Poly Brain",
@@ -64,7 +69,8 @@ const AVAILABLE_GRAPHS: readonly GraphOption[] = [
   {
     graphId: "langgraph:red-solver" satisfies GraphId,
     name: "Red Solver",
-    description: "Authorized ethical red-team solver — scope-bound HTTP attack loop",
+		description:
+			"Authorized ethical red-team solver — scope-bound HTTP attack loop",
   },
   {
     graphId: "langgraph:browser" satisfies GraphId,
@@ -120,10 +126,10 @@ export function ChatComposerExtras({
         setLocalModel(validated);
         // Find the matching ref from API models (defaults to platform provider)
         const matchedModel = modelsQuery.data.models.find(
-          (m) => m.ref.modelId === validated
+					(m) => m.ref.modelId === validated,
         );
         onModelChange(
-          matchedModel?.ref ?? { providerKey: "platform", modelId: validated }
+					matchedModel?.ref ?? { providerKey: "platform", modelId: validated },
         );
       }
     }
