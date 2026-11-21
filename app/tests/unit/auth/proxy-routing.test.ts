@@ -31,7 +31,10 @@ vi.mock("@/auth", () => ({
 // capture the denial event the proxy emits before any route handler runs.
 const mockLoggerInfo = vi.fn();
 vi.mock("@/shared/observability", () => ({
-	EVENT_NAMES: { AUTH_PERIMETER_DENIED: "auth.perimeter.denied" },
+	EVENT_NAMES: {
+		AUTH_PERIMETER_DENIED: "auth.perimeter.denied",
+		AI_PERMISSION_COMPLETE: "ai_permission.complete",
+	},
 	makeLogger: () => ({ info: mockLoggerInfo }),
 }));
 vi.mock("@/shared/config", () => ({
@@ -314,5 +317,47 @@ describe("proxy — unmatched routes", () => {
 		expect(res.status).toBe(200);
 		// getToken should not be called for non-auth routes
 		expect(mockGetToken).not.toHaveBeenCalled();
+	});
+});
+
+describe("permission terminal scope preserves ordinary perimeter behavior", () => {
+	beforeEach(() => {
+		mockGetToken.mockReset();
+		mockLoggerInfo.mockReset();
+	});
+	it.each([
+		["/api/v1/admin/ai-access", "HEAD"],
+		["/api/v1/admin/ai-access", "OPTIONS"],
+		["/api/v1/admin/ai-access", "PUT"],
+		["/api/v1/admin/ai-access", "PATCH"],
+		["/api/v1/admin/ai-access/other", "GET"],
+		["/api/v1/admin/ai-access-extra", "POST"],
+	])(
+		"keeps generic denial and authenticated forwarding for %s %s",
+		async (path, method) => {
+			const req = new NextRequest(new URL(path, "https://red.example"), {
+				method,
+			});
+			mockGetToken.mockResolvedValue(null);
+			const res = await proxy(req);
+			expect(res.status).toBe(401);
+			expect(res.headers.get("x-request-id")).toBeNull();
+			expect(mockLoggerInfo).toHaveBeenCalledTimes(1);
+			expect(mockLoggerInfo.mock.calls[0][0]).toMatchObject({
+				event: "auth.perimeter.denied",
+				route: path,
+				method,
+			});
+			mockLoggerInfo.mockClear();
+			mockGetToken.mockResolvedValue({ id: "user-1" });
+			expect((await proxy(req)).headers.get("x-middleware-next")).toBe("1");
+			expect(mockLoggerInfo).not.toHaveBeenCalled();
+		},
+	);
+	it("preserves unexpected auth error behavior on unrelated routes", async () => {
+		const error = new Error("private auth failure");
+		mockGetToken.mockRejectedValue(error);
+		await expect(proxy(makeRequest("/api/v1/users/me"))).rejects.toBe(error);
+		expect(mockLoggerInfo).not.toHaveBeenCalled();
 	});
 });

@@ -3,6 +3,7 @@
 
 /** Real resolver, sole mint, port and published grant policy; only IO is faked. */
 import type { AgentGrantsStore, WithStore } from "@cogni/agent-grants";
+import { NextRequest } from "next/server";
 import pino from "pino";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,7 +12,17 @@ const io = vi.hoisted(() => ({
 	session: vi.fn(),
 	container: vi.fn(),
 	fallbackLog: vi.fn(),
+	getToken: vi.fn(),
+	auth: {
+		authSecret: "unit-test-only",
+		authOptions: { secret: "unit-test-only" },
+	},
 }));
+vi.mock("next-auth/jwt", () => ({
+	getToken: (...args: unknown[]) => io.getToken(...args),
+}));
+vi.mock("@/auth", () => io.auth);
+vi.mock("@/shared/config", () => ({ getNodeId: () => "test-node" }));
 vi.mock("next/headers", () => ({ headers: async () => io.headers }));
 vi.mock("@/lib/auth/server", () => ({
 	getServerSessionUser: () => io.session(),
@@ -35,6 +46,7 @@ import {
 	POST as postPermission,
 } from "@/app/api/v1/admin/ai-access/route";
 import { createNodeAdminPort } from "@/bootstrap/node-admin-port";
+import { proxy } from "@/proxy";
 
 const PRINCIPAL = "00000000-0000-4000-a000-0000000a0001";
 const SCOPE = "sandbox:exec";
@@ -51,12 +63,24 @@ const log = pino(
 
 async function audited(
 	handler: (request: Request) => Promise<Response>,
-	req: Request,
+	req: NextRequest,
 ) {
 	const before = records.filter(
 		(r) => r.event === "ai_permission.complete",
 	).length;
-	const response = await handler(req);
+	const beforeRecords = records.length;
+	io.headers = req.headers;
+	const perimeter = await proxy(req);
+	const response =
+		perimeter.headers.get("x-middleware-next") === "1"
+			? await handler(req)
+			: perimeter;
+	expect(
+		records
+			.slice(beforeRecords)
+			.filter((r) => r.event === "auth.perimeter.denied"),
+	).toHaveLength(0);
+	expect(records.length - beforeRecords).toBeLessThanOrEqual(3);
 	const terminal = records.filter((r) => r.event === "ai_permission.complete");
 	expect(terminal).toHaveLength(before + 1);
 	const event = terminal.at(-1);
@@ -70,7 +94,12 @@ async function audited(
 		resource: "node",
 		scope: SCOPE,
 		status: response.status,
-		errorCode: response.status < 400 ? null : body.error,
+		errorCode:
+			response.status < 400
+				? null
+				: response.status === 401
+					? "unauthorized"
+					: body.error,
 		outcome:
 			response.status < 400
 				? "success"
@@ -84,6 +113,9 @@ async function audited(
 	});
 	expect(event?.reqId).toMatch(/^[0-9a-f-]{36}$/);
 	expect(event?.reqId).not.toBe("caller-correlation");
+	expect(terminal.slice(0, -1).map((entry) => entry.reqId)).not.toContain(
+		event?.reqId,
+	);
 	expect(event?.durationMs).toBeGreaterThanOrEqual(0);
 	expect(event).not.toHaveProperty("principalUserId");
 	expect(JSON.stringify(event)).not.toMatch(
@@ -92,9 +124,9 @@ async function audited(
 	if (response.status === 401) expect(event?.actorUserId).toBeNull();
 	return response;
 }
-const GET = (req: Request) => audited(getPermissions, req);
-const POST = (req: Request) => audited(postPermission, req);
-const DELETE = (req: Request) => audited(deletePermission, req);
+const GET = (req: NextRequest) => audited(getPermissions, req);
+const POST = (req: NextRequest) => audited(postPermission, req);
+const DELETE = (req: NextRequest) => audited(deletePermission, req);
 
 const adminCheck = vi.fn();
 const findInternalPrincipal = vi.fn();
@@ -144,7 +176,7 @@ function request(
 		displayName: "Fixture",
 		avatarColor: null,
 	});
-	return new Request("https://red.example/api/v1/admin/ai-access", {
+	return new NextRequest("https://red.example/api/v1/admin/ai-access", {
 		method,
 		headers,
 		...(body !== undefined ? { body: JSON.stringify(body) } : {}),
@@ -155,6 +187,9 @@ const target = { principalUserId: PRINCIPAL, scope: SCOPE };
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	io.auth.authSecret = "unit-test-only";
+	io.auth.authOptions.secret = "unit-test-only";
+	io.getToken.mockResolvedValue({ id: ADMIN });
 	records.length = 0;
 	io.fallbackLog.mockReturnValue(log);
 	adminCheck.mockImplementation(async (id: string) =>
@@ -173,6 +208,130 @@ beforeEach(() => {
 });
 
 describe("internal AI permission HTTP and port composition", () => {
+	it.each(["GET", "POST", "DELETE"])(
+		"retains handler refusals across the perimeter for %s",
+		async (method) => {
+			const handler =
+				method === "GET"
+					? getPermissions
+					: method === "POST"
+						? postPermission
+						: deletePermission;
+			const req = () => request(method, method === "GET" ? undefined : target);
+			adminCheck.mockResolvedValueOnce("denied");
+			expect((await audited(handler, req())).status).toBe(403);
+			adminCheck.mockResolvedValueOnce("unavailable");
+			expect((await audited(handler, req())).status).toBe(503);
+			adminCheck.mockRejectedValueOnce(new Error("secret SQL details"));
+			expect((await audited(handler, req())).status).toBe(503);
+			findInternalPrincipal.mockRejectedValueOnce(
+				new Error("secret SQL details"),
+			);
+			expect((await audited(handler, req())).status).toBe(503);
+			if (method === "DELETE") {
+				revokeRole.mockRejectedValueOnce(new Error("secret SQL details"));
+				expect((await audited(handler, req())).status).toBe(503);
+			}
+		},
+	);
+
+	it.each(["POST", "DELETE"])(
+		"refuses malformed JSON, content type and origin for %s",
+		async (method) => {
+			const handler = method === "POST" ? postPermission : deletePermission;
+			const malformed = request(method, target);
+			const invalidJson = new NextRequest(malformed.url, {
+				method,
+				headers: malformed.headers,
+				body: "{",
+			});
+			expect((await audited(handler, invalidJson)).status).toBe(400);
+			const wrongType = request(method, target);
+			wrongType.headers.set("content-type", "text/plain");
+			expect((await audited(handler, wrongType)).status).toBe(400);
+			expect(
+				(await audited(handler, request(method, target, { origin: null })))
+					.status,
+			).toBe(403);
+			expect(records.at(-1)).toMatchObject({
+				reason: "origin_refused",
+				actorUserId: ADMIN,
+			});
+			expect(insertRole).not.toHaveBeenCalled();
+			expect(revokeRole).not.toHaveBeenCalled();
+		},
+	);
+
+	it("leaves valid machine bearer verification to the handler even without perimeter secret", async () => {
+		const req = request("POST", target, { bearer: true, origin: null });
+		io.auth.authSecret = "";
+		io.auth.authOptions.secret = "";
+		expect((await POST(req)).status).toBe(200);
+		expect(io.getToken).not.toHaveBeenCalled();
+		expect(adminCheck).toHaveBeenCalledWith(ADMIN);
+	});
+
+	it.each(["GET", "POST", "DELETE"])(
+		"completes perimeter denials once for %s",
+		async (method) => {
+			for (const reason of [
+				"no_session",
+				"no_auth_secret",
+				"malformed_bearer",
+				"auth_resolution_unavailable",
+			]) {
+				const req = request(method, method === "GET" ? undefined : target);
+				io.auth.authSecret =
+					reason === "no_auth_secret" ? "" : "unit-test-only";
+				io.auth.authOptions.secret = io.auth.authSecret;
+				io.getToken.mockResolvedValue(null);
+				if (reason === "malformed_bearer")
+					req.headers.set("authorization", "Bearer malformed-secret");
+				if (reason === "auth_resolution_unavailable")
+					io.getToken.mockRejectedValueOnce(new Error("secret SQL details"));
+				const res = await audited(
+					method === "GET"
+						? getPermissions
+						: method === "POST"
+							? postPermission
+							: deletePermission,
+					req,
+				);
+				expect(res.status).toBe(
+					reason === "auth_resolution_unavailable" ? 503 : 401,
+				);
+				expect(records.at(-1)).toMatchObject({
+					actorUserId: null,
+					reason: reason === "malformed_bearer" ? "no_session" : reason,
+				});
+			}
+			expect(io.session).not.toHaveBeenCalled();
+			expect(adminCheck).not.toHaveBeenCalled();
+			expect(findInternalPrincipal).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each(["GET", "POST", "DELETE"])(
+		"passes prefixed invalid bearer to the real handler for %s",
+		async (method) => {
+			const req = request(method, method === "GET" ? undefined : target);
+			req.headers.set("authorization", "Bearer cogni_ag_sk_v1_invalid.secret");
+			io.headers = req.headers;
+			const res = await audited(
+				method === "GET"
+					? getPermissions
+					: method === "POST"
+						? postPermission
+						: deletePermission,
+				req,
+			);
+			expect(res.status).toBe(401);
+			expect(io.getToken).not.toHaveBeenCalled();
+			expect(io.session).not.toHaveBeenCalled();
+			expect(adminCheck).not.toHaveBeenCalled();
+		},
+	);
+
 	it("lists exactly the internal node permission from a fresh live-role boolean", async () => {
 		const first = await GET(request("GET"));
 		expect(first.status).toBe(200);
@@ -276,6 +435,7 @@ describe("internal AI permission HTTP and port composition", () => {
 		{ ...target, scope: "unknown" },
 		{ ...target, approvedBy: "forged", actorUserId: "body-actor" },
 		{ ...target, admin: true },
+		{ ...target, reqId: "caller-correlation" },
 		{ ...target, accountId: "foreign" },
 		{ ...target, deny: true },
 	])(
