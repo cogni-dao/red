@@ -222,9 +222,10 @@ export const POST = wrapRouteHandlerWithLogging<RouteParams>(
 			runId: providedRunId,
 		} = parseResult.data;
 		let runId = providedRunId ?? randomUUID();
+		const sharedChat = graphId === "langgraph:cogni" && !executionGrantId;
 		const claimKey = input.executionClaimKey;
 		if (
-			graphId === "langgraph:cogni" &&
+			sharedChat &&
 			(!providedRunId ||
 				transportKey !== `api:${providedRunId}` ||
 				typeof claimKey !== "string" ||
@@ -235,14 +236,14 @@ export const POST = wrapRouteHandlerWithLogging<RouteParams>(
 				{ status: 403 },
 			);
 		}
-		const idempotencyKey =
-			graphId === "langgraph:cogni" ? (claimKey as string) : transportKey;
+		const idempotencyKey = sharedChat ? (claimKey as string) : transportKey;
 
 		// --- 5. Compute request hash for idempotency ---
 		// API completions preclaim the slot before Temporal start and pass the
 		// authenticated hash through the workflow. Scheduled runs hash the exact
 		// bytes delivered by Temporal so retries cannot drift by JSON key order.
 		const suppliedRequestHash =
+			!executionGrantId &&
 			typeof input.executionRequestHash === "string" &&
 			/^[0-9a-f]{64}$/.test(input.executionRequestHash)
 				? input.executionRequestHash
@@ -251,7 +252,7 @@ export const POST = wrapRouteHandlerWithLogging<RouteParams>(
 			suppliedRequestHash ?? computeRequestHash(graphId, rawBody);
 
 		// Authenticate the exact launcher-created claim before any cache or claim path.
-		if (graphId === "langgraph:cogni") {
+		if (sharedChat) {
 			const actor = input.actorUserId;
 			const account = input.billingAccountId;
 			const key = input.virtualKeyId;
@@ -288,6 +289,37 @@ export const POST = wrapRouteHandlerWithLogging<RouteParams>(
 					{ error: "Untrusted shared graph identity" },
 					{ status: 403 },
 				);
+		}
+
+		// A scheduled Cogni grant must remain live even for a cached delivery.
+		let verifiedCogniGrant:
+			| Awaited<
+					ReturnType<
+						typeof container.executionGrantWorkerPort.validateGrantForGraph
+					>
+			  >
+			| undefined;
+		if (graphId === "langgraph:cogni" && executionGrantId) {
+			try {
+				verifiedCogniGrant =
+					await container.executionGrantWorkerPort.validateGrantForGraph(
+						SYSTEM_ACTOR,
+						executionGrantId,
+						graphId,
+					);
+			} catch (error) {
+				if (
+					isGrantNotFoundError(error) ||
+					isGrantExpiredError(error) ||
+					isGrantRevokedError(error) ||
+					isGrantScopeMismatchError(error)
+				)
+					return NextResponse.json(
+						{ error: "Execution grant unavailable" },
+						{ status: 403 },
+					);
+				throw error;
+			}
 		}
 
 		// --- 6. Check idempotency ---
@@ -334,7 +366,7 @@ export const POST = wrapRouteHandlerWithLogging<RouteParams>(
 		}
 
 		if (
-			graphId === "langgraph:cogni" &&
+			sharedChat &&
 			(idempotencyResult.status === "new" ||
 				((idempotencyResult.status === "pending" ||
 					idempotencyResult.status === "stale") &&
@@ -352,7 +384,7 @@ export const POST = wrapRouteHandlerWithLogging<RouteParams>(
 			if (suppliedRequestHash && pending.runId === runId) {
 				// The completion facade durably claimed this exact request before
 				// starting Temporal. This workflow owns the pending record.
-				requestAlreadyClaimed = graphId !== "langgraph:cogni";
+				requestAlreadyClaimed = !sharedChat;
 			} else {
 				log.info(
 					{ idempotencyKey, runId: pending.runId },
@@ -411,11 +443,13 @@ export const POST = wrapRouteHandlerWithLogging<RouteParams>(
 				>
 			>;
 			try {
-				grant = await container.executionGrantWorkerPort.validateGrantForGraph(
-					SYSTEM_ACTOR,
-					executionGrantId,
-					graphId,
-				);
+				grant =
+					verifiedCogniGrant ??
+					(await container.executionGrantWorkerPort.validateGrantForGraph(
+						SYSTEM_ACTOR,
+						executionGrantId,
+						graphId,
+					));
 			} catch (error) {
 				if (isGrantNotFoundError(error)) {
 					log.warn({ executionGrantId }, "Grant not found");

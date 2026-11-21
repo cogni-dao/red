@@ -21,7 +21,7 @@
  */
 
 import type { SourceSystem, ToolSourcePort } from "@cogni/ai-core";
-import { CORE_TOOL_BUNDLE } from "@cogni/ai-tools";
+import { type CatalogBoundTool, CORE_TOOL_BUNDLE } from "@cogni/ai-tools";
 import type {
 	ExecutionContext,
 	GraphFinal,
@@ -43,6 +43,13 @@ import {
 	McpToolSource,
 	parseMcpConfigFromEnv,
 } from "@cogni/langgraph-graphs";
+import {
+	contractToRuntime,
+	createScheduleListImplementation,
+	createScheduleManageImplementation,
+	scheduleListContract,
+	scheduleManageContract,
+} from "@cogni/shared-ai-tools";
 import { trace } from "@opentelemetry/api";
 import {
 	type CompletionStreamFn,
@@ -546,6 +553,28 @@ function createInProcProvider(
 		() => cache.getSource(),
 		[...CORE_TOOL_BUNDLE],
 		{
+			sharedTools: {
+				[scheduleListContract.name]: {
+					contract:
+						scheduleListContract as unknown as CatalogBoundTool["contract"],
+					runtime: contractToRuntime(
+						scheduleListContract,
+						createScheduleListImplementation({
+							scheduleCapability: container.sharedScheduleCapability,
+						}),
+					),
+				},
+				[scheduleManageContract.name]: {
+					contract:
+						scheduleManageContract as unknown as CatalogBoundTool["contract"],
+					runtime: contractToRuntime(
+						scheduleManageContract,
+						createScheduleManageImplementation({
+							scheduleCapability: container.sharedScheduleCapability,
+						}),
+					),
+				},
+			},
 			...createSharedAgentAuthority(
 				resolveServiceDb().$client as unknown as AgentAuthoritySql,
 				container.nodeAdmin,

@@ -20,6 +20,8 @@ const VIRTUAL_KEY_ID = "30000000-0000-4000-a000-000000000001";
 
 const mocks = vi.hoisted(() => ({
 	executeCount: 0,
+	executeArgs: [] as unknown[],
+	validateGrant: vi.fn(),
 	checkIdempotency: vi.fn().mockResolvedValue({ status: "new" }),
 	createPendingRequest: vi.fn().mockResolvedValue({
 		status: "claimed",
@@ -67,7 +69,8 @@ vi.mock("@/shared/env", () => ({
 
 vi.mock("@/bootstrap/graph-executor.factory", () => {
 	const executor = {
-		runGraph: () => {
+		runGraph: (...args: unknown[]) => {
+			mocks.executeArgs = args;
 			mocks.executeCount++;
 			return {
 				stream: (async function* () {
@@ -92,13 +95,20 @@ vi.mock("@/bootstrap/graph-executor.factory", () => {
 vi.mock("@/ports/server", () => ({
 	isGrantExpiredError: () => false,
 	isGrantNotFoundError: () => false,
-	isGrantRevokedError: () => false,
+	isGrantRevokedError: (error: unknown) =>
+		error instanceof Error && error.message === "revoked",
 	isGrantScopeMismatchError: () => false,
 }));
 
 vi.mock("@/bootstrap/container", () => ({
 	getContainer: () => ({
 		nodeId: "red",
+		executionGrantWorkerPort: { validateGrantForGraph: mocks.validateGrant },
+		serviceAccountService: {
+			getBillingAccountById: async () => ({
+				defaultVirtualKeyId: VIRTUAL_KEY_ID,
+			}),
+		},
 		executionRequestPort: {
 			checkIdempotency: mocks.checkIdempotency,
 			createPendingRequest: mocks.createPendingRequest,
@@ -107,6 +117,7 @@ vi.mock("@/bootstrap/container", () => ({
 		},
 		graphRunRepository: {
 			markRunCompleted: mocks.markRunCompleted,
+			patchRunStateKey: vi.fn().mockResolvedValue(undefined),
 		},
 		accountsForUser: () => ({}),
 		providerResolver: {},
@@ -367,6 +378,80 @@ describe("shared Cogni receiver ownership", () => {
 			expect.any(String),
 			expect.any(String),
 		);
+		expect(mocks.executeCount).toBe(1);
+	});
+});
+
+describe("scheduled Cogni ingress", () => {
+	const grantId = "40000000-0000-4000-a000-000000000001";
+	const key = "schedule-123:2026-11-21T00:00:00.000Z";
+	function request() {
+		return new NextRequest(
+			"http://localhost/api/internal/graphs/langgraph:cogni/runs",
+			{
+				method: "POST",
+				headers: {
+					authorization: "Bearer scheduler-secret-value-1234567890",
+					"content-type": "application/json",
+					"idempotency-key": key,
+				},
+				body: JSON.stringify({
+					runId: RUN_ID,
+					executionGrantId: grantId,
+					input: {
+						actorUserId: "spoof",
+						billingAccountId: "spoof",
+						messages: [{ role: "user", content: "coordinate" }],
+						modelRef: { providerKey: "platform", modelId: "test-model" },
+					},
+				}),
+			},
+		);
+	}
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.executeCount = 0;
+		mocks.checkIdempotency.mockResolvedValue({ status: "new" });
+		mocks.createPendingRequest.mockResolvedValue({
+			status: "claimed",
+			request: { runId: RUN_ID },
+		});
+		mocks.validateGrant.mockResolvedValue({
+			userId: USER_ID,
+			billingAccountId: BILLING_ID,
+		});
+	});
+	it("validates grant and derives actor and billing rather than payload identity", async () => {
+		const response = await POST(request(), {
+			params: Promise.resolve({ graphId: "langgraph:cogni" }),
+		});
+		expect(response.status).toBe(200);
+		expect(mocks.validateGrant).toHaveBeenCalledOnce();
+		expect(mocks.executeCount).toBe(1);
+		expect(mocks.executeArgs[1]).toMatchObject({ actorUserId: USER_ID });
+	});
+	it("rejects revoked grant before cache or execution", async () => {
+		mocks.validateGrant.mockRejectedValue(new Error("revoked"));
+		const response = await POST(request(), {
+			params: Promise.resolve({ graphId: "langgraph:cogni" }),
+		});
+		expect(response.status).toBe(403);
+		expect(mocks.checkIdempotency).not.toHaveBeenCalled();
+		expect(mocks.executeCount).toBe(0);
+	});
+	it("admits one of two concurrent schedule deliveries", async () => {
+		let claimed = false;
+		mocks.createPendingRequest.mockImplementation(async () => {
+			if (claimed) return { status: "pending", request: { runId: RUN_ID } };
+			claimed = true;
+			return { status: "claimed", request: { runId: RUN_ID } };
+		});
+		const params = { params: Promise.resolve({ graphId: "langgraph:cogni" }) };
+		const responses = await Promise.all([
+			POST(request(), params),
+			POST(request(), params),
+		]);
+		expect(responses.map((r) => r.status).sort()).toEqual([200, 409]);
 		expect(mocks.executeCount).toBe(1);
 	});
 });

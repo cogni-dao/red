@@ -443,3 +443,197 @@ describe("released cognition source binding", () => {
 		},
 	);
 });
+
+describe("released shared coordinator scheduling", () => {
+	it("uses the released schedule contracts for purpose lookup, create, readback and reuse", async () => {
+		const graph = await vi.importActual<
+			typeof import("@cogni/langgraph-graphs")
+		>("@cogni/langgraph-graphs");
+		const tools = await import("@cogni/shared-ai-tools");
+		const core = await import("@cogni/ai-core");
+		const grants = await import("@cogni/agent-grants");
+		const schedules: any[] = [];
+		let changes = 0;
+		let active = true;
+		const observed: string[] = [];
+		const capability = {
+			list: async () => schedules,
+			create: async (input: any) => {
+				changes++;
+				const row = {
+					...input,
+					id: "schedule-1",
+					enabled: true,
+					nextRunAt: null,
+					lastRunAt: null,
+					createdAt: "2026-01-01T00:00:00Z",
+					updatedAt: "2026-01-01T00:00:00Z",
+				};
+				schedules.push(row);
+				return row;
+			},
+			update: async () => {
+				throw new Error("unexpected update");
+			},
+			remove: async () => {
+				throw new Error("unexpected delete");
+			},
+			setEnabled: async () => {
+				throw new Error("unexpected toggle");
+			},
+		};
+		const listRuntime = tools.contractToRuntime(
+			tools.scheduleListContract,
+			tools.createScheduleListImplementation({
+				scheduleCapability: capability,
+			}),
+		);
+		const manageRuntime = tools.contractToRuntime(
+			tools.scheduleManageContract,
+			tools.createScheduleManageImplementation({
+				scheduleCapability: capability,
+			}),
+		);
+		const all = {
+			core__schedule_list: listRuntime,
+			core__schedule_manage: manageRuntime,
+		};
+		const guarded = grants.guardTools(
+			all,
+			{ core__schedule_manage: tools.scheduleManageContract.requires! },
+			{ runId: "run", principalId: "principal", subjectUserId: actor },
+			{
+				withStore: async (fn: any) => fn({ hasLiveRole: async () => active }),
+				adminCheck: async () => "denied",
+			},
+		);
+		const toolRunner = core.createToolRunner(
+			core.createStaticToolSourceFromRecord(guarded),
+			() => {},
+			{
+				policy: core.createToolAllowlistPolicy(Object.keys(all)),
+				ctx: { runId: "run" },
+			},
+		);
+		const names = [
+			"core__knowledge_read",
+			"core__schedule_list",
+			"core__schedule_manage",
+			"core__goal_list",
+			"core__goal_progress",
+			"core__work_item_query",
+		];
+		const contracts = tools.CORE_TOOL_BUNDLE.filter((item) =>
+			names.includes(item.contract.name),
+		).map((item) => item.contract);
+		const create = {
+			action: "create",
+			purpose: "node-work-triage",
+			graphId: "langgraph:work-prioritizer",
+			instruction: "Triage",
+			cron: "0 * * * *",
+			timezone: "UTC",
+		};
+		let model = 0;
+		let repeat = false;
+		const completionFn = () => {
+			model++;
+			const call =
+				model === 1 || model === 3
+					? { name: "core__schedule_list", args: { purpose: create.purpose } }
+					: model === 2 && !repeat
+						? { name: "core__schedule_manage", args: create }
+						: undefined;
+			return {
+				stream: (async function* () {})(),
+				final: Promise.resolve({
+					ok: true as const,
+					content: call ? "" : "Done",
+					finishReason: call ? "tool_calls" : "stop",
+					...(call
+						? {
+								toolCalls: [
+									{
+										id: `call-${model}`,
+										type: "function" as const,
+										function: {
+											name: call.name,
+											arguments: JSON.stringify(call.args),
+										},
+									},
+								],
+							}
+						: {}),
+				}),
+			};
+		};
+		const options = {
+			createGraph: graph.SHARED_NODE_CATALOG.cogni.graphFactory,
+			program: "cogni",
+			trustedActorId: actor,
+			trustedProgramId: "cogni",
+			sourceContext: {
+				nodeId: "red",
+				origin: "https://red.cognidao.org",
+				mission: { content: "Red", sourceRef: "fixture", buildSha: null },
+			},
+			completionFn,
+			toolContracts: contracts,
+			request: {
+				runId: "shared-run",
+				messages: [{ role: "user", content: "Arrange the triage duty" }],
+				configurable: { model: "test", toolIds: names },
+			},
+			createToolExecFn: () => async (name: string, args: any) => {
+				observed.push(name);
+				if (name in all) return toolRunner.exec(name, args);
+				if (name === "core__knowledge_read")
+					return {
+						ok: true,
+						value: {
+							mode: "get",
+							entries: [{ id: args.id, content: "Full workflow card" }],
+						},
+					};
+				if (name === "core__goal_list")
+					return { ok: true, value: { goals: [] } };
+				if (name === "core__goal_progress")
+					return {
+						ok: true,
+						value: {
+							goals: [],
+							asOf: "2026-01-01T00:00:00Z",
+							environment: "test",
+						},
+					};
+				return { ok: true, value: { items: [], count: 0 } };
+			},
+		} as any;
+		const runner = graph.createSharedInProcGraphRunner(options);
+		for await (const _event of runner.stream) {
+			/* drain */
+		}
+		expect((await runner.final).ok).toBe(true);
+		expect(observed).toContain("core__knowledge_read");
+		expect(changes).toBe(1);
+		const lookup = await toolRunner.exec("core__schedule_list", {
+			purpose: create.purpose,
+		});
+		expect(lookup.ok && lookup.value.count).toBe(1);
+		repeat = true;
+		model = 0;
+		const repeatRun = graph.createSharedInProcGraphRunner({
+			...options,
+			request: { ...options.request, runId: "shared-repeat" },
+		});
+		for await (const _event of repeatRun.stream) {
+			/* drain */
+		}
+		expect((await repeatRun.final).ok).toBe(true);
+		expect(changes).toBe(1);
+		active = false;
+		const denied = await toolRunner.exec("core__schedule_manage", create);
+		expect(denied.ok).toBe(false);
+		expect(changes).toBe(1);
+	});
+});
