@@ -19,6 +19,11 @@ const BILLING_ID = "20000000-0000-4000-a000-000000000001";
 const VIRTUAL_KEY_ID = "30000000-0000-4000-a000-000000000001";
 
 const mocks = vi.hoisted(() => ({
+	integrated: false,
+	provider: undefined as any,
+	workflow: undefined as any,
+	headers: new Headers(),
+	cookie: null as any,
 	executeCount: 0,
 	executeArgs: [] as unknown[],
 	validateGrant: vi.fn(),
@@ -36,6 +41,20 @@ const mocks = vi.hoisted(() => ({
 	saveThread: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("next/headers", () => ({ headers: async () => mocks.headers }));
+vi.mock("@/lib/auth/server", () => ({
+	getServerSessionUser: async () => mocks.cookie,
+}));
+vi.mock("@/shared/env/server", () => ({
+	serverEnv: () => ({ AUTH_SECRET: "test-secret-123456789012345678901234" }),
+}));
+vi.mock("@/shared/config", () => ({ getNodeId: () => "red" }));
+vi.mock("@/lib/auth/mapping", () => ({
+	getOrCreateBillingAccountForUser: async () => ({
+		id: BILLING_ID,
+		defaultVirtualKeyId: VIRTUAL_KEY_ID,
+	}),
+}));
 vi.mock("@/bootstrap/http", () => ({
 	wrapRouteHandlerWithLogging:
 		(_options: unknown, handler: (...args: never[]) => unknown) =>
@@ -88,7 +107,22 @@ vi.mock("@/bootstrap/graph-executor.factory", () => {
 	};
 	return {
 		createGraphExecutor: () => executor,
-		createScopedGraphExecutor: () => executor,
+		createScopedGraphExecutor: (options: any) =>
+			mocks.integrated
+				? {
+						runGraph: (req: any, ctx: any) => {
+							return runInScope(
+								{
+									actorUserId: ctx.actorUserId,
+									billing: options.billing,
+									usageSource: "litellm",
+									llmService: {},
+								},
+								() => mocks.provider.runGraph(req, ctx),
+							);
+						},
+					}
+				: executor,
 	};
 });
 
@@ -101,6 +135,15 @@ vi.mock("@/ports/server", () => ({
 }));
 
 vi.mock("@/bootstrap/container", () => ({
+	getTemporalWorkflowClient: async () => ({
+		client: {
+			start: async (_name: string, options: any) => {
+				mocks.workflow = options.args[0];
+			},
+		},
+		taskQueue: "test",
+	}),
+	resolveAiAdapterDeps: () => ({ accountService: {} }),
 	getContainer: () => ({
 		nodeId: "red",
 		executionGrantWorkerPort: { validateGrantForGraph: mocks.validateGrant },
@@ -123,6 +166,7 @@ vi.mock("@/bootstrap/container", () => ({
 		providerResolver: {},
 		connectionBroker: undefined,
 		runStream: {
+			subscribe: async function* () {},
 			publish: mocks.publish,
 			expire: vi.fn().mockResolvedValue(undefined),
 		},
@@ -141,6 +185,10 @@ vi.mock("@/bootstrap/container", () => ({
 	}),
 }));
 
+import {
+	getExecutionScope,
+	runInScope,
+} from "@/adapters/server/ai/execution-scope";
 import { POST } from "@/app/api/internal/graphs/[graphId]/runs/route";
 import { signChatActor } from "@/bootstrap/chat-actor-proof";
 
@@ -454,4 +502,190 @@ describe("scheduled Cogni ingress", () => {
 		expect(responses.map((r) => r.status).sort()).toEqual([200, 409]);
 		expect(mocks.executeCount).toBe(1);
 	});
+});
+
+describe("authenticated facade to guarded shared receiver", () => {
+	it.each([
+		["cookie", false],
+		["bearer", false],
+		["cookie", true],
+		["bearer", true],
+	])(
+		"carries %s identity and billing across the durable claim (grant %s)",
+		async (method, granted) => {
+			const { completionStream } = await import(
+				"@/app/_facades/ai/completion.server"
+			);
+			const { issueAgentApiKey, resolveRequestIdentity } = await import(
+				"@/app/_lib/auth/request-identity"
+			);
+			const { LangGraphInProcProvider } = await import(
+				"@/adapters/server/ai/langgraph/inproc.provider"
+			);
+			const actor = "dfa8570f-d487-4239-b40a-2e39ee4513f9";
+			mocks.integrated = true;
+			mocks.cookie = {
+				id: actor,
+				walletAddress: null,
+				displayName: null,
+				avatarColor: null,
+			};
+			mocks.headers =
+				method === "bearer"
+					? new Headers({
+							authorization: `Bearer ${issueAgentApiKey({ userId: actor, displayName: null })}`,
+						})
+					: new Headers();
+			const sessionUser = await resolveRequestIdentity();
+			expect(sessionUser?.id).toBe(actor);
+			let claim: any;
+			let leased = false;
+			mocks.checkIdempotency.mockImplementation(async () =>
+				claim ? { status: "pending", request: claim } : { status: "new" },
+			);
+			mocks.createPendingRequest.mockImplementation(
+				async (key, hash, runId, _trace, lease) => {
+					if (!claim) {
+						claim = { idempotencyKey: key, requestHash: hash, runId, ok: null };
+						return { status: "claimed", request: claim };
+					}
+					if (lease && !leased) {
+						leased = true;
+						return { status: "claimed", request: claim };
+					}
+					return { status: "pending", request: claim };
+				},
+			);
+			let model = 0,
+				sandbox = 0,
+				mint = 0;
+			let modelScope: any;
+			const shell = "core__sandbox_shell";
+			const runtime: any = {
+				id: shell,
+				effect: "external_side_effect",
+				spec: {
+					name: shell,
+					effect: "external_side_effect",
+					redaction: { mode: "top_level_only", allowlist: [] },
+				},
+				validateInput: (v: unknown) => v,
+				validateOutput: (v: unknown) => v,
+				redact: (v: unknown) => v,
+				exec: async () => {
+					sandbox++;
+					mint++;
+					return {};
+				},
+			};
+			const contract: any = {
+				name: shell,
+				requires: { scope: "sandbox:exec", kind: "node", subject: "member" },
+			};
+			mocks.provider = new LangGraphInProcProvider(
+				{
+					executeCompletionUnit: () => {
+						model++;
+						modelScope = getExecutionScope();
+						return {
+							stream: (async function* () {})(),
+							final: Promise.resolve({
+								ok: true as const,
+								content: "done",
+								finishReason: "stop" as const,
+							}),
+						};
+					},
+				} as any,
+				{
+					getBoundTool: (id: string) => (id === shell ? runtime : undefined),
+					listToolSpecs: () => [],
+					hasToolId: (id: string) => id === shell,
+				} as any,
+				async () => null,
+				[{ contract }],
+				{
+					resolvePrincipal: async () => "principal",
+					guardDeps: {
+						withStore: async (fn: any) =>
+							fn({
+								liveScopes: async () => (granted ? ["sandbox:exec"] : []),
+								hasLiveRole: async () => granted,
+							}),
+						adminCheck: async () => "denied",
+					},
+					sourceContext: async () => ({
+						nodeId: "red",
+						origin: "https://red.cognidao.org",
+						mission: { content: "Red", sourceRef: "fixture", buildSha: null },
+						governingIndex: [],
+					}),
+					isCodingActor: (id: string) => id === actor,
+					sandboxReady: () => true,
+				} as any,
+			);
+			mocks.publish.mockResolvedValue(undefined);
+			const ctx: any = {
+				reqId: "request",
+				traceId: "00000000000000000000000000000001",
+				log: { warn: vi.fn() },
+			};
+			try {
+				const accepted = await completionStream(
+					{
+						sessionUser: sessionUser!,
+						graphName: "langgraph:cogni",
+						messages: [{ role: "user", content: "hello" }],
+						modelRef: { providerKey: "platform", modelId: "test-model" },
+						idempotencyKey: `case-${method}`,
+						acceptanceMode: "workflow-start",
+					},
+					ctx,
+				);
+				expect(mocks.workflow.runId).toBe(accepted.runId);
+				expect(mocks.workflow.input.executionClaimKey).toBe(
+					claim.idempotencyKey,
+				);
+				const response = await POST(
+					new NextRequest(
+						"http://localhost/api/internal/graphs/langgraph:cogni/runs",
+						{
+							method: "POST",
+							headers: {
+								authorization: "Bearer scheduler-secret-value-1234567890",
+								"content-type": "application/json",
+								"idempotency-key": `api:${accepted.runId}`,
+							},
+							body: JSON.stringify({
+								runId: accepted.runId,
+								executionGrantId: null,
+								input: mocks.workflow.input,
+							}),
+						},
+					),
+					{ params: Promise.resolve({ graphId: "langgraph:cogni" }) },
+				);
+				expect(response.status).toBe(200);
+				expect(leased).toBe(true);
+				const result = await response.json();
+				if (granted) {
+					expect(result.ok).toBe(true);
+					expect(model).toBeGreaterThan(0);
+					expect(modelScope).toMatchObject({
+						actorUserId: actor,
+						billing: {
+							billingAccountId: BILLING_ID,
+							virtualKeyId: VIRTUAL_KEY_ID,
+						},
+					});
+				} else {
+					expect(result.ok).toBe(false);
+					expect(model).toBe(0);
+				}
+				expect([sandbox, mint]).toEqual([0, 0]);
+			} finally {
+				mocks.integrated = false;
+			}
+		},
+	);
 });
