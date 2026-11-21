@@ -5,7 +5,7 @@
 ## Metadata
 
 - **Owners:** @derekg1729
-- **Last reviewed:** 2026-10-26
+- **Last reviewed:** 2026-11-20
 - **Status:** draft
 
 ## Purpose
@@ -37,6 +37,7 @@ admin-only surfaces in one role-gated shell.
 - **Exports:** none
 - **Routes:** `/admin` (index), `/admin/payments` (Financials: read-only report plus row actions — fund steward, top-up links; authorization also enforced before snapshot reads)
 - **Files considered API:** `layout.tsx`, `admin/page.tsx`
+- `/admin/ai-access` mounts the published direct On/Off table for the internal `node-ai` sandbox permission only. `/api/v1/admin/ai-access` rechecks cookie/bearer identity through the sole AI-admin mint, then `guardDeps.adminCheck` and `NodeAdminPort`. No account or outside-AI journey is exposed.
 
 ## Auth contract
 
@@ -63,9 +64,11 @@ admin-only surfaces in one role-gated shell.
    (`isLedgerApprover`) because layout and page render concurrently — the
    layout redirect is not a data gate (see `admin/payments/money-plane.server.ts`).
 3. Link from `(admin)/admin/page.tsx` so the admin index discovers it.
-4. If the page needs an API mutation, ensure the corresponding API route
+4. For existing legacy attribution APIs, ensure the corresponding API route
    uses `checkApprover()` from
    `@/app/api/v1/attribution/_lib/approver-guard`.
+
+AI permission acts instead use `_lib/admin-session.ts`, the only `AdminSession` mint. Cookie mutations require same origin. This does not migrate older admin surfaces.
 
 ## Standards
 

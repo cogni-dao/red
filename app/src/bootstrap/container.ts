@@ -151,6 +151,10 @@ import {
 	getTestOnChainVerifier,
 	getTestOperatorWallet,
 } from "@/adapters/test";
+import {
+	type AgentAuthoritySql,
+	createSharedAgentAuthority,
+} from "@/bootstrap/agent-authority";
 import { createToolBindings } from "@/bootstrap/ai/tool-bindings";
 import { createBoundToolSource } from "@/bootstrap/ai/tool-source.factory";
 import { createCitationLinksPort } from "@/bootstrap/capabilities/citation-links";
@@ -178,6 +182,7 @@ import {
 import type { RateLimitBypassConfig } from "@/bootstrap/http/wrapPublicRoute";
 import { localReadinessPreflight } from "@/bootstrap/local-readiness-preflight";
 import { createApproversNodeAdminAuthority } from "@/bootstrap/node-admin-gate";
+import { createNodeAdminPort } from "@/bootstrap/node-admin-port";
 import { startProcessHealthPublisher } from "@/bootstrap/publishers";
 import { createStreamRedisClient } from "@/bootstrap/stream-redis-client";
 import type {
@@ -203,6 +208,7 @@ import type {
 	TreasuryReadPort,
 	TreasurySettlementPort,
 } from "@/ports";
+import type { NodeAdminPort } from "@/ports/node-admin.port";
 import type {
 	ExecutionGrantUserPort,
 	ExecutionGrantWorkerPort,
@@ -291,6 +297,9 @@ export interface Container {
 	knowledgeContributionService: ContributionService | undefined;
 	/** GOAL_CHANGE_IS_NODE_ADMIN / P0P1_IS_NODE_ADMIN: this node's one node-admin authority (repo-spec admin wallets). */
 	nodeAdmin: NodeAdminAuthority;
+	/** AI-access composition only; existing legacy admin surfaces keep their guards. */
+	agentAuthority: ReturnType<typeof createSharedAgentAuthority>;
+	nodeAdminPort: NodeAdminPort;
 	/** Direct knowledge store port — exposed for the cookie-only browse endpoint. Undefined when DOLTGRES_URL is unset. */
 	knowledgeStorePort: KnowledgeStorePort | undefined;
 	/** EDO hypothesis-loop capability for the langgraph tool bindings AND the bearer-auth REST routes under /api/v1/edo. Always present (stubs throw when DOLTGRES_URL is unset). */
@@ -807,6 +816,15 @@ function createContainer(): Container {
 	let knowledgeContributionService: ContributionService | undefined;
 	let goalMetrics: MetricService | undefined;
 	const nodeAdmin = createApproversNodeAdminAuthority();
+	const agentAuthority = createSharedAgentAuthority(
+		serviceDb.$client as unknown as AgentAuthoritySql,
+		nodeAdmin,
+		log,
+	);
+	const nodeAdminPort = createNodeAdminPort(
+		agentAuthority.guardDeps.withStore,
+		log,
+	);
 	let knowledgeStorePort: KnowledgeStorePort | undefined;
 	let doltgresWorkItems: WorkItemsDoltgresPort;
 	let workItemArtifacts: WorkItemArtifactDeps | undefined;
@@ -1232,6 +1250,8 @@ function createContainer(): Container {
 		sharedScheduleCapability: scheduleCapability,
 		knowledgeContributionService,
 		nodeAdmin,
+		agentAuthority,
+		nodeAdminPort,
 		knowledgeStorePort,
 		knowledgeReadCounter,
 		edoCapability,
