@@ -3,6 +3,7 @@
 
 /** Sole opaque AI-admin session mint. Same identity and authority for cookies/bearers. */
 import { NextResponse } from "next/server";
+import type { Logger } from "pino";
 
 import { getSessionUser } from "@/app/_lib/auth/session";
 import { getContainer } from "@/bootstrap/container";
@@ -11,9 +12,21 @@ import { EVENT_NAMES } from "@/shared/observability";
 
 export type AdminSessionResult =
 	| { readonly ok: true; readonly session: AdminSession }
-	| { readonly ok: false; readonly response: NextResponse };
+	| {
+			readonly ok: false;
+			readonly response: NextResponse;
+			readonly actorUserId: string | null;
+			readonly reason: string;
+	  };
 
-const refuse = (error: string, status: number): AdminSessionResult => ({
+const refuse = (
+	error: string,
+	status: number,
+	actorUserId: string | null,
+	reason: string,
+): AdminSessionResult => ({
+	actorUserId,
+	reason,
 	ok: false,
 	response: NextResponse.json(
 		{ error },
@@ -24,10 +37,15 @@ const refuse = (error: string, status: number): AdminSessionResult => ({
 export async function requireAdminSession(
 	request: Request,
 	action: string,
+	auditLog?: Logger,
 ): Promise<AdminSessionResult> {
+	let actorUserId: string | null = null;
+	let unavailableReason = "identity_unavailable";
 	try {
 		const user = await getSessionUser();
-		if (!user) return refuse("unauthorized", 401);
+		if (!user) return refuse("unauthorized", 401, null, "identity_required");
+		actorUserId = user.id;
+		unavailableReason = "admin_check_unavailable";
 		const bearer =
 			request.headers
 				.get("authorization")
@@ -39,15 +57,17 @@ export async function requireAdminSession(
 			request.method !== "GET" &&
 			request.headers.get("origin") !== new URL(request.url).origin
 		) {
-			return refuse("authz_denied", 403);
+			return refuse("authz_denied", 403, actorUserId, "origin_refused");
 		}
 		const container = getContainer();
 		const allowed = await container.agentAuthority.guardDeps.adminCheck(
 			user.id,
 		);
-		if (allowed === "unavailable") return refuse("authz_unavailable", 503);
-		if (allowed !== "allow") return refuse("authz_denied", 403);
-		container.log.info(
+		if (allowed === "unavailable")
+			return refuse("authz_unavailable", 503, actorUserId, unavailableReason);
+		if (allowed !== "allow")
+			return refuse("authz_denied", 403, actorUserId, "not_node_admin");
+		(auditLog ?? container.log).info(
 			{
 				event: EVENT_NAMES.ADMIN_ACTION,
 				action,
@@ -61,6 +81,6 @@ export async function requireAdminSession(
 			session: Object.freeze({ userId: user.id }) as AdminSession,
 		};
 	} catch {
-		return refuse("authz_unavailable", 503);
+		return refuse("authz_unavailable", 503, actorUserId, unavailableReason);
 	}
 }

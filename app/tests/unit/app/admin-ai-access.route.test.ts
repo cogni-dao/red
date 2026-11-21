@@ -10,6 +10,7 @@ const io = vi.hoisted(() => ({
 	headers: new Headers(),
 	session: vi.fn(),
 	container: vi.fn(),
+	fallbackLog: vi.fn(),
 }));
 vi.mock("next/headers", () => ({ headers: async () => io.headers }));
 vi.mock("@/lib/auth/server", () => ({
@@ -22,14 +23,79 @@ vi.mock("@/shared/env/server", () => ({
 	serverEnv: () => ({ AUTH_SECRET: "unit-test-only" }),
 }));
 
+vi.mock("@/shared/observability", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/shared/observability")>()),
+	makeLogger: () => io.fallbackLog(),
+}));
+
 import { issueAgentApiKey } from "@/app/_lib/auth/request-identity";
-import { DELETE, GET, POST } from "@/app/api/v1/admin/ai-access/route";
+import {
+	DELETE as deletePermission,
+	GET as getPermissions,
+	POST as postPermission,
+} from "@/app/api/v1/admin/ai-access/route";
 import { createNodeAdminPort } from "@/bootstrap/node-admin-port";
 
 const PRINCIPAL = "00000000-0000-4000-a000-0000000a0001";
 const SCOPE = "sandbox:exec";
 const ADMIN = "admin-fixture";
-const log = pino({ level: "silent" });
+const records: Record<string, unknown>[] = [];
+const log = pino(
+	{ level: "info" },
+	{
+		write: (line: string) => {
+			records.push(JSON.parse(line));
+		},
+	},
+);
+
+async function audited(
+	handler: (request: Request) => Promise<Response>,
+	req: Request,
+) {
+	const before = records.filter(
+		(r) => r.event === "ai_permission.complete",
+	).length;
+	const response = await handler(req);
+	const terminal = records.filter((r) => r.event === "ai_permission.complete");
+	expect(terminal).toHaveLength(before + 1);
+	const event = terminal.at(-1);
+	const body = await response.clone().json();
+	expect(event).toMatchObject({
+		reqId: response.headers.get("x-request-id"),
+		routeId: "admin.ai-access",
+		operation:
+			req.method === "GET" ? "list" : req.method === "POST" ? "on" : "off",
+		principalSlug: "node-ai",
+		resource: "node",
+		scope: SCOPE,
+		status: response.status,
+		errorCode: response.status < 400 ? null : body.error,
+		outcome:
+			response.status < 400
+				? "success"
+				: response.status === 503
+					? "unavailable"
+					: response.status === 400
+						? "invalid"
+						: "denied",
+		durationMs: expect.any(Number),
+		reason: expect.any(String),
+	});
+	expect(event?.reqId).toMatch(/^[0-9a-f-]{36}$/);
+	expect(event?.reqId).not.toBe("caller-correlation");
+	expect(event?.durationMs).toBeGreaterThanOrEqual(0);
+	expect(event).not.toHaveProperty("principalUserId");
+	expect(JSON.stringify(event)).not.toMatch(
+		/secret SQL details|forged|outside|Bearer|0xfixture|caller-correlation|body-actor/,
+	);
+	if (response.status === 401) expect(event?.actorUserId).toBeNull();
+	return response;
+}
+const GET = (req: Request) => audited(getPermissions, req);
+const POST = (req: Request) => audited(postPermission, req);
+const DELETE = (req: Request) => audited(deletePermission, req);
+
 const adminCheck = vi.fn();
 const findInternalPrincipal = vi.fn();
 const hasLiveRole = vi.fn();
@@ -62,6 +128,7 @@ function request(
 	const headers = new Headers({
 		host: "red.example",
 		"content-type": "application/json",
+		"x-request-id": "caller-correlation",
 	});
 	if (options.origin !== null)
 		headers.set("origin", options.origin ?? "https://red.example");
@@ -88,6 +155,8 @@ const target = { principalUserId: PRINCIPAL, scope: SCOPE };
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	records.length = 0;
+	io.fallbackLog.mockReturnValue(log);
 	adminCheck.mockImplementation(async (id: string) =>
 		id === ADMIN ? "allow" : "denied",
 	);
@@ -151,6 +220,18 @@ describe("internal AI permission HTTP and port composition", () => {
 			});
 			expect(adminCheck).toHaveBeenNthCalledWith(1, ADMIN);
 			expect(adminCheck).toHaveBeenNthCalledWith(2, ADMIN);
+			expect(
+				records
+					.filter((r) => r.event === "ai_permission.complete")
+					.map((r) => r.actorUserId),
+			).toEqual([ADMIN, ADMIN]);
+			expect(
+				records.filter((r) => r.event === "admin.action").map((r) => r.reqId),
+			).toEqual(
+				records
+					.filter((r) => r.event === "ai_permission.complete")
+					.map((r) => r.reqId),
+			);
 		},
 	);
 
@@ -163,6 +244,9 @@ describe("internal AI permission HTTP and port composition", () => {
 			expect(res.status).toBe(403);
 			expect(findInternalPrincipal).not.toHaveBeenCalled();
 			expect(insertRole).not.toHaveBeenCalled();
+			expect(
+				records.find((r) => r.event === "ai_permission.complete")?.actorUserId,
+			).toBe("member");
 		},
 	);
 
@@ -190,7 +274,7 @@ describe("internal AI permission HTTP and port composition", () => {
 	it.each([
 		{ ...target, scope: "account:read" },
 		{ ...target, scope: "unknown" },
-		{ ...target, approvedBy: "forged" },
+		{ ...target, approvedBy: "forged", actorUserId: "body-actor" },
 		{ ...target, admin: true },
 		{ ...target, accountId: "foreign" },
 		{ ...target, deny: true },
@@ -260,5 +344,22 @@ describe("internal AI permission HTTP and port composition", () => {
 		insertRole.mockRejectedValueOnce(new Error("secret SQL details"));
 		expect((await POST(request("POST", target))).status).toBe(503);
 		expect(revokeRole).not.toHaveBeenCalled();
+		adminCheck.mockRejectedValueOnce(new Error("secret SQL details"));
+		expect((await DELETE(request("DELETE", target))).status).toBe(503);
+		expect(
+			records.filter((r) => r.event === "ai_permission.complete").at(-1),
+		).toMatchObject({ actorUserId: ADMIN, reason: "admin_check_unavailable" });
+		io.session.mockRejectedValueOnce(new Error("secret SQL details"));
+		expect((await GET(request("GET"))).status).toBe(503);
+		expect(
+			records.filter((r) => r.event === "ai_permission.complete").at(-1),
+		).toMatchObject({ actorUserId: null, reason: "identity_unavailable" });
+		io.container.mockImplementation(() => {
+			throw new Error("secret SQL details");
+		});
+		expect((await GET(request("GET"))).status).toBe(503);
+		expect(
+			records.filter((r) => r.event === "ai_permission.complete").at(-1),
+		).toMatchObject({ actorUserId: ADMIN, reason: "admin_check_unavailable" });
 	});
 });

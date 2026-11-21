@@ -24,6 +24,7 @@ export const EVENT_NAMES = {
 	// (outcome success|error, durationMs, worst grade, per-plane grade enums).
 	MONEY_PLANE_SNAPSHOT: "money_plane.snapshot",
 	ADMIN_ACTION: "admin.action",
+	AI_PERMISSION_COMPLETE: "ai_permission.complete",
 	AGENT_ROLE_GRANTED: "agent_role.granted",
 	AGENT_ROLE_REVOKED: "agent_role.revoked",
 	AGENT_ROLES_UNAVAILABLE: "agent_roles.unavailable",
