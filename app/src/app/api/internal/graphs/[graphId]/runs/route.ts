@@ -21,47 +21,45 @@
  * @internal
  */
 
-import { verifyChatActor } from "@/bootstrap/chat-actor-proof";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import type { AiEvent } from "@cogni/ai-core";
 import { RUN_STREAM_DEFAULT_TTL_SECONDS } from "@cogni/graph-execution-core";
 import { toUserId } from "@cogni/ids";
 import { SYSTEM_ACTOR } from "@cogni/ids/system";
 import {
-  InternalGraphRunInputSchema,
-  type InternalGraphRunOutput,
+	InternalGraphRunInputSchema,
+	type InternalGraphRunOutput,
 } from "@cogni/node-contracts";
 import { AnalyticsEvents, capture } from "@cogni/node-shared";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import {
+	persistAssistantThenPublishTerminal,
+	TerminalPublicationError,
+} from "@/app/_lib/ai/durable-chat-terminal";
+import { verifyChatActor } from "@/bootstrap/chat-actor-proof";
 import { getContainer } from "@/bootstrap/container";
 import {
-  createGraphExecutor,
-  createScopedGraphExecutor,
+	createGraphExecutor,
+	createScopedGraphExecutor,
 } from "@/bootstrap/graph-executor.factory";
 import { wrapRouteHandlerWithLogging } from "@/bootstrap/http";
-import {
-  executeStream,
-} from "@/features/ai/public.server";
+import { executeStream } from "@/features/ai/public.server";
 import { commitUsageFact } from "@/features/ai/services/billing";
 import { preflightCreditCheck } from "@/features/ai/services/preflight-credit-check";
 import type { PreflightCreditCheckFn } from "@/ports";
 import { isInsufficientCreditsPortError } from "@/ports";
 import {
-  persistAssistantThenPublishTerminal,
-  TerminalPublicationError,
-} from "@/app/_lib/ai/durable-chat-terminal";
-import {
-  isGrantExpiredError,
-  isGrantNotFoundError,
-  isGrantRevokedError,
-  isGrantScopeMismatchError,
+	isGrantExpiredError,
+	isGrantNotFoundError,
+	isGrantRevokedError,
+	isGrantScopeMismatchError,
 } from "@/ports/server";
 import { serverEnv } from "@/shared/env";
 import {
-  aiChatPersistenceFailuresTotal,
-  aiChatPhaseDurationMs,
-  aiChatTerminalPublishFailuresTotal,
+	aiChatPersistenceFailuresTotal,
+	aiChatPhaseDurationMs,
+	aiChatTerminalPublishFailuresTotal,
 } from "@/shared/observability";
 
 export const dynamic = "force-dynamic";
@@ -78,37 +76,37 @@ const MAX_TOKEN_LENGTH = 256;
  * so we compare buffers directly — no key-stretching needed.
  */
 function safeCompare(a: string, b: string): boolean {
-  const bufA = Buffer.from(a, "utf8");
-  const bufB = Buffer.from(b, "utf8");
-  if (bufA.length !== bufB.length) return false;
-  return timingSafeEqual(bufA, bufB);
+	const bufA = Buffer.from(a, "utf8");
+	const bufB = Buffer.from(b, "utf8");
+	if (bufA.length !== bufB.length) return false;
+	return timingSafeEqual(bufA, bufB);
 }
 
 /**
  * Extract bearer token from Authorization header.
  */
 function extractBearerToken(authHeader: string | null): string | null {
-  if (!authHeader) return null;
-  if (authHeader.length > MAX_AUTH_HEADER_LENGTH) return null;
+	if (!authHeader) return null;
+	if (authHeader.length > MAX_AUTH_HEADER_LENGTH) return null;
 
-  const trimmed = authHeader.trim();
-  const lowerPrefix = trimmed.toLowerCase();
+	const trimmed = authHeader.trim();
+	const lowerPrefix = trimmed.toLowerCase();
 
-  if (!lowerPrefix.startsWith("bearer ")) return null;
+	if (!lowerPrefix.startsWith("bearer ")) return null;
 
-  const token = trimmed.slice(7).trim();
-  if (token.length > MAX_TOKEN_LENGTH) return null;
+	const token = trimmed.slice(7).trim();
+	if (token.length > MAX_TOKEN_LENGTH) return null;
 
-  return token;
+	return token;
 }
 
 /** Hash the exact authenticated request bytes plus path identity. */
 function computeRequestHash(graphId: string, rawBody: string): string {
-  return createHash("sha256")
-    .update(graphId, "utf8")
-    .update("\n", "utf8")
-    .update(rawBody, "utf8")
-    .digest("hex");
+	return createHash("sha256")
+		.update(graphId, "utf8")
+		.update("\n", "utf8")
+		.update(rawBody, "utf8")
+		.digest("hex");
 }
 
 const EXECUTION_LEASE_MS = 60_000;
@@ -122,14 +120,14 @@ const EXECUTION_HEARTBEAT_MS = 15_000;
  * @internal Exported for testing only.
  */
 export function extractScheduleId(idempotencyKey: string): string {
-  const isoSeparatorIdx = idempotencyKey.search(/:\d{4}-\d{2}-\d{2}T/);
-  return isoSeparatorIdx > 0
-    ? idempotencyKey.slice(0, isoSeparatorIdx)
-    : idempotencyKey;
+	const isoSeparatorIdx = idempotencyKey.search(/:\d{4}-\d{2}-\d{2}T/);
+	return isoSeparatorIdx > 0
+		? idempotencyKey.slice(0, isoSeparatorIdx)
+		: idempotencyKey;
 }
 
 interface RouteParams {
-  params: Promise<{ graphId: string }>;
+	params: Promise<{ graphId: string }>;
 }
 
 /**
@@ -149,818 +147,859 @@ interface RouteParams {
  * - 422: Idempotency conflict (hash mismatch)
  */
 export const POST = wrapRouteHandlerWithLogging<RouteParams>(
-  { routeId: "graphs.run.internal", auth: { mode: "none" } },
-  async (ctx, request, _sessionUser, routeParams) => {
-    const env = serverEnv();
-    const container = getContainer();
-    const log = ctx.log;
+	{ routeId: "graphs.run.internal", auth: { mode: "none" } },
+	async (ctx, request, _sessionUser, routeParams) => {
+		const env = serverEnv();
+		const container = getContainer();
+		const log = ctx.log;
 
-    // --- 1. Bearer token auth ---
-    const configuredToken = env.SCHEDULER_API_TOKEN;
-    if (!configuredToken) {
-      log.error("SCHEDULER_API_TOKEN not configured");
-      return NextResponse.json(
-        { error: "Service not configured" },
-        { status: 500 }
-      );
-    }
+		// --- 1. Bearer token auth ---
+		const configuredToken = env.SCHEDULER_API_TOKEN;
+		if (!configuredToken) {
+			log.error("SCHEDULER_API_TOKEN not configured");
+			return NextResponse.json(
+				{ error: "Service not configured" },
+				{ status: 500 },
+			);
+		}
 
-    const authHeader = request.headers.get("authorization");
-    const providedToken = extractBearerToken(authHeader);
+		const authHeader = request.headers.get("authorization");
+		const providedToken = extractBearerToken(authHeader);
 
-    if (!providedToken || !safeCompare(providedToken, configuredToken)) {
-      log.warn("Invalid or missing SCHEDULER_API_TOKEN");
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+		if (!providedToken || !safeCompare(providedToken, configuredToken)) {
+			log.warn("Invalid or missing SCHEDULER_API_TOKEN");
+			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+		}
 
-    // --- 2. Extract graphId from path ---
-    if (!routeParams) {
-      log.error("Route params missing");
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
-    }
-    const params = await routeParams.params;
-    const rawGraphId = params.graphId;
-    if (!rawGraphId || !rawGraphId.includes(":")) {
-      log.warn(
-        { graphId: rawGraphId },
-        "Missing or invalid graphId in path (expected providerId:graphName)"
-      );
-      return NextResponse.json({ error: "Graph not found" }, { status: 404 });
-    }
-    const graphId = rawGraphId as `${string}:${string}`;
+		// --- 2. Extract graphId from path ---
+		if (!routeParams) {
+			log.error("Route params missing");
+			return NextResponse.json({ error: "Not found" }, { status: 404 });
+		}
+		const params = await routeParams.params;
+		const rawGraphId = params.graphId;
+		if (!rawGraphId || !rawGraphId.includes(":")) {
+			log.warn(
+				{ graphId: rawGraphId },
+				"Missing or invalid graphId in path (expected providerId:graphName)",
+			);
+			return NextResponse.json({ error: "Graph not found" }, { status: 404 });
+		}
+		const graphId = rawGraphId as `${string}:${string}`;
 
-    // --- 3. Idempotency-Key header (required) ---
-    const idempotencyKey = request.headers.get("idempotency-key");
-    if (!idempotencyKey) {
-      log.warn("Missing Idempotency-Key header");
-      return NextResponse.json(
-        { error: "Idempotency-Key header required" },
-        { status: 400 }
-      );
-    }
+		// --- 3. Idempotency-Key header (required) ---
+		const idempotencyKey = request.headers.get("idempotency-key");
+		if (!idempotencyKey) {
+			log.warn("Missing Idempotency-Key header");
+			return NextResponse.json(
+				{ error: "Idempotency-Key header required" },
+				{ status: 400 },
+			);
+		}
 
-    // --- 4. Parse request body ---
-    let body: unknown;
-    let rawBody: string;
-    try {
-      rawBody = await request.text();
-      body = JSON.parse(rawBody);
-    } catch {
-      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-    }
+		// --- 4. Parse request body ---
+		let body: unknown;
+		let rawBody: string;
+		try {
+			rawBody = await request.text();
+			body = JSON.parse(rawBody);
+		} catch {
+			return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+		}
 
-    const parseResult = InternalGraphRunInputSchema.safeParse(body);
-    if (!parseResult.success) {
-      log.warn({ errors: parseResult.error.issues }, "Invalid request body");
-      return NextResponse.json(
-        { error: "Invalid request body", details: parseResult.error.issues },
-        { status: 400 }
-      );
-    }
+		const parseResult = InternalGraphRunInputSchema.safeParse(body);
+		if (!parseResult.success) {
+			log.warn({ errors: parseResult.error.issues }, "Invalid request body");
+			return NextResponse.json(
+				{ error: "Invalid request body", details: parseResult.error.issues },
+				{ status: 400 },
+			);
+		}
 
-    const {
-      executionGrantId = null,
-      input,
-      runId: providedRunId,
-    } = parseResult.data;
-    let runId = providedRunId ?? randomUUID();
+		const {
+			executionGrantId = null,
+			input,
+			runId: providedRunId,
+		} = parseResult.data;
+		let runId = providedRunId ?? randomUUID();
 
-    // --- 5. Compute request hash for idempotency ---
-    // API completions preclaim the slot before Temporal start and pass the
-    // authenticated hash through the workflow. Scheduled runs hash the exact
-    // bytes delivered by Temporal so retries cannot drift by JSON key order.
-    const suppliedRequestHash =
-      typeof input.executionRequestHash === "string" &&
-      /^[0-9a-f]{64}$/.test(input.executionRequestHash)
-        ? input.executionRequestHash
-        : undefined;
-    const requestHash =
-      suppliedRequestHash ?? computeRequestHash(graphId, rawBody);
+		// --- 5. Compute request hash for idempotency ---
+		// API completions preclaim the slot before Temporal start and pass the
+		// authenticated hash through the workflow. Scheduled runs hash the exact
+		// bytes delivered by Temporal so retries cannot drift by JSON key order.
+		const suppliedRequestHash =
+			typeof input.executionRequestHash === "string" &&
+			/^[0-9a-f]{64}$/.test(input.executionRequestHash)
+				? input.executionRequestHash
+				: undefined;
+		const requestHash =
+			suppliedRequestHash ?? computeRequestHash(graphId, rawBody);
 
-    // --- 6. Check idempotency ---
-    const idempotencyResult =
-      await container.executionRequestPort.checkIdempotency(
-        idempotencyKey,
-        requestHash
-      );
+		// Authenticate the exact launcher-created claim before any cache or claim path.
+		if (graphId === "langgraph:cogni") {
+			const actor = input.actorUserId;
+			const account = input.billingAccountId;
+			const key = input.virtualKeyId;
+			if (
+				executionGrantId ||
+				!providedRunId ||
+				!suppliedRequestHash ||
+				typeof actor !== "string" ||
+				typeof account !== "string" ||
+				typeof key !== "string" ||
+				!verifyChatActor(
+					{
+						nodeId: container.nodeId,
+						lane: serverEnv().DEPLOY_ENVIRONMENT ?? "",
+						idempotencyKey,
+						requestHash,
+						runId,
+						graphId,
+						actorUserId: actor,
+						billingAccountId: account,
+						virtualKeyId: key,
+						payload: {
+							messages: input.messages,
+							modelRef: input.modelRef,
+							stateKey: input.stateKey ?? null,
+						},
+					},
+					serverEnv().AUTH_SECRET,
+					input.chatActorProof,
+				)
+			)
+				return NextResponse.json(
+					{ error: "Untrusted shared graph identity" },
+					{ status: 403 },
+				);
+		}
 
-    if (idempotencyResult.status === "cached") {
-      // Already processed - return cached result with original outcome
-      const cached = idempotencyResult.request;
-      // The node execution path is the outcome truth-holder. Reconcile the run
-      // ledger before returning so a lost worker response cannot leave a
-      // successfully finalized execution_request paired with graph_runs=running.
-      await container.graphRunRepository.markRunCompleted(
-        SYSTEM_ACTOR,
-        cached.runId,
-        cached.ok ? "success" : "error",
-        cached.ok ? undefined : "Graph execution failed",
-        cached.ok ? undefined : (cached.errorCode ?? "internal")
-      );
-      log.info(
-        { idempotencyKey, runId: cached.runId, ok: cached.ok },
-        "Returning cached result"
-      );
-      // Use explicit branching for discriminated union type narrowing
-      if (cached.ok) {
-        const cachedResponse: InternalGraphRunOutput = {
-          ok: true,
-          runId: cached.runId,
-          traceId: cached.traceId,
-        };
-        return NextResponse.json(cachedResponse, { status: 200 });
-      } else {
-        const cachedResponse: InternalGraphRunOutput = {
-          ok: false,
-          runId: cached.runId,
-          traceId: cached.traceId,
-          error: cached.errorCode ?? "internal",
-        };
-        return NextResponse.json(cachedResponse, { status: 200 });
-      }
-    }
+		// --- 6. Check idempotency ---
+		const idempotencyResult =
+			await container.executionRequestPort.checkIdempotency(
+				idempotencyKey,
+				requestHash,
+			);
 
-    let requestAlreadyClaimed = false;
-    if (idempotencyResult.status === "pending") {
-      // Execution in progress - return 409 Conflict to signal retry later
-      const pending = idempotencyResult.request;
-      if (suppliedRequestHash && pending.runId === runId) {
-        // The completion facade durably claimed this exact request before
-        // starting Temporal. This workflow owns the pending record.
-        requestAlreadyClaimed = true;
-      } else {
-        log.info(
-          { idempotencyKey, runId: pending.runId },
-          "Execution already in progress"
-        );
-        return NextResponse.json(
-          {
-            error: "Execution in progress",
-            message:
-              "Request with this Idempotency-Key is currently being processed",
-            runId: pending.runId,
-          },
-          { status: 409 }
-        );
-      }
-    }
+		if (idempotencyResult.status === "cached") {
+			// Already processed - return cached result with original outcome
+			const cached = idempotencyResult.request;
+			// The node execution path is the outcome truth-holder. Reconcile the run
+			// ledger before returning so a lost worker response cannot leave a
+			// successfully finalized execution_request paired with graph_runs=running.
+			await container.graphRunRepository.markRunCompleted(
+				SYSTEM_ACTOR,
+				cached.runId,
+				cached.ok ? "success" : "error",
+				cached.ok ? undefined : "Graph execution failed",
+				cached.ok ? undefined : (cached.errorCode ?? "internal"),
+			);
+			log.info(
+				{ idempotencyKey, runId: cached.runId, ok: cached.ok },
+				"Returning cached result",
+			);
+			// Use explicit branching for discriminated union type narrowing
+			if (cached.ok) {
+				const cachedResponse: InternalGraphRunOutput = {
+					ok: true,
+					runId: cached.runId,
+					traceId: cached.traceId,
+				};
+				return NextResponse.json(cachedResponse, { status: 200 });
+			} else {
+				const cachedResponse: InternalGraphRunOutput = {
+					ok: false,
+					runId: cached.runId,
+					traceId: cached.traceId,
+					error: cached.errorCode ?? "internal",
+				};
+				return NextResponse.json(cachedResponse, { status: 200 });
+			}
+		}
 
-    // A stale lease is eligible for atomic re-claim after validation below.
-    // Preserve the first claimant's canonical run identity.
-    if (idempotencyResult.status === "stale") {
-      runId = idempotencyResult.request.runId;
-    }
+		if (
+			graphId === "langgraph:cogni" &&
+			(idempotencyResult.status === "new" ||
+				((idempotencyResult.status === "pending" ||
+					idempotencyResult.status === "stale") &&
+					idempotencyResult.request.runId !== runId))
+		) {
+			return NextResponse.json(
+				{ error: "Shared graph claim unavailable" },
+				{ status: 403 },
+			);
+		}
+		let requestAlreadyClaimed = false;
+		if (idempotencyResult.status === "pending") {
+			// Execution in progress - return 409 Conflict to signal retry later
+			const pending = idempotencyResult.request;
+			if (suppliedRequestHash && pending.runId === runId) {
+				// The completion facade durably claimed this exact request before
+				// starting Temporal. This workflow owns the pending record.
+				requestAlreadyClaimed = graphId !== "langgraph:cogni";
+			} else {
+				log.info(
+					{ idempotencyKey, runId: pending.runId },
+					"Execution already in progress",
+				);
+				return NextResponse.json(
+					{
+						error: "Execution in progress",
+						message:
+							"Request with this Idempotency-Key is currently being processed",
+						runId: pending.runId,
+					},
+					{ status: 409 },
+				);
+			}
+		}
 
-    if (idempotencyResult.status === "mismatch") {
-      // Same idempotency key but different payload - reject
-      log.warn(
-        {
-          idempotencyKey,
-          existingHash: idempotencyResult.existingHash,
-          providedHash: idempotencyResult.providedHash,
-        },
-        "Idempotency key conflict"
-      );
-      return NextResponse.json(
-        {
-          error: "Idempotency conflict",
-          message:
-            "Request with same Idempotency-Key but different payload already processed",
-        },
-        { status: 422 }
-      );
-    }
+		// A stale lease is eligible for atomic re-claim after validation below.
+		// Preserve the first claimant's canonical run identity.
+		if (idempotencyResult.status === "stale") {
+			runId = idempotencyResult.request.runId;
+		}
 
-    // --- 7/8. Resolve execution identity ---
-    let actorUserId: string;
-    let billingAccountId: string;
-    let virtualKeyId: string;
-    let stateKey: string | undefined;
-    let sessionId: string | undefined;
+		if (idempotencyResult.status === "mismatch") {
+			// Same idempotency key but different payload - reject
+			log.warn(
+				{
+					idempotencyKey,
+					existingHash: idempotencyResult.existingHash,
+					providedHash: idempotencyResult.providedHash,
+				},
+				"Idempotency key conflict",
+			);
+			return NextResponse.json(
+				{
+					error: "Idempotency conflict",
+					message:
+						"Request with same Idempotency-Key but different payload already processed",
+				},
+				{ status: 422 },
+			);
+		}
 
-    if (executionGrantId) {
-      // Scheduled / grant-backed runs: validate grant (defense-in-depth)
-      let grant: Awaited<
-        ReturnType<
-          typeof container.executionGrantWorkerPort.validateGrantForGraph
-        >
-      >;
-      try {
-        grant = await container.executionGrantWorkerPort.validateGrantForGraph(
-          SYSTEM_ACTOR,
-          executionGrantId,
-          graphId
-        );
-      } catch (error) {
-        if (isGrantNotFoundError(error)) {
-          log.warn({ executionGrantId }, "Grant not found");
-          return NextResponse.json(
-            { error: "Grant not found" },
-            { status: 403 }
-          );
-        }
-        if (isGrantExpiredError(error)) {
-          log.warn({ executionGrantId }, "Grant expired");
-          return NextResponse.json({ error: "Grant expired" }, { status: 403 });
-        }
-        if (isGrantRevokedError(error)) {
-          log.warn({ executionGrantId }, "Grant revoked");
-          return NextResponse.json({ error: "Grant revoked" }, { status: 403 });
-        }
-        if (isGrantScopeMismatchError(error)) {
-          log.warn({ executionGrantId, graphId }, "Grant scope mismatch");
-          return NextResponse.json(
-            { error: "Grant scope mismatch" },
-            { status: 403 }
-          );
-        }
-        throw error;
-      }
+		// --- 7/8. Resolve execution identity ---
+		let actorUserId: string;
+		let billingAccountId: string;
+		let virtualKeyId: string;
+		let stateKey: string | undefined;
+		let sessionId: string | undefined;
 
-      const billingAccount =
-        await container.serviceAccountService.getBillingAccountById(
-          grant.billingAccountId
-        );
-      if (!billingAccount) {
-        log.error(
-          { billingAccountId: grant.billingAccountId },
-          "Billing account not found"
-        );
-        return NextResponse.json(
-          { error: "Billing account not found" },
-          { status: 500 }
-        );
-      }
+		if (executionGrantId) {
+			// Scheduled / grant-backed runs: validate grant (defense-in-depth)
+			let grant: Awaited<
+				ReturnType<
+					typeof container.executionGrantWorkerPort.validateGrantForGraph
+				>
+			>;
+			try {
+				grant = await container.executionGrantWorkerPort.validateGrantForGraph(
+					SYSTEM_ACTOR,
+					executionGrantId,
+					graphId,
+				);
+			} catch (error) {
+				if (isGrantNotFoundError(error)) {
+					log.warn({ executionGrantId }, "Grant not found");
+					return NextResponse.json(
+						{ error: "Grant not found" },
+						{ status: 403 },
+					);
+				}
+				if (isGrantExpiredError(error)) {
+					log.warn({ executionGrantId }, "Grant expired");
+					return NextResponse.json({ error: "Grant expired" }, { status: 403 });
+				}
+				if (isGrantRevokedError(error)) {
+					log.warn({ executionGrantId }, "Grant revoked");
+					return NextResponse.json({ error: "Grant revoked" }, { status: 403 });
+				}
+				if (isGrantScopeMismatchError(error)) {
+					log.warn({ executionGrantId, graphId }, "Grant scope mismatch");
+					return NextResponse.json(
+						{ error: "Grant scope mismatch" },
+						{ status: 403 },
+					);
+				}
+				throw error;
+			}
 
-      actorUserId = grant.userId;
-      billingAccountId = grant.billingAccountId;
-      virtualKeyId = billingAccount.defaultVirtualKeyId;
+			const billingAccount =
+				await container.serviceAccountService.getBillingAccountById(
+					grant.billingAccountId,
+				);
+			if (!billingAccount) {
+				log.error(
+					{ billingAccountId: grant.billingAccountId },
+					"Billing account not found",
+				);
+				return NextResponse.json(
+					{ error: "Billing account not found" },
+					{ status: 500 },
+				);
+			}
 
-      // Per bug.0197: hash the full idempotencyKey (scheduleId:scheduledFor) so each
-      // execution slot gets its own isolated thread instead of accumulating in one.
-      stateKey = createHash("sha256")
-        .update(idempotencyKey, "utf8")
-        .digest("hex");
-      sessionId = `sched:${billingAccountId}:s:${stateKey.slice(0, 32)}`;
-    } else {
-      // API-triggered runs: execution context is provided in payload.
-      const inputUserId =
-        typeof input.actorUserId === "string" ? input.actorUserId : null;
-      const inputBillingAccountId =
-        typeof input.billingAccountId === "string"
-          ? input.billingAccountId
-          : null;
-      const inputVirtualKeyId =
-        typeof input.virtualKeyId === "string" ? input.virtualKeyId : null;
-      if (!inputUserId || !inputBillingAccountId || !inputVirtualKeyId) {
-        return NextResponse.json(
-          {
-            error:
-              "API-originated run requires actorUserId, billingAccountId, and virtualKeyId in payload",
-          },
-          { status: 400 }
-        );
-      }
+			actorUserId = grant.userId;
+			billingAccountId = grant.billingAccountId;
+			virtualKeyId = billingAccount.defaultVirtualKeyId;
 
-      actorUserId = inputUserId;
-      billingAccountId = inputBillingAccountId;
-      virtualKeyId = inputVirtualKeyId;
-      stateKey =
-        typeof input.stateKey === "string" && input.stateKey.length > 0
-          ? input.stateKey
-          : undefined;
-      sessionId = stateKey
-        ? `ba:${billingAccountId}:s:${createHash("sha256")
-            .update(stateKey, "utf8")
-            .digest("hex")
-            .slice(0, 32)}`
-        : `run:${runId}`;
-    }
+			// Per bug.0197: hash the full idempotencyKey (scheduleId:scheduledFor) so each
+			// execution slot gets its own isolated thread instead of accumulating in one.
+			stateKey = createHash("sha256")
+				.update(idempotencyKey, "utf8")
+				.digest("hex");
+			sessionId = `sched:${billingAccountId}:s:${stateKey.slice(0, 32)}`;
+		} else {
+			// API-triggered runs: execution context is provided in payload.
+			const inputUserId =
+				typeof input.actorUserId === "string" ? input.actorUserId : null;
+			const inputBillingAccountId =
+				typeof input.billingAccountId === "string"
+					? input.billingAccountId
+					: null;
+			const inputVirtualKeyId =
+				typeof input.virtualKeyId === "string" ? input.virtualKeyId : null;
+			if (!inputUserId || !inputBillingAccountId || !inputVirtualKeyId) {
+				return NextResponse.json(
+					{
+						error:
+							"API-originated run requires actorUserId, billingAccountId, and virtualKeyId in payload",
+					},
+					{ status: 400 },
+				);
+			}
 
-    // Only a chat launcher can bind the actor of shared Cogni. Internal request
-    // payloads and scheduled runs cannot manufacture a trusted chat identity.
-    if (graphId === "langgraph:cogni" && (executionGrantId || !verifyChatActor(
-      { runId, graphId, actorUserId, billingAccountId, virtualKeyId, payload: { messages: input.messages, modelRef: input.modelRef, stateKey: input.stateKey ?? null } },
-      serverEnv().AUTH_SECRET, input.chatActorProof
-    ))) return NextResponse.json({ error: "Untrusted shared graph identity" }, { status: 403 });
+			actorUserId = inputUserId;
+			billingAccountId = inputBillingAccountId;
+			virtualKeyId = inputVirtualKeyId;
+			stateKey =
+				typeof input.stateKey === "string" && input.stateKey.length > 0
+					? input.stateKey
+					: undefined;
+			sessionId = stateKey
+				? `ba:${billingAccountId}:s:${createHash("sha256")
+						.update(stateKey, "utf8")
+						.digest("hex")
+						.slice(0, 32)}`
+				: `run:${runId}`;
+		}
 
-    // --- 9. Execute graph ---
-    // Use OTel trace ID (same one passed to executor, used by Langfuse decorator)
-    const traceId = ctx.traceId;
-    const chatRequestId =
-      typeof input.chatRequestId === "string" ? input.chatRequestId : undefined;
-    const chatMessageId =
-      typeof input.chatMessageId === "string" ? input.chatMessageId : undefined;
-    const chatWorkflowId =
-      typeof input.chatWorkflowId === "string"
-        ? input.chatWorkflowId
-        : undefined;
+		// --- 9. Execute graph ---
+		// Use OTel trace ID (same one passed to executor, used by Langfuse decorator)
+		const traceId = ctx.traceId;
+		const chatRequestId =
+			typeof input.chatRequestId === "string" ? input.chatRequestId : undefined;
+		const chatMessageId =
+			typeof input.chatMessageId === "string" ? input.chatMessageId : undefined;
+		const chatWorkflowId =
+			typeof input.chatWorkflowId === "string"
+				? input.chatWorkflowId
+				: undefined;
 
-    log.info(
-      { graphId, runId, executionGrantId, idempotencyKey, traceId },
-      "Starting scheduled graph execution"
-    );
+		log.info(
+			{ graphId, runId, executionGrantId, idempotencyKey, traceId },
+			"Starting scheduled graph execution",
+		);
 
-    // --- 9b. Patch stateKey onto graph_runs record (bug.0197) ---
-    // stateKey is derived here (internal API) but graph_runs was created by
-    // createGraphRunActivity before this route is called. Patch it so dashboard
-    // can link runs to their threads.
-    if (stateKey && executionGrantId) {
-      try {
-        await container.graphRunRepository.patchRunStateKey(
-          SYSTEM_ACTOR,
-          runId,
-          stateKey
-        );
-      } catch (patchErr) {
-        log.warn(
-          { runId, stateKey, err: patchErr },
-          "Failed to patch stateKey on graph_runs — non-fatal"
-        );
-      }
-    }
+		// --- 9b. Patch stateKey onto graph_runs record (bug.0197) ---
+		// stateKey is derived here (internal API) but graph_runs was created by
+		// createGraphRunActivity before this route is called. Patch it so dashboard
+		// can link runs to their threads.
+		if (stateKey && executionGrantId) {
+			try {
+				await container.graphRunRepository.patchRunStateKey(
+					SYSTEM_ACTOR,
+					runId,
+					stateKey,
+				);
+			} catch (patchErr) {
+				log.warn(
+					{ runId, stateKey, err: patchErr },
+					"Failed to patch stateKey on graph_runs — non-fatal",
+				);
+			}
+		}
 
-    capture({
-      event: AnalyticsEvents.AGENT_RUN_REQUESTED,
-      identity: {
-        userId: actorUserId,
-        sessionId: sessionId ?? runId,
-        tenantId: billingAccountId,
-        traceId,
-      },
-      properties: {
-        run_id: runId,
-        agent_type: graphId,
-        entrypoint: "schedule",
-      },
-    });
+		capture({
+			event: AnalyticsEvents.AGENT_RUN_REQUESTED,
+			identity: {
+				userId: actorUserId,
+				sessionId: sessionId ?? runId,
+				tenantId: billingAccountId,
+				traceId,
+			},
+			properties: {
+				run_id: runId,
+				agent_type: graphId,
+				entrypoint: "schedule",
+			},
+		});
 
-    // Parse input for graph execution
-    const messageDtos = Array.isArray(input.messages)
-      ? input.messages
-      : typeof input.message === "string"
-        ? [{ role: "user", content: input.message }]
-        : [];
+		// Parse input for graph execution
+		const messageDtos = Array.isArray(input.messages)
+			? input.messages
+			: typeof input.message === "string"
+				? [{ role: "user", content: input.message }]
+				: [];
 
-    // ModelRef is required - parse from workflow input
-    const modelRef = (() => {
-      // New format: modelRef object
-      if (input.modelRef && typeof input.modelRef === "object") {
-        const ref = input.modelRef as {
-          providerKey?: string;
-          modelId?: string;
-          connectionId?: string;
-        };
-        if (
-          typeof ref.providerKey === "string" &&
-          typeof ref.modelId === "string"
-        ) {
-          return {
-            providerKey: ref.providerKey,
-            modelId: ref.modelId,
-            ...(typeof ref.connectionId === "string"
-              ? { connectionId: ref.connectionId }
-              : {}),
-          };
-        }
-      }
-      log.error("Missing required modelRef field");
-      return null;
-    })();
-    if (!modelRef) {
-      return NextResponse.json(
-        { error: "modelRef field is required" },
-        { status: 400 }
-      );
-    }
+		// ModelRef is required - parse from workflow input
+		const modelRef = (() => {
+			// New format: modelRef object
+			if (input.modelRef && typeof input.modelRef === "object") {
+				const ref = input.modelRef as {
+					providerKey?: string;
+					modelId?: string;
+					connectionId?: string;
+				};
+				if (
+					typeof ref.providerKey === "string" &&
+					typeof ref.modelId === "string"
+				) {
+					return {
+						providerKey: ref.providerKey,
+						modelId: ref.modelId,
+						...(typeof ref.connectionId === "string"
+							? { connectionId: ref.connectionId }
+							: {}),
+					};
+				}
+			}
+			log.error("Missing required modelRef field");
+			return null;
+		})();
+		if (!modelRef) {
+			return NextResponse.json(
+				{ error: "modelRef field is required" },
+				{ status: 400 },
+			);
+		}
 
-    log.info(
-      {
-        providerKey: modelRef.providerKey,
-        modelId: modelRef.modelId,
-        connectionId: modelRef.connectionId ?? null,
-      },
-      "Parsed modelRef for graph execution"
-    );
+		log.info(
+			{
+				providerKey: modelRef.providerKey,
+				modelId: modelRef.modelId,
+				connectionId: modelRef.connectionId ?? null,
+			},
+			"Parsed modelRef for graph execution",
+		);
 
-    // Claim only after permanent request validation. INSERT races are resolved
-    // by ON CONFLICT + re-read; expired pending leases are reclaimed atomically.
-    if (requestAlreadyClaimed) {
-      // The completion facade created this exact slot before Temporal start.
-      // Adopt it by starting the same lease heartbeat used by scheduled runs.
-      await container.executionRequestPort.heartbeatRequest(
-        idempotencyKey,
-        new Date(Date.now() + EXECUTION_LEASE_MS).toISOString()
-      );
-    } else {
-      const claimResult =
-        await container.executionRequestPort.createPendingRequest(
-          idempotencyKey,
-          requestHash,
-          runId,
-          traceId,
-          new Date(Date.now() + EXECUTION_LEASE_MS).toISOString()
-        );
-      if (claimResult.status !== "claimed") {
-        if (claimResult.status === "cached") {
-          const cached = claimResult.request;
-          await container.graphRunRepository.markRunCompleted(
-            SYSTEM_ACTOR,
-            cached.runId,
-            cached.ok ? "success" : "error",
-            cached.ok ? undefined : "Graph execution failed",
-            cached.ok ? undefined : (cached.errorCode ?? "internal")
-          );
-          return NextResponse.json(
-            cached.ok
-              ? { ok: true, runId: cached.runId, traceId: cached.traceId }
-              : {
-                  ok: false,
-                  runId: cached.runId,
-                  traceId: cached.traceId,
-                  error: cached.errorCode ?? "internal",
-                },
-            { status: 200 }
-          );
-        }
-        if (claimResult.status === "mismatch") {
-          return NextResponse.json(
-            { error: "Idempotency conflict" },
-            { status: 422 }
-          );
-        }
-        if (claimResult.status === "new") {
-          return NextResponse.json(
-            { error: "Execution claim changed; retry request" },
-            { status: 503 }
-          );
-        }
-        return NextResponse.json(
-          { error: "Execution in progress", runId: claimResult.request.runId },
-          { status: 409 }
-        );
-      }
-      runId = claimResult.request.runId;
-      if (!stateKey) sessionId = `run:${runId}`;
-    }
+		// Claim only after permanent request validation. INSERT races are resolved
+		// by ON CONFLICT + re-read; expired pending leases are reclaimed atomically.
+		if (requestAlreadyClaimed) {
+			// The completion facade created this exact slot before Temporal start.
+			// Adopt it by starting the same lease heartbeat used by scheduled runs.
+			await container.executionRequestPort.heartbeatRequest(
+				idempotencyKey,
+				new Date(Date.now() + EXECUTION_LEASE_MS).toISOString(),
+			);
+		} else {
+			const claimResult =
+				await container.executionRequestPort.createPendingRequest(
+					idempotencyKey,
+					requestHash,
+					runId,
+					traceId,
+					new Date(Date.now() + EXECUTION_LEASE_MS).toISOString(),
+				);
+			if (claimResult.status !== "claimed") {
+				if (claimResult.status === "cached") {
+					const cached = claimResult.request;
+					await container.graphRunRepository.markRunCompleted(
+						SYSTEM_ACTOR,
+						cached.runId,
+						cached.ok ? "success" : "error",
+						cached.ok ? undefined : "Graph execution failed",
+						cached.ok ? undefined : (cached.errorCode ?? "internal"),
+					);
+					return NextResponse.json(
+						cached.ok
+							? { ok: true, runId: cached.runId, traceId: cached.traceId }
+							: {
+									ok: false,
+									runId: cached.runId,
+									traceId: cached.traceId,
+									error: cached.errorCode ?? "internal",
+								},
+						{ status: 200 },
+					);
+				}
+				if (claimResult.status === "mismatch") {
+					return NextResponse.json(
+						{ error: "Idempotency conflict" },
+						{ status: 422 },
+					);
+				}
+				if (claimResult.status === "new") {
+					return NextResponse.json(
+						{ error: "Execution claim changed; retry request" },
+						{ status: 503 },
+					);
+				}
+				return NextResponse.json(
+					{ error: "Execution in progress", runId: claimResult.request.runId },
+					{ status: 409 },
+				);
+			}
+			runId = claimResult.request.runId;
+			if (!stateKey) sessionId = `run:${runId}`;
+		}
 
-    const accountService = container.accountsForUser(toUserId(actorUserId));
+		const accountService = container.accountsForUser(toUserId(actorUserId));
 
-    // Create preflight credit check closure
-    // Per CREDITS_ENFORCED_AT_EXECUTION_PORT: decorator handles all execution paths
-    const preflightCheckFn: PreflightCreditCheckFn = (
-      billingAccountId,
-      m,
-      msgs
-    ) =>
-      preflightCreditCheck({
-        billingAccountId,
-        messages: [...msgs],
-        model: m,
-        accountService,
-      });
+		// Create preflight credit check closure
+		// Per CREDITS_ENFORCED_AT_EXECUTION_PORT: decorator handles all execution paths
+		const preflightCheckFn: PreflightCreditCheckFn = (
+			billingAccountId,
+			m,
+			msgs,
+		) =>
+			preflightCreditCheck({
+				billingAccountId,
+				messages: [...msgs],
+				model: m,
+				accountService,
+			});
 
-    // Create graph executor and run
-    const executor = createGraphExecutor(executeStream, toUserId(actorUserId));
-    const scopedExecutor = createScopedGraphExecutor({
-      executor,
-      preflightCheckFn,
-      commitByoUsage: async (fact, log) => {
-        await commitUsageFact(
-          fact,
-          {
-            runId: fact.runId,
-            attempt: fact.attempt,
-            ingressRequestId: fact.runId,
-          },
-          accountService,
-          log as import("pino").Logger
-        );
-      },
-      billing: {
-        billingAccountId,
-        virtualKeyId,
-      },
-      resolver: container.providerResolver,
-      actorId: actorUserId,
-      ...(container.connectionBroker
-        ? { broker: container.connectionBroker }
-        : {}),
-    });
-    const messages = (
-      messageDtos as Array<{
-        role: string;
-        content: string;
-        toolCalls?: Array<{ id: string; name: string; arguments: string }>;
-        toolCallId?: string;
-      }>
-    ).map((m) => ({
-      role: m.role as "user" | "assistant" | "system" | "tool",
-      content: m.content,
-      ...(m.toolCalls?.length ? { toolCalls: m.toolCalls } : {}),
-      ...(m.toolCallId ? { toolCallId: m.toolCallId } : {}),
-    }));
-    // Forward responseFormat if provided (enables structuredOutput in GraphRunResult).
-    const responseFormat = resolveResponseFormat(input);
+		// Create graph executor and run
+		const executor = createGraphExecutor(executeStream, toUserId(actorUserId));
+		const scopedExecutor = createScopedGraphExecutor({
+			executor,
+			preflightCheckFn,
+			commitByoUsage: async (fact, log) => {
+				await commitUsageFact(
+					fact,
+					{
+						runId: fact.runId,
+						attempt: fact.attempt,
+						ingressRequestId: fact.runId,
+					},
+					accountService,
+					log as import("pino").Logger,
+				);
+			},
+			billing: {
+				billingAccountId,
+				virtualKeyId,
+			},
+			resolver: container.providerResolver,
+			actorId: actorUserId,
+			...(container.connectionBroker
+				? { broker: container.connectionBroker }
+				: {}),
+		});
+		const messages = (
+			messageDtos as Array<{
+				role: string;
+				content: string;
+				toolCalls?: Array<{ id: string; name: string; arguments: string }>;
+				toolCallId?: string;
+			}>
+		).map((m) => ({
+			role: m.role as "user" | "assistant" | "system" | "tool",
+			content: m.content,
+			...(m.toolCalls?.length ? { toolCalls: m.toolCalls } : {}),
+			...(m.toolCallId ? { toolCallId: m.toolCallId } : {}),
+		}));
+		// Forward responseFormat if provided (enables structuredOutput in GraphRunResult).
+		const responseFormat = resolveResponseFormat(input);
 
-    const result = scopedExecutor.runGraph(
-      {
-        runId,
-        graphId,
-        messages,
-        modelRef,
-        ...(stateKey !== undefined && { stateKey }),
-        ...(responseFormat !== undefined && { responseFormat }),
-      },
-      {
-        actorUserId,
-        requestId: runId,
-        ...(sessionId ? { sessionId } : {}),
-      }
-    );
+		const result = scopedExecutor.runGraph(
+			{
+				runId,
+				graphId,
+				messages,
+				modelRef,
+				...(stateKey !== undefined && { stateKey }),
+				...(responseFormat !== undefined && { responseFormat }),
+			},
+			{
+				actorUserId,
+				requestId: runId,
+				...(sessionId ? { sessionId } : {}),
+			},
+		);
 
-    const heartbeat = setInterval(() => {
-      void container.executionRequestPort
-        .heartbeatRequest(
-          idempotencyKey,
-          new Date(Date.now() + EXECUTION_LEASE_MS).toISOString()
-        )
-        .catch((err) =>
-          log.warn({ runId, err }, "Execution lease heartbeat failed")
-        );
-    }, EXECUTION_HEARTBEAT_MS);
-    heartbeat.unref();
+		const heartbeat = setInterval(() => {
+			void container.executionRequestPort
+				.heartbeatRequest(
+					idempotencyKey,
+					new Date(Date.now() + EXECUTION_LEASE_MS).toISOString(),
+				)
+				.catch((err) =>
+					log.warn({ runId, err }, "Execution lease heartbeat failed"),
+				);
+		}, EXECUTION_HEARTBEAT_MS);
+		heartbeat.unref();
 
-    // Consume stream, publish events to Redis, and wait for final result.
-    // Per PUMP_TO_COMPLETION_VIA_REDIS: events reach Redis regardless of SSE subscribers.
-    // Per STREAM_PUBLISH_IN_EXECUTION_LAYER: Redis publishing happens here, not in Temporal activity.
-    // Wrapped in try/catch so preflight credit failures (thrown during stream
-    // iteration by PreflightCreditCheckDecorator) finalize the idempotency
-    // record cleanly instead of leaving it "pending" forever.
-    const { runStream } = container;
-    let final: Awaited<typeof result.final>;
-    // Hold back the done event — we enrich it with GraphFinal data after stream drain.
-    let pendingDone: { type: "done" } | null = null;
-    // Accumulate persistence-relevant events only (SHARED_EVENT_ASSEMBLER).
-    // text_delta not needed — assembler uses assistant_final for full content.
-    const PERSIST_EVENT_TYPES = new Set([
-      "assistant_final",
-      "tool_call_start",
-      "tool_call_result",
-    ]);
-    const accumulatedEvents: AiEvent[] = [];
-    try {
-      for await (const event of result.stream) {
-        if (PERSIST_EVENT_TYPES.has(event.type)) {
-          accumulatedEvents.push(event);
-        }
-        // Publish each event to Redis Stream for SSE subscribers.
-        // Per REDIS_IS_STREAM_PLANE: Redis loss = stream interruption, not data loss.
-        // Publish failures are logged, not thrown — execution must complete for billing safety.
-        try {
-          if (event.type === "done") {
-            // Buffer done — enrich after stream drain when result.final resolves.
-            pendingDone = event;
-          } else {
-            await runStream.publish(runId, event);
-            if (event.type === "error") {
-              await runStream.expire(runId, RUN_STREAM_DEFAULT_TTL_SECONDS);
-            }
-          }
-        } catch (publishErr) {
-          log.warn(
-            { runId, eventType: event.type, err: publishErr },
-            "Redis stream publish failed — stream degraded, execution continues"
-          );
-        }
-      }
+		// Consume stream, publish events to Redis, and wait for final result.
+		// Per PUMP_TO_COMPLETION_VIA_REDIS: events reach Redis regardless of SSE subscribers.
+		// Per STREAM_PUBLISH_IN_EXECUTION_LAYER: Redis publishing happens here, not in Temporal activity.
+		// Wrapped in try/catch so preflight credit failures (thrown during stream
+		// iteration by PreflightCreditCheckDecorator) finalize the idempotency
+		// record cleanly instead of leaving it "pending" forever.
+		const { runStream } = container;
+		let final: Awaited<typeof result.final>;
+		// Hold back the done event — we enrich it with GraphFinal data after stream drain.
+		let pendingDone: { type: "done" } | null = null;
+		// Accumulate persistence-relevant events only (SHARED_EVENT_ASSEMBLER).
+		// text_delta not needed — assembler uses assistant_final for full content.
+		const PERSIST_EVENT_TYPES = new Set([
+			"assistant_final",
+			"tool_call_start",
+			"tool_call_result",
+		]);
+		const accumulatedEvents: AiEvent[] = [];
+		try {
+			for await (const event of result.stream) {
+				if (PERSIST_EVENT_TYPES.has(event.type)) {
+					accumulatedEvents.push(event);
+				}
+				// Publish each event to Redis Stream for SSE subscribers.
+				// Per REDIS_IS_STREAM_PLANE: Redis loss = stream interruption, not data loss.
+				// Publish failures are logged, not thrown — execution must complete for billing safety.
+				try {
+					if (event.type === "done") {
+						// Buffer done — enrich after stream drain when result.final resolves.
+						pendingDone = event;
+					} else {
+						await runStream.publish(runId, event);
+						if (event.type === "error") {
+							await runStream.expire(runId, RUN_STREAM_DEFAULT_TTL_SECONDS);
+						}
+					}
+				} catch (publishErr) {
+					log.warn(
+						{ runId, eventType: event.type, err: publishErr },
+						"Redis stream publish failed — stream degraded, execution continues",
+					);
+				}
+			}
 
-      final = await result.final;
+			final = await result.final;
 
-      if (final.ok && !pendingDone) {
-        throw new Error("Successful graph stream completed without done event");
-      }
+			if (final.ok && !pendingDone) {
+				throw new Error("Successful graph stream completed without done event");
+			}
 
-      // Terminal success is observable only after the stateful transcript is durable.
-      if (pendingDone && final.ok) {
-        const assistantPersistStartMs = performance.now();
-        try {
-          const enriched = {
-            ...pendingDone,
-            ...(final.usage ? { usage: final.usage } : {}),
-            ...(final.finishReason ? { finishReason: final.finishReason } : {}),
-          };
-          await persistAssistantThenPublishTerminal({
-            runId,
-            ...(stateKey ? { stateKey } : {}),
-            ...(actorUserId ? { actorUserId } : {}),
-            accumulatedEvents,
-            threadPersistenceForUser: (userId) =>
-              container.threadPersistenceForUser(userId),
-            onPersisted: ({ messageCount, attempt }) => {
-              aiChatPhaseDurationMs.observe(
-                { phase: "assistant_persist" },
-                performance.now() - assistantPersistStartMs
-              );
-              log.info(
-                {
-                  reqId: chatRequestId ?? ctx.reqId,
-                  stateKey,
-                  messageId: chatMessageId,
-                  runId,
-                  workflowId: chatWorkflowId,
-                  messageCount,
-                  attempt,
-                },
-                "ai.chat_assistant_persisted"
-              );
-            },
-            publishTerminal: async () => {
-              await runStream.publish(runId, enriched);
-              try {
-                await runStream.expire(
-                  runId,
-                  RUN_STREAM_DEFAULT_TTL_SECONDS
-                );
-              } catch (expireErr) {
-                log.warn(
-                  { runId, err: expireErr },
-                  "Redis expiry after terminal publication failed"
-                );
-              }
-              log.info(
-                {
-                  reqId: chatRequestId ?? ctx.reqId,
-                  stateKey,
-                  messageId: chatMessageId,
-                  runId,
-                  workflowId: chatWorkflowId,
-                },
-                "ai.chat_terminal_published"
-              );
-            },
-          });
-        } catch (terminalError) {
-          if (terminalError instanceof TerminalPublicationError) {
-            aiChatTerminalPublishFailuresTotal.inc();
-          } else {
-            aiChatPersistenceFailuresTotal.inc();
-            aiChatPhaseDurationMs.observe(
-              { phase: "assistant_persist" },
-              performance.now() - assistantPersistStartMs
-            );
-          }
-          log.error(
-            {
-              runId,
-              stateKey,
-              phase:
-                terminalError instanceof TerminalPublicationError
-                  ? "terminal_publish"
-                  : "assistant_persist",
-              err: terminalError,
-            },
-            "Durable chat terminal failed — suppressing run success"
-          );
-          throw terminalError;
-        }
-      }
-    } catch (error) {
-      const errorCode = isInsufficientCreditsPortError(error)
-        ? "insufficient_credits"
-        : "internal";
+			// Terminal success is observable only after the stateful transcript is durable.
+			if (pendingDone && final.ok) {
+				const assistantPersistStartMs = performance.now();
+				try {
+					const enriched = {
+						...pendingDone,
+						...(final.usage ? { usage: final.usage } : {}),
+						...(final.finishReason ? { finishReason: final.finishReason } : {}),
+					};
+					await persistAssistantThenPublishTerminal({
+						runId,
+						...(stateKey ? { stateKey } : {}),
+						...(actorUserId ? { actorUserId } : {}),
+						accumulatedEvents,
+						threadPersistenceForUser: (userId) =>
+							container.threadPersistenceForUser(userId),
+						onPersisted: ({ messageCount, attempt }) => {
+							aiChatPhaseDurationMs.observe(
+								{ phase: "assistant_persist" },
+								performance.now() - assistantPersistStartMs,
+							);
+							log.info(
+								{
+									reqId: chatRequestId ?? ctx.reqId,
+									stateKey,
+									messageId: chatMessageId,
+									runId,
+									workflowId: chatWorkflowId,
+									messageCount,
+									attempt,
+								},
+								"ai.chat_assistant_persisted",
+							);
+						},
+						publishTerminal: async () => {
+							await runStream.publish(runId, enriched);
+							try {
+								await runStream.expire(runId, RUN_STREAM_DEFAULT_TTL_SECONDS);
+							} catch (expireErr) {
+								log.warn(
+									{ runId, err: expireErr },
+									"Redis expiry after terminal publication failed",
+								);
+							}
+							log.info(
+								{
+									reqId: chatRequestId ?? ctx.reqId,
+									stateKey,
+									messageId: chatMessageId,
+									runId,
+									workflowId: chatWorkflowId,
+								},
+								"ai.chat_terminal_published",
+							);
+						},
+					});
+				} catch (terminalError) {
+					if (terminalError instanceof TerminalPublicationError) {
+						aiChatTerminalPublishFailuresTotal.inc();
+					} else {
+						aiChatPersistenceFailuresTotal.inc();
+						aiChatPhaseDurationMs.observe(
+							{ phase: "assistant_persist" },
+							performance.now() - assistantPersistStartMs,
+						);
+					}
+					log.error(
+						{
+							runId,
+							stateKey,
+							phase:
+								terminalError instanceof TerminalPublicationError
+									? "terminal_publish"
+									: "assistant_persist",
+							err: terminalError,
+						},
+						"Durable chat terminal failed — suppressing run success",
+					);
+					throw terminalError;
+				}
+			}
+		} catch (error) {
+			const errorCode = isInsufficientCreditsPortError(error)
+				? "insufficient_credits"
+				: "internal";
 
-      log.warn(
-        { runId, graphId, errorCode, err: error },
-        "Graph execution failed before durable terminal publication"
-      );
+			log.warn(
+				{ runId, graphId, errorCode, err: error },
+				"Graph execution failed before durable terminal publication",
+			);
 
-      // Publish error to Redis so facade subscribers don't hang.
-      try {
-        await runStream.publish(runId, {
-          type: "error",
-          error: errorCode,
-        });
-        await runStream.expire(runId, RUN_STREAM_DEFAULT_TTL_SECONDS);
-      } catch (publishErr) {
-        log.warn(
-          { runId, err: publishErr },
-          "Redis error publish failed after graph execution failure"
-        );
-      }
+			// Publish error to Redis so facade subscribers don't hang.
+			try {
+				await runStream.publish(runId, {
+					type: "error",
+					error: errorCode,
+				});
+				await runStream.expire(runId, RUN_STREAM_DEFAULT_TTL_SECONDS);
+			} catch (publishErr) {
+				log.warn(
+					{ runId, err: publishErr },
+					"Redis error publish failed after graph execution failure",
+				);
+			}
 
-      capture({
-        event: AnalyticsEvents.AGENT_RUN_FAILED,
-        identity: {
-          userId: actorUserId,
-          sessionId: sessionId ?? runId,
-          tenantId: billingAccountId,
-          traceId,
-        },
-        properties: {
-          run_id: runId,
-          error_class: errorCode,
-          error_code: errorCode,
-        },
-      });
+			capture({
+				event: AnalyticsEvents.AGENT_RUN_FAILED,
+				identity: {
+					userId: actorUserId,
+					sessionId: sessionId ?? runId,
+					tenantId: billingAccountId,
+					traceId,
+				},
+				properties: {
+					run_id: runId,
+					error_class: errorCode,
+					error_code: errorCode,
+				},
+			});
 
-      // --- 10a. Finalize idempotency record with failure ---
-      try {
-        await container.executionRequestPort.finalizeRequest(idempotencyKey, {
-          ok: false,
-          errorCode,
-        });
-        await container.graphRunRepository.markRunCompleted(
-          SYSTEM_ACTOR,
-          runId,
-          "error",
-          "Graph execution failed",
-          errorCode
-        );
-      } finally {
-        clearInterval(heartbeat);
-      }
+			// --- 10a. Finalize idempotency record with failure ---
+			try {
+				await container.executionRequestPort.finalizeRequest(idempotencyKey, {
+					ok: false,
+					errorCode,
+				});
+				await container.graphRunRepository.markRunCompleted(
+					SYSTEM_ACTOR,
+					runId,
+					"error",
+					"Graph execution failed",
+					errorCode,
+				);
+			} finally {
+				clearInterval(heartbeat);
+			}
 
-      const errorResponse: InternalGraphRunOutput = {
-        ok: false,
-        runId,
-        traceId,
-        error: errorCode,
-      };
-      return NextResponse.json(errorResponse, { status: 200 });
-    }
+			const errorResponse: InternalGraphRunOutput = {
+				ok: false,
+				runId,
+				traceId,
+				error: errorCode,
+			};
+			return NextResponse.json(errorResponse, { status: 200 });
+		}
 
-    // --- 10. Finalize idempotency record with outcome ---
-    try {
-      await container.executionRequestPort.finalizeRequest(idempotencyKey, {
-        ok: final.ok,
-        errorCode: final.error ?? null,
-      });
-      await container.graphRunRepository.markRunCompleted(
-        SYSTEM_ACTOR,
-        runId,
-        final.ok ? "success" : "error",
-        final.ok ? undefined : "Graph execution failed",
-        final.ok ? undefined : (final.error ?? "internal")
-      );
-    } finally {
-      clearInterval(heartbeat);
-    }
+		// --- 10. Finalize idempotency record with outcome ---
+		try {
+			await container.executionRequestPort.finalizeRequest(idempotencyKey, {
+				ok: final.ok,
+				errorCode: final.error ?? null,
+			});
+			await container.graphRunRepository.markRunCompleted(
+				SYSTEM_ACTOR,
+				runId,
+				final.ok ? "success" : "error",
+				final.ok ? undefined : "Graph execution failed",
+				final.ok ? undefined : (final.error ?? "internal"),
+			);
+		} finally {
+			clearInterval(heartbeat);
+		}
 
-    // --- 11. Return result ---
-    if (final.ok) {
-      log.info({ runId, graphId }, "Scheduled graph execution completed");
-      capture({
-        event: AnalyticsEvents.AGENT_RUN_COMPLETED,
-        identity: {
-          userId: actorUserId,
-          sessionId: sessionId ?? runId,
-          tenantId: billingAccountId,
-          traceId,
-        },
-        properties: {
-          run_id: runId,
-          success: true,
-          agent_type: graphId,
-        },
-      });
-      const successResponse: InternalGraphRunOutput = {
-        ok: true,
-        runId,
-        traceId,
-        ...(final.structuredOutput !== undefined && {
-          structuredOutput: final.structuredOutput,
-        }),
-      };
-      return NextResponse.json(successResponse, { status: 200 });
-    } else {
-      log.warn(
-        { runId, graphId, error: final.error },
-        "Scheduled graph execution failed"
-      );
-      capture({
-        event: AnalyticsEvents.AGENT_RUN_FAILED,
-        identity: {
-          userId: actorUserId,
-          sessionId: sessionId ?? runId,
-          tenantId: billingAccountId,
-          traceId,
-        },
-        properties: {
-          run_id: runId,
-          error_class: final.error ?? "internal",
-          error_code: final.error ?? "internal",
-        },
-      });
-      const errorResponse: InternalGraphRunOutput = {
-        ok: false,
-        runId,
-        traceId,
-        error: final.error ?? "internal",
-      };
-      return NextResponse.json(errorResponse, { status: 200 });
-    }
-  }
+		// --- 11. Return result ---
+		if (final.ok) {
+			log.info({ runId, graphId }, "Scheduled graph execution completed");
+			capture({
+				event: AnalyticsEvents.AGENT_RUN_COMPLETED,
+				identity: {
+					userId: actorUserId,
+					sessionId: sessionId ?? runId,
+					tenantId: billingAccountId,
+					traceId,
+				},
+				properties: {
+					run_id: runId,
+					success: true,
+					agent_type: graphId,
+				},
+			});
+			const successResponse: InternalGraphRunOutput = {
+				ok: true,
+				runId,
+				traceId,
+				...(final.structuredOutput !== undefined && {
+					structuredOutput: final.structuredOutput,
+				}),
+			};
+			return NextResponse.json(successResponse, { status: 200 });
+		} else {
+			log.warn(
+				{ runId, graphId, error: final.error },
+				"Scheduled graph execution failed",
+			);
+			capture({
+				event: AnalyticsEvents.AGENT_RUN_FAILED,
+				identity: {
+					userId: actorUserId,
+					sessionId: sessionId ?? runId,
+					tenantId: billingAccountId,
+					traceId,
+				},
+				properties: {
+					run_id: runId,
+					error_class: final.error ?? "internal",
+					error_code: final.error ?? "internal",
+				},
+			});
+			const errorResponse: InternalGraphRunOutput = {
+				ok: false,
+				runId,
+				traceId,
+				error: final.error ?? "internal",
+			};
+			return NextResponse.json(errorResponse, { status: 200 });
+		}
+	},
 );
 
 // ---------------------------------------------------------------------------
@@ -969,16 +1008,16 @@ export const POST = wrapRouteHandlerWithLogging<RouteParams>(
 
 /** Known response format schemas, keyed by schemaId. */
 const RESPONSE_FORMAT_SCHEMAS: Record<string, z.ZodType> = {
-  "evaluation-output": z.object({
-    metrics: z.array(
-      z.object({
-        metric: z.string(),
-        value: z.number().min(0).max(1),
-        observations: z.array(z.string()),
-      })
-    ),
-    summary: z.string(),
-  }),
+	"evaluation-output": z.object({
+		metrics: z.array(
+			z.object({
+				metric: z.string(),
+				value: z.number().min(0).max(1),
+				observations: z.array(z.string()),
+			}),
+		),
+		summary: z.string(),
+	}),
 };
 
 /**
@@ -988,34 +1027,34 @@ const RESPONSE_FORMAT_SCHEMAS: Record<string, z.ZodType> = {
  * 2. schema: pass-through (for in-process callers that can provide Zod directly)
  */
 function resolveResponseFormat(
-  input: Record<string, unknown>
+	input: Record<string, unknown>,
 ): { prompt?: string; schema: unknown } | undefined {
-  if (
-    input.responseFormat == null ||
-    typeof input.responseFormat !== "object"
-  ) {
-    return undefined;
-  }
+	if (
+		input.responseFormat == null ||
+		typeof input.responseFormat !== "object"
+	) {
+		return undefined;
+	}
 
-  const rf = input.responseFormat as Record<string, unknown>;
+	const rf = input.responseFormat as Record<string, unknown>;
 
-  // Mode 1: schemaId lookup (Temporal/HTTP callers)
-  if (typeof rf.schemaId === "string") {
-    const schema = RESPONSE_FORMAT_SCHEMAS[rf.schemaId];
-    if (!schema) return undefined;
-    return {
-      ...(typeof rf.prompt === "string" ? { prompt: rf.prompt } : {}),
-      schema,
-    };
-  }
+	// Mode 1: schemaId lookup (Temporal/HTTP callers)
+	if (typeof rf.schemaId === "string") {
+		const schema = RESPONSE_FORMAT_SCHEMAS[rf.schemaId];
+		if (!schema) return undefined;
+		return {
+			...(typeof rf.prompt === "string" ? { prompt: rf.prompt } : {}),
+			schema,
+		};
+	}
 
-  // Mode 2: schema pass-through (in-process callers)
-  if (rf.schema !== undefined) {
-    return {
-      ...(typeof rf.prompt === "string" ? { prompt: rf.prompt } : {}),
-      schema: rf.schema,
-    };
-  }
+	// Mode 2: schema pass-through (in-process callers)
+	if (rf.schema !== undefined) {
+		return {
+			...(typeof rf.prompt === "string" ? { prompt: rf.prompt } : {}),
+			schema: rf.schema,
+		};
+	}
 
-  return undefined;
+	return undefined;
 }

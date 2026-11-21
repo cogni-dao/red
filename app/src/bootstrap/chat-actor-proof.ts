@@ -4,6 +4,10 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 interface ChatActorIdentity {
+	readonly nodeId: string;
+	readonly lane: string;
+	readonly idempotencyKey: string;
+	readonly requestHash: string;
 	readonly runId: string;
 	readonly graphId: string;
 	readonly actorUserId: string;
@@ -26,9 +30,13 @@ export function signChatActor(
 	secret: string,
 ): string {
 	return createHmac("sha256", secret)
-		.update("shared-cogni-chat-actor:v1\0")
+		.update("shared-cogni-chat-actor:v2\0")
 		.update(
 			JSON.stringify([
+				identity.nodeId,
+				identity.lane,
+				identity.idempotencyKey,
+				identity.requestHash,
 				identity.runId,
 				identity.graphId,
 				identity.actorUserId,

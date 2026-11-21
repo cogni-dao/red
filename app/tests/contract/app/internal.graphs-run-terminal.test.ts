@@ -19,198 +19,306 @@ const BILLING_ID = "20000000-0000-4000-a000-000000000001";
 const VIRTUAL_KEY_ID = "30000000-0000-4000-a000-000000000001";
 
 const mocks = vi.hoisted(() => ({
-  checkIdempotency: vi.fn().mockResolvedValue({ status: "new" }),
-  createPendingRequest: vi.fn().mockResolvedValue({
-    status: "claimed",
-    request: { runId: "a0000000-0000-4000-a000-000000000001" },
-  }),
-  heartbeatRequest: vi.fn().mockResolvedValue(undefined),
-  finalizeRequest: vi.fn(),
-  markRunCompleted: vi.fn().mockResolvedValue(undefined),
-  publish: vi.fn(async (_runId: string, event: { type: string }) => {
-    if (event.type === "done") throw new Error("redis unavailable");
-  }),
-  saveThread: vi.fn().mockResolvedValue(undefined),
+	executeCount: 0,
+	checkIdempotency: vi.fn().mockResolvedValue({ status: "new" }),
+	createPendingRequest: vi.fn().mockResolvedValue({
+		status: "claimed",
+		request: { runId: "a0000000-0000-4000-a000-000000000001" },
+	}),
+	heartbeatRequest: vi.fn().mockResolvedValue(undefined),
+	finalizeRequest: vi.fn(),
+	markRunCompleted: vi.fn().mockResolvedValue(undefined),
+	publish: vi.fn(async (_runId: string, event: { type: string }) => {
+		if (event.type === "done") throw new Error("redis unavailable");
+	}),
+	saveThread: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/bootstrap/http", () => ({
-  wrapRouteHandlerWithLogging:
-    (_options: unknown, handler: (...args: never[]) => unknown) =>
-    (request: NextRequest, context?: unknown) =>
-      handler(
-        {
-          reqId: "request-1",
-          traceId: "00000000000000000000000000000001",
-          routeId: "graphs.run.internal",
-          clock: { now: () => "2025-01-01T00:00:00.000Z" },
-          log: {
-            info: vi.fn(),
-            warn: vi.fn(),
-            error: vi.fn(),
-            debug: vi.fn(),
-          },
-        } as never,
-        request as never,
-        null as never,
-        context as never
-      ),
+	wrapRouteHandlerWithLogging:
+		(_options: unknown, handler: (...args: never[]) => unknown) =>
+		(request: NextRequest, context?: unknown) =>
+			handler(
+				{
+					reqId: "request-1",
+					traceId: "00000000000000000000000000000001",
+					routeId: "graphs.run.internal",
+					clock: { now: () => "2025-01-01T00:00:00.000Z" },
+					log: {
+						info: vi.fn(),
+						warn: vi.fn(),
+						error: vi.fn(),
+						debug: vi.fn(),
+					},
+				} as never,
+				request as never,
+				null as never,
+				context as never,
+			),
 }));
 
 vi.mock("@/shared/env", () => ({
-  serverEnv: () => ({ SCHEDULER_API_TOKEN: "scheduler-secret-value-1234567890" }),
+	serverEnv: () => ({
+		SCHEDULER_API_TOKEN: "scheduler-secret-value-1234567890",
+		AUTH_SECRET: "test-secret-123456789012345678901234",
+		DEPLOY_ENVIRONMENT: "candidate",
+	}),
 }));
 
 vi.mock("@/bootstrap/graph-executor.factory", () => {
-  const executor = {
-    runGraph: () => ({
-      stream: (async function* () {
-        yield { type: "assistant_final" as const, content: "answer" };
-        yield { type: "done" as const };
-      })(),
-      final: Promise.resolve({
-        ok: true as const,
-        requestId: "a0000000-0000-4000-a000-000000000001",
-        usage: { promptTokens: 1, completionTokens: 1 },
-        finishReason: "stop" as const,
-      }),
-    }),
-  };
-  return {
-    createGraphExecutor: () => executor,
-    createScopedGraphExecutor: () => executor,
-  };
+	const executor = {
+		runGraph: () => {
+			mocks.executeCount++;
+			return {
+				stream: (async function* () {
+					yield { type: "assistant_final" as const, content: "answer" };
+					yield { type: "done" as const };
+				})(),
+				final: Promise.resolve({
+					ok: true as const,
+					requestId: "a0000000-0000-4000-a000-000000000001",
+					usage: { promptTokens: 1, completionTokens: 1 },
+					finishReason: "stop" as const,
+				}),
+			};
+		},
+	};
+	return {
+		createGraphExecutor: () => executor,
+		createScopedGraphExecutor: () => executor,
+	};
 });
 
+vi.mock("@/ports/server", () => ({
+	isGrantExpiredError: () => false,
+	isGrantNotFoundError: () => false,
+	isGrantRevokedError: () => false,
+	isGrantScopeMismatchError: () => false,
+}));
+
 vi.mock("@/bootstrap/container", () => ({
-  getContainer: () => ({
-    executionRequestPort: {
-      checkIdempotency: mocks.checkIdempotency,
-      createPendingRequest: mocks.createPendingRequest,
-      heartbeatRequest: mocks.heartbeatRequest,
-      finalizeRequest: mocks.finalizeRequest,
-    },
-    graphRunRepository: {
-      markRunCompleted: mocks.markRunCompleted,
-    },
-    accountsForUser: () => ({}),
-    providerResolver: {},
-    connectionBroker: undefined,
-    runStream: {
-      publish: mocks.publish,
-      expire: vi.fn().mockResolvedValue(undefined),
-    },
-    threadPersistenceForUser: () => ({
-      loadThread: vi.fn().mockResolvedValue([
-        { id: "message-1", role: "user", parts: [{ type: "text", text: "hello" }] },
-      ]),
-      saveThread: mocks.saveThread,
-      softDelete: vi.fn(),
-      listThreads: vi.fn(),
-    }),
-  }),
+	getContainer: () => ({
+		nodeId: "red",
+		executionRequestPort: {
+			checkIdempotency: mocks.checkIdempotency,
+			createPendingRequest: mocks.createPendingRequest,
+			heartbeatRequest: mocks.heartbeatRequest,
+			finalizeRequest: mocks.finalizeRequest,
+		},
+		graphRunRepository: {
+			markRunCompleted: mocks.markRunCompleted,
+		},
+		accountsForUser: () => ({}),
+		providerResolver: {},
+		connectionBroker: undefined,
+		runStream: {
+			publish: mocks.publish,
+			expire: vi.fn().mockResolvedValue(undefined),
+		},
+		threadPersistenceForUser: () => ({
+			loadThread: vi.fn().mockResolvedValue([
+				{
+					id: "message-1",
+					role: "user",
+					parts: [{ type: "text", text: "hello" }],
+				},
+			]),
+			saveThread: mocks.saveThread,
+			softDelete: vi.fn(),
+			listThreads: vi.fn(),
+		}),
+	}),
 }));
 
 import { POST } from "@/app/api/internal/graphs/[graphId]/runs/route";
+import { signChatActor } from "@/bootstrap/chat-actor-proof";
 
 describe("POST /api/internal/graphs/{graphId}/runs terminal publication", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.checkIdempotency.mockResolvedValue({ status: "new" });
-  });
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.executeCount = 0;
+		mocks.checkIdempotency.mockResolvedValue({ status: "new" });
+	});
 
-  it("finalizes failure when durable done publication rejects", async () => {
-    const response = await POST(
-      new NextRequest(
-        "http://localhost/api/internal/graphs/langgraph:default/runs",
-        {
-          method: "POST",
-          headers: {
-            authorization: "Bearer scheduler-secret-value-1234567890",
-            "content-type": "application/json",
-            "idempotency-key": "ai:scoped-key",
-          },
-          body: JSON.stringify({
-            executionGrantId: null,
-            runId: RUN_ID,
-            input: {
-              messages: [{ role: "user", content: "hello" }],
-              modelRef: { providerKey: "platform", modelId: "test-model" },
-              actorUserId: USER_ID,
-              billingAccountId: BILLING_ID,
-              virtualKeyId: VIRTUAL_KEY_ID,
-              stateKey: "thread-1",
-            },
-          }),
-        }
-      ),
-      { params: Promise.resolve({ graphId: "langgraph:default" }) }
-    );
+	it("finalizes failure when durable done publication rejects", async () => {
+		const response = await POST(
+			new NextRequest(
+				"http://localhost/api/internal/graphs/langgraph:default/runs",
+				{
+					method: "POST",
+					headers: {
+						authorization: "Bearer scheduler-secret-value-1234567890",
+						"content-type": "application/json",
+						"idempotency-key": "ai:scoped-key",
+					},
+					body: JSON.stringify({
+						executionGrantId: null,
+						runId: RUN_ID,
+						input: {
+							messages: [{ role: "user", content: "hello" }],
+							modelRef: { providerKey: "platform", modelId: "test-model" },
+							actorUserId: USER_ID,
+							billingAccountId: BILLING_ID,
+							virtualKeyId: VIRTUAL_KEY_ID,
+							stateKey: "thread-1",
+						},
+					}),
+				},
+			),
+			{ params: Promise.resolve({ graphId: "langgraph:default" }) },
+		);
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      ok: false,
-      runId: RUN_ID,
-      error: "internal",
-    });
-    expect(mocks.saveThread).toHaveBeenCalledOnce();
-    expect(mocks.finalizeRequest).toHaveBeenCalledWith("ai:scoped-key", {
-      ok: false,
-      errorCode: "internal",
-    });
-  });
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({
+			ok: false,
+			runId: RUN_ID,
+			error: "internal",
+		});
+		expect(mocks.saveThread).toHaveBeenCalledOnce();
+		expect(mocks.finalizeRequest).toHaveBeenCalledWith("ai:scoped-key", {
+			ok: false,
+			errorCode: "internal",
+		});
+	});
 
-  it("executes a matching API preclaim without inserting a second pending row", async () => {
-    const requestHash = "a".repeat(64);
-    mocks.checkIdempotency.mockResolvedValue({
-      status: "pending",
-      request: {
-        idempotencyKey: "ai:scoped-key",
-        requestHash,
-        runId: RUN_ID,
-        traceId: null,
-        ok: null,
-        errorCode: null,
-        createdAt: new Date(),
-      },
-    });
+	it("executes a matching API preclaim without inserting a second pending row", async () => {
+		const requestHash = "a".repeat(64);
+		mocks.checkIdempotency.mockResolvedValue({
+			status: "pending",
+			request: {
+				idempotencyKey: "ai:scoped-key",
+				requestHash,
+				runId: RUN_ID,
+				traceId: null,
+				ok: null,
+				errorCode: null,
+				createdAt: new Date(),
+			},
+		});
 
-    const response = await POST(
-      new NextRequest(
-        "http://localhost/api/internal/graphs/langgraph:default/runs",
-        {
-          method: "POST",
-          headers: {
-            authorization: "Bearer scheduler-secret-value-1234567890",
-            "content-type": "application/json",
-            "idempotency-key": "ai:scoped-key",
-          },
-          body: JSON.stringify({
-            executionGrantId: null,
-            runId: RUN_ID,
-            input: {
-              messages: [{ role: "user", content: "hello" }],
-              modelRef: { providerKey: "platform", modelId: "test-model" },
-              actorUserId: USER_ID,
-              billingAccountId: BILLING_ID,
-              virtualKeyId: VIRTUAL_KEY_ID,
-              stateKey: "thread-1",
-              executionRequestHash: requestHash,
-            },
-          }),
-        }
-      ),
-      { params: Promise.resolve({ graphId: "langgraph:default" }) }
-    );
+		const response = await POST(
+			new NextRequest(
+				"http://localhost/api/internal/graphs/langgraph:default/runs",
+				{
+					method: "POST",
+					headers: {
+						authorization: "Bearer scheduler-secret-value-1234567890",
+						"content-type": "application/json",
+						"idempotency-key": "ai:scoped-key",
+					},
+					body: JSON.stringify({
+						executionGrantId: null,
+						runId: RUN_ID,
+						input: {
+							messages: [{ role: "user", content: "hello" }],
+							modelRef: { providerKey: "platform", modelId: "test-model" },
+							actorUserId: USER_ID,
+							billingAccountId: BILLING_ID,
+							virtualKeyId: VIRTUAL_KEY_ID,
+							stateKey: "thread-1",
+							executionRequestHash: requestHash,
+						},
+					}),
+				},
+			),
+			{ params: Promise.resolve({ graphId: "langgraph:default" }) },
+		);
 
-    expect(response.status).toBe(200);
-    expect(mocks.createPendingRequest).not.toHaveBeenCalled();
-    expect(mocks.heartbeatRequest).toHaveBeenCalledWith(
-      "ai:scoped-key",
-      expect.any(String)
-    );
-    expect(mocks.finalizeRequest).toHaveBeenCalledWith("ai:scoped-key", {
-      ok: false,
-      errorCode: "internal",
-    });
-  });
+		expect(response.status).toBe(200);
+		expect(mocks.createPendingRequest).not.toHaveBeenCalled();
+		expect(mocks.heartbeatRequest).toHaveBeenCalledWith(
+			"ai:scoped-key",
+			expect.any(String),
+		);
+		expect(mocks.finalizeRequest).toHaveBeenCalledWith("ai:scoped-key", {
+			ok: false,
+			errorCode: "internal",
+		});
+	});
+});
+
+describe("shared Cogni receiver ownership", () => {
+	const key = "ai:trusted-claim";
+	const hash = "a".repeat(64);
+	const secret = "test-secret-123456789012345678901234";
+	const payload = {
+		messages: [{ role: "user", content: "hello" }],
+		modelRef: { providerKey: "platform", modelId: "test-model" },
+		stateKey: "thread-1",
+	};
+	const identity = {
+		nodeId: "red",
+		lane: "candidate",
+		idempotencyKey: key,
+		requestHash: hash,
+		runId: RUN_ID,
+		graphId: "langgraph:cogni",
+		actorUserId: USER_ID,
+		billingAccountId: BILLING_ID,
+		virtualKeyId: VIRTUAL_KEY_ID,
+		payload,
+	};
+	const request = (requestKey = key, overrides: Record<string, unknown> = {}) =>
+		new NextRequest(
+			"http://localhost/api/internal/graphs/langgraph:cogni/runs",
+			{
+				method: "POST",
+				headers: {
+					authorization: "Bearer scheduler-secret-value-1234567890",
+					"content-type": "application/json",
+					"idempotency-key": requestKey,
+				},
+				body: JSON.stringify({
+					runId: RUN_ID,
+					executionGrantId: null,
+					input: {
+						...payload,
+						actorUserId: USER_ID,
+						billingAccountId: BILLING_ID,
+						virtualKeyId: VIRTUAL_KEY_ID,
+						executionRequestHash: hash,
+						chatActorProof: signChatActor(identity, secret),
+						...overrides,
+					},
+				}),
+			},
+		);
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.executeCount = 0;
+		mocks.checkIdempotency.mockResolvedValue({
+			status: "pending",
+			request: {
+				runId: RUN_ID,
+				idempotencyKey: key,
+				requestHash: hash,
+				ok: null,
+			},
+		});
+	});
+	it("rejects changed claim key and actor payload before the executor", async () => {
+		const params = { params: Promise.resolve({ graphId: "langgraph:cogni" }) };
+		expect((await POST(request("ai:other"), params)).status).toBe(403);
+		expect(
+			(await POST(request(key, { actorUserId: "other" }), params)).status,
+		).toBe(403);
+		expect(mocks.executeCount).toBe(0);
+		expect(mocks.createPendingRequest).not.toHaveBeenCalled();
+	});
+	it("uses the atomic lease claim for simultaneous deliveries", async () => {
+		let claimed = false;
+		mocks.createPendingRequest.mockImplementation(async () => {
+			if (claimed) return { status: "pending", request: { runId: RUN_ID } };
+			claimed = true;
+			return { status: "claimed", request: { runId: RUN_ID } };
+		});
+		const params = { params: Promise.resolve({ graphId: "langgraph:cogni" }) };
+		const responses = await Promise.all([
+			POST(request(), params),
+			POST(request(), params),
+		]);
+		expect(responses.map((r) => r.status).sort()).toEqual([200, 409]);
+		expect(mocks.createPendingRequest).toHaveBeenCalledTimes(2);
+		expect(mocks.executeCount).toBe(1);
+	});
 });

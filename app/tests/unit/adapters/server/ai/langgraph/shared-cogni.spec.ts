@@ -7,8 +7,25 @@ const state = vi.hoisted(() => ({
 	sandbox: 0,
 	mint: 0,
 	live: true,
+	failure: "" as string,
 	legacy: 0,
 	identity: undefined as unknown,
+}));
+const ingress = vi.hoisted(() => ({
+	headers: new Headers(),
+	cookieUser: null as null | {
+		id: string;
+		walletAddress: null;
+		displayName: null;
+		avatarColor: null;
+	},
+}));
+vi.mock("next/headers", () => ({ headers: async () => ingress.headers }));
+vi.mock("@/lib/auth/server", () => ({
+	getServerSessionUser: async () => ingress.cookieUser,
+}));
+vi.mock("@/shared/env/server", () => ({
+	serverEnv: () => ({ AUTH_SECRET: "test-secret-123456789012345678901234" }),
 }));
 vi.mock("@cogni/langgraph-graphs", () => {
 	const cogni = {
@@ -57,11 +74,17 @@ vi.mock("@/shared/observability", () => ({
 	makeLogger: () => ({ debug() {}, info() {}, warn() {}, error() {} }),
 }));
 
+import { aiChatOperation } from "@cogni/node-contracts";
 import {
 	getExecutionScope,
 	runInScope,
 } from "@/adapters/server/ai/execution-scope";
+import { createLangGraphDispatch } from "@/adapters/server/ai/langgraph/dispatch";
 import { LangGraphInProcProvider } from "@/adapters/server/ai/langgraph/inproc.provider";
+import {
+	issueAgentApiKey,
+	resolveRequestIdentity,
+} from "@/app/_lib/auth/request-identity";
 import { signChatActor, verifyChatActor } from "@/bootstrap/chat-actor-proof";
 
 const shell = "core__sandbox_shell";
@@ -93,19 +116,27 @@ const store = {
 	hasLiveRole: async () => state.live,
 };
 const deps = {
-	resolvePrincipal: async () => "program-principal",
+	resolvePrincipal: async () =>
+		state.failure === "principal" ? null : "program-principal",
 	guardDeps: {
-		withStore: async (fn: any) => fn(store),
+		withStore: async (fn: any) => {
+			if (state.failure === "store") throw new Error("unavailable");
+			return fn(store);
+		},
 		adminCheck: async () => "denied" as const,
 	},
-	sourceContext: async () => ({
-		nodeId: "red",
-		origin: "https://red.cognidao.org",
-		mission: { content: "red" },
-		governingIndex: [],
-	}),
+	sourceContext: async () => {
+		if (state.failure === "overflow")
+			throw new Error("governing_index_overflow");
+		return {
+			nodeId: "red",
+			origin: "https://red.cognidao.org",
+			mission: { content: "red" },
+			governingIndex: [],
+		};
+	},
 	isCodingActor: (id: string) => id === actor,
-	sandboxReady: () => true,
+	sandboxReady: () => state.failure !== "sandbox",
 };
 const req = {
 	runId: "run",
@@ -152,6 +183,7 @@ beforeEach(() => {
 	state.sandbox = 0;
 	state.mint = 0;
 	state.live = true;
+	state.failure = "";
 	state.legacy = 0;
 	state.identity = undefined;
 	adapter.executeCompletionUnit.mockClear();
@@ -215,6 +247,16 @@ describe("shared Cogni authority seam", () => {
 		expect(state.legacy).toBe(1);
 		expect(state.options).toBeUndefined();
 	});
+	it.each(["principal", "store", "sandbox", "overflow"])(
+		"fails before effects when %s is unavailable",
+		async (failure) => {
+			state.failure = failure;
+			expect(await launch(actor)).toBeUndefined();
+			expect(adapter.executeCompletionUnit).not.toHaveBeenCalled();
+			expect(state.sandbox).toBe(0);
+			expect(state.mint).toBe(0);
+		},
+	);
 	it("fails before the model when the coding grant is missing", async () => {
 		state.live = false;
 		const opts = await launch(actor);
@@ -225,6 +267,10 @@ describe("shared Cogni authority seam", () => {
 
 describe("trusted chat workflow identity", () => {
 	const identity = {
+		nodeId: "red",
+		lane: "candidate",
+		idempotencyKey: "claim",
+		requestHash: "hash",
 		runId: "run",
 		graphId: "langgraph:cogni",
 		actorUserId: actor,
@@ -235,6 +281,23 @@ describe("trusted chat workflow identity", () => {
 	it("accepts authenticated launcher proof and rejects actor or run spoofing", () => {
 		const proof = signChatActor(identity, "test-secret");
 		expect(verifyChatActor(identity, "test-secret", proof)).toBe(true);
+		expect(
+			verifyChatActor(
+				{ ...identity, idempotencyKey: "other" },
+				"test-secret",
+				proof,
+			),
+		).toBe(false);
+		expect(
+			verifyChatActor(
+				{ ...identity, requestHash: "other" },
+				"test-secret",
+				proof,
+			),
+		).toBe(false);
+		expect(
+			verifyChatActor({ ...identity, lane: "other" }, "test-secret", proof),
+		).toBe(false);
 		expect(
 			verifyChatActor(
 				{ ...identity, actorUserId: "other" },
@@ -253,5 +316,44 @@ describe("trusted chat workflow identity", () => {
 			),
 		).toBe(false);
 		expect(verifyChatActor(identity, "test-secret", undefined)).toBe(false);
+	});
+});
+
+describe("development namespace composition", () => {
+	it("routes Cogni in-process and legacy graphs to dev", () => {
+		const inproc = { runGraph: vi.fn() };
+		const dev = { runGraph: vi.fn() };
+		const router = createLangGraphDispatch(inproc as any, dev as any);
+		router.runGraph({ graphId: "langgraph:cogni" } as any);
+		router.runGraph({ graphId: "langgraph:brain" } as any);
+		expect(inproc.runGraph).toHaveBeenCalledOnce();
+		expect(dev.runGraph).toHaveBeenCalledOnce();
+	});
+});
+
+describe("chat ingress identity", () => {
+	it("resolves cookie and bearer from their authenticated sources and strips JSON identity claims", async () => {
+		ingress.cookieUser = {
+			id: actor,
+			walletAddress: null,
+			displayName: null,
+			avatarColor: null,
+		};
+		ingress.headers = new Headers();
+		expect((await resolveRequestIdentity())?.id).toBe(actor);
+		const token = issueAgentApiKey({ userId: actor, displayName: null });
+		ingress.headers = new Headers({ authorization: `Bearer ${token}` });
+		expect((await resolveRequestIdentity())?.id).toBe(actor);
+		const parsed = aiChatOperation.input.parse({
+			message: "hello",
+			graphName: "langgraph:cogni",
+			modelRef: { providerKey: "platform", modelId: "model" },
+			actorUserId: "attacker",
+			program: "attacker",
+			codingActorIds: ["attacker"],
+		});
+		expect(parsed).not.toHaveProperty("actorUserId");
+		expect(parsed).not.toHaveProperty("program");
+		expect(parsed).not.toHaveProperty("codingActorIds");
 	});
 });

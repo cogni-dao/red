@@ -26,19 +26,19 @@ import type { BillingContext, LlmService } from "@/ports";
  * Shared ExecutionContext (actorUserId, sessionId, etc.) flows via runGraph(req, ctx).
  */
 export interface ExecutionScope {
-  readonly billing: BillingContext;
-  /** The run this scope serves. A tool that needs per-run state (the sandbox folder) reads it here. */
-  readonly runId?: string;
-  /** Actor who initiated this run. Used by tools that need user-scoped operations (e.g., schedule CRUD). */
-  readonly actorUserId?: string;
-  readonly principalId?: string;
-  readonly subjectUserId?: string;
-  /** Chat-only temporary tech debt — browser disconnect, not durable cancellation. */
-  readonly abortSignal?: AbortSignal;
-  /** Resolved LlmService for this run (from ModelProviderPort.createLlmService). */
-  readonly llmService: LlmService;
-  /** Billing source system for usage attribution (from ModelProviderPort.usageSource). */
-  readonly usageSource: SourceSystem;
+	readonly billing: BillingContext;
+	/** The run this scope serves. A tool that needs per-run state (the sandbox folder) reads it here. */
+	readonly runId?: string;
+	/** Actor who initiated this run. Used by tools that need user-scoped operations (e.g., schedule CRUD). */
+	readonly actorUserId?: string;
+	readonly principalId?: string;
+	readonly subjectUserId?: string;
+	/** Chat-only temporary tech debt — browser disconnect, not durable cancellation. */
+	readonly abortSignal?: AbortSignal;
+	/** Resolved LlmService for this run (from ModelProviderPort.createLlmService). */
+	readonly llmService: LlmService;
+	/** Billing source system for usage attribution (from ModelProviderPort.usageSource). */
+	readonly usageSource: SourceSystem;
 }
 
 const executionScopeStorage = new AsyncLocalStorage<ExecutionScope>();
@@ -47,18 +47,18 @@ const executionScopeStorage = new AsyncLocalStorage<ExecutionScope>();
  * Get the current execution scope. Throws if called outside runInScope.
  */
 export function getExecutionScope(): ExecutionScope {
-  const scope = executionScopeStorage.getStore();
-  if (!scope) {
-    throw new Error(
-      "getExecutionScope() called outside runInScope — billing context not available"
-    );
-  }
-  return scope;
+	const scope = executionScopeStorage.getStore();
+	if (!scope) {
+		throw new Error(
+			"getExecutionScope() called outside runInScope — billing context not available",
+		);
+	}
+	return scope;
 }
 
 /** The current execution scope, or undefined outside runInScope. For observers that must never throw (story.0061). */
 export function findExecutionScope(): ExecutionScope | undefined {
-  return executionScopeStorage.getStore();
+	return executionScopeStorage.getStore();
 }
 
 /**
@@ -66,5 +66,5 @@ export function findExecutionScope(): ExecutionScope | undefined {
  * Sets billing + abort for the duration of the call (and all async continuations).
  */
 export function runInScope<T>(scope: ExecutionScope, fn: () => T): T {
-  return executionScopeStorage.run(scope, fn);
+	return executionScopeStorage.run(scope, fn);
 }
