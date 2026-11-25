@@ -34,6 +34,18 @@ const refuse = (
 	),
 });
 
+function isPublicOrigin(request: Request): boolean {
+	const origin = request.headers.get("origin");
+	const host =
+		request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+	if (!origin || !host) return false;
+	try {
+		return new URL(origin).host === host;
+	} catch {
+		return false;
+	}
+}
+
 export async function requireAdminSession(
 	request: Request,
 	action: string,
@@ -52,10 +64,11 @@ export async function requireAdminSession(
 				?.toLowerCase()
 				.startsWith("bearer ") === true;
 		// Cookie mutations must originate at this page. JSON is also enforced by the route.
+		// Behind the ingress `request.url` is the in-pod bind address, so compare the public host.
 		if (
 			!bearer &&
 			request.method !== "GET" &&
-			request.headers.get("origin") !== new URL(request.url).origin
+			!isPublicOrigin(request)
 		) {
 			return refuse("authz_denied", 403, actorUserId, "origin_refused");
 		}

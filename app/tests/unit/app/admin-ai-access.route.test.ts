@@ -154,7 +154,12 @@ const withStore: WithStore = async (fn) => fn(store);
 function request(
 	method: string,
 	body?: unknown,
-	options: { userId?: string; bearer?: boolean; origin?: string | null } = {},
+	options: {
+		userId?: string;
+		bearer?: boolean;
+		origin?: string | null;
+		url?: string;
+	} = {},
 ) {
 	const userId = options.userId ?? ADMIN;
 	const headers = new Headers({
@@ -176,11 +181,14 @@ function request(
 		displayName: "Fixture",
 		avatarColor: null,
 	});
-	return new NextRequest("https://red.example/api/v1/admin/ai-access", {
-		method,
-		headers,
-		...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-	});
+	return new NextRequest(
+		options.url ?? "https://red.example/api/v1/admin/ai-access",
+		{
+			method,
+			headers,
+			...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+		},
+	);
 }
 
 const target = { principalUserId: PRINCIPAL, scope: SCOPE };
@@ -429,6 +437,14 @@ describe("internal AI permission HTTP and port composition", () => {
 			expect(insertRole).not.toHaveBeenCalled();
 		},
 	);
+
+	it("accepts a cookie write whose origin matches the ingress host, not the in-pod url", async () => {
+		const req = request("POST", target, {
+			url: "http://0.0.0.0:3000/api/v1/admin/ai-access",
+		});
+		expect((await POST(req)).status).toBeLessThan(300);
+		expect(insertRole).toHaveBeenCalled();
+	});
 
 	it.each([
 		{ ...target, scope: "account:read" },
