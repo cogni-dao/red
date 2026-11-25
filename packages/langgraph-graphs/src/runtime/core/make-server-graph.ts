@@ -42,11 +42,11 @@ import { toLangChainToolsCaptured } from "./langchain-tools";
  *
  * @example
  * ```typescript
- * // graphs/poet/server.ts
- * export const poet = await makeServerGraph({
- *   name: POET_GRAPH_NAME,
- *   createGraph: createPoetGraph,
- *   toolIds: POET_TOOL_IDS,
+ * // graphs/red-solver/server.ts
+ * export const redSolver = await makeServerGraph({
+ *   name: RED_SOLVER_GRAPH_NAME,
+ *   createGraph: createRedSolverGraph,
+ *   toolIds: RED_SOLVER_TOOL_IDS,
  * });
  * ```
  */

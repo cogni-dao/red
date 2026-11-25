@@ -161,7 +161,7 @@ export class LangGraphInProcProvider implements GraphExecutorPort {
 		const scope = getExecutionScope();
 		const requestId = ctx?.requestId ?? req.runId;
 
-		// Extract graph name from graphId (e.g., "langgraph:poet" → "poet")
+		// Extract graph name from graphId (e.g., "langgraph:cogni" → "cogni")
 		const graphName = this.extractGraphName(graphId);
 		if (!graphName) {
 			this.log.error({ runId, graphId }, "Invalid graphId format");
@@ -591,7 +591,7 @@ export class LangGraphInProcProvider implements GraphExecutorPort {
 
 	/**
 	 * Extract graph name from namespaced graphId.
-	 * Per GRAPH_ID_NAMESPACED: "langgraph:poet" → "poet"
+	 * Per GRAPH_ID_NAMESPACED: "langgraph:cogni" → "cogni"
 	 */
 	private extractGraphName(graphId: string): string | undefined {
 		const prefix = `${this.providerId}:`;

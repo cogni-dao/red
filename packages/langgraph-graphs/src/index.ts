@@ -30,13 +30,7 @@ export {
 	type LangGraphGraphId,
 } from "./catalog";
 // Re-export graph constants and factories
-export {
-	AUTORESEARCH_REGISTRY_SWARM_GRAPH_NAME,
-	AUTORESEARCH_SINGLE_LANE_GRAPH_NAME,
-	AUTORESEARCH_SYNTROPY_LOOP_GRAPH_NAME,
-	BRAIN_GRAPH_NAME,
-	POET_GRAPH_NAME,
-} from "./graphs/index";
+export { RED_SOLVER_GRAPH_NAME } from "./graphs/index";
 // Re-export inproc runner (all LangChain logic contained in package)
 export { createInProcGraphRunner } from "./inproc/runner";
 // Re-export inproc types for provider to use

@@ -42,29 +42,9 @@ const AVAILABLE_GRAPHS: readonly GraphOption[] = [
 		description: "Coordinates node duties and answers questions",
 	},
 	{
-		graphId: "langgraph:poly-brain" satisfies GraphId,
-		name: "Poly Brain",
-		description: "Prediction market analyst with live market data",
-	},
-	{
-		graphId: "langgraph:brain" satisfies GraphId,
-		name: "Brain",
-		description: "Code-aware assistant with repo access",
-	},
-	{
-		graphId: "langgraph:poet" satisfies GraphId,
-		name: "Poet",
-		description: "Poetic AI assistant with structured verse",
-	},
-	{
-		graphId: "langgraph:ponderer" satisfies GraphId,
-		name: "Ponderer",
-		description: "Philosophical thinker",
-	},
-	{
-		graphId: "langgraph:research" satisfies GraphId,
-		name: "Research",
-		description: "Deep research with web search",
+		graphId: "langgraph:work-prioritizer" satisfies GraphId,
+		name: "Work Prioritizer",
+		description: "Reads open work and reports the routes and scores it would make",
 	},
 	{
 		graphId: "langgraph:red-solver" satisfies GraphId,
@@ -72,26 +52,10 @@ const AVAILABLE_GRAPHS: readonly GraphOption[] = [
 		description:
 			"Authorized ethical red-team solver — scope-bound HTTP attack loop",
 	},
-	{
-		graphId: "langgraph:browser" satisfies GraphId,
-		name: "Browser",
-		description: "Web browsing agent with Playwright MCP",
-	},
-	{
-		graphId: "langgraph:frontend-tester" satisfies GraphId,
-		name: "Frontend Tester",
-		description: "QA agent — tests web UIs via Playwright",
-	},
-	{
-		graphId: "langgraph:operating-review" satisfies GraphId,
-		name: "Operating Review",
-		description:
-			"Periodic review — triages backlog, flags risks, produces structured briefs",
-	},
 ];
 
 /** Default graph ID - exported for page initialization */
-export const DEFAULT_GRAPH_ID: GraphId = "langgraph:brain";
+export const DEFAULT_GRAPH_ID: GraphId = "langgraph:cogni";
 
 export interface ChatComposerExtrasProps {
 	selectedModel: string;

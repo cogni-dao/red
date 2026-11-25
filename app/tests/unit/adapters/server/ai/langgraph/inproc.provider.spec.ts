@@ -22,6 +22,24 @@ import type { CompletionUnitAdapter } from "@/adapters/server/ai/langgraph/inpro
 import { LangGraphInProcProvider } from "@/adapters/server/ai/langgraph/inproc.provider";
 import type { GraphRunRequest } from "@/ports";
 
+// A plain harness graph (no tools, no shared runtime): provider wiring runs on this test-only entry.
+vi.mock("@cogni/langgraph-graphs", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@cogni/langgraph-graphs")>();
+  return {
+    ...actual,
+    LANGGRAPH_CATALOG: {
+      ...actual.LANGGRAPH_CATALOG,
+      "test-plain": {
+        displayName: "Test plain",
+        description: "plain harness graph without tools",
+        toolIds: [],
+        graphFactory: actual.LANGGRAPH_CATALOG["red-solver"].graphFactory,
+      },
+    },
+  };
+});
+
 const TEST_SCOPE = {
   billing: {
     billingAccountId: "test-billing",
@@ -118,7 +136,7 @@ function createTestRequest(
     runId: "test-run-id",
     messages: [{ role: "user", content: "Hello" }],
     modelRef: { providerKey: "platform", modelId: "test-model" },
-    graphId: "langgraph:poet",
+    graphId: "langgraph:test-plain",
     ...overrides,
   };
 }
@@ -142,7 +160,7 @@ describe("LangGraphInProcProvider", () => {
           mockToolSource
         );
 
-        const request = createTestRequest({ graphId: "langgraph:poet" });
+        const request = createTestRequest({ graphId: "langgraph:test-plain" });
         const { stream, final } = provider.runGraph(request);
 
         const events = await collectEvents(stream);
@@ -223,7 +241,7 @@ describe("LangGraphInProcProvider", () => {
 
         // Request with wrong provider prefix
         const request = createTestRequest({
-          graphId: "wrong_provider:poet",
+          graphId: "wrong_provider:test-plain",
         });
         const { stream, final } = provider.runGraph(request);
 

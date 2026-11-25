@@ -40,8 +40,8 @@ vi.mock("@cogni/langgraph-graphs", () => {
 	return {
 		LANGGRAPH_CATALOG: {
 			cogni,
-			poet: {
-				displayName: "Poet",
+			"red-solver": {
+				displayName: "Red Solver",
 				description: "legacy",
 				toolIds: [],
 				graphFactory: () => ({}),
@@ -248,7 +248,7 @@ describe("shared Cogni authority seam", () => {
 		} as any;
 		const provider = new LangGraphInProcProvider(adapter as any, source as any);
 		await runInScope(scope, async () => {
-			await provider.runGraph({ ...req, graphId: "langgraph:poet" } as any, {
+			await provider.runGraph({ ...req, graphId: "langgraph:red-solver" } as any, {
 				actorUserId: actor,
 			}).final;
 		});
@@ -334,7 +334,7 @@ describe("development namespace composition", () => {
 		const dev = { runGraph: vi.fn() };
 		const router = createLangGraphDispatch(inproc as any, dev as any);
 		router.runGraph({ graphId: "langgraph:cogni" } as any);
-		router.runGraph({ graphId: "langgraph:brain" } as any);
+		router.runGraph({ graphId: "langgraph:red-solver" } as any);
 		expect(inproc.runGraph).toHaveBeenCalledOnce();
 		expect(dev.runGraph).toHaveBeenCalledOnce();
 	});
