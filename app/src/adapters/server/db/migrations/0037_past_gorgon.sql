@@ -103,6 +103,22 @@ ALTER TABLE "payer_bindings" DROP CONSTRAINT IF EXISTS "payer_bindings_approval_
 --> statement-breakpoint
 ALTER TABLE "payer_bindings" ADD CONSTRAINT "payer_bindings_approval_is_paired" CHECK (("payer_bindings"."approved_by" IS NULL) = ("payer_bindings"."approved_at" IS NULL));
 --> statement-breakpoint
+-- A table leaked from the shared candidate database can carry rows for users this node never had.
+-- They are unusable here (no user, no billing account); drop them so the foreign keys below can hold.
+ALTER TABLE "payer_bindings" NO FORCE ROW LEVEL SECURITY;
+--> statement-breakpoint
+ALTER TABLE "agent_credentials" NO FORCE ROW LEVEL SECURITY;
+--> statement-breakpoint
+DELETE FROM "payer_bindings" pb WHERE NOT EXISTS (SELECT 1 FROM "users" u WHERE u."id" = pb."subject_user_id")
+  OR NOT EXISTS (SELECT 1 FROM "billing_accounts" b WHERE b."id" = pb."billing_account_id")
+  OR (pb."approved_by" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "users" u WHERE u."id" = pb."approved_by"))
+  OR (pb."revoked_by" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "users" u WHERE u."id" = pb."revoked_by"));
+--> statement-breakpoint
+DELETE FROM "agent_credentials" c WHERE NOT EXISTS (SELECT 1 FROM "users" u WHERE u."id" = c."user_id");
+--> statement-breakpoint
+UPDATE "agent_credentials" c SET "predecessor_id" = NULL WHERE c."predecessor_id" IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM "agent_credentials" p WHERE p."id" = c."predecessor_id");
+--> statement-breakpoint
 ALTER TABLE "agent_credentials" DROP CONSTRAINT IF EXISTS "agent_credentials_user_id_users_id_fk";
 --> statement-breakpoint
 ALTER TABLE "agent_credentials" ADD CONSTRAINT "agent_credentials_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
