@@ -114,6 +114,8 @@ function sharedTool(id: string): CatalogBoundTool {
 }
 
 export const CORE_TOOL_BUNDLE: readonly CatalogBoundTool[] = [
+  // Account read (account:read, kind account): opens only for a principal with a live row for the run's account; bound in bootstrap.
+  sharedTool("core__account_credits_read"),
   // Goal KPIs: contracts from the published ai-tools release; bindings come
   // from bootstrap (createMetricTools over the node's goalMetrics service).
   sharedTool("core__goal_progress"),
@@ -148,6 +150,16 @@ export const CORE_TOOL_BUNDLE: readonly CatalogBoundTool[] = [
   // deliberately not in this catalog: no red program may write through it until the program plumbing
   // (program, sourceContext, run hooks) is ported.
   sharedTool("core__work_item_read"),
+];
+
+/**
+ * ROUTE_TWIN_CONTRACTS: contracts that node routes twin (`sameDoor`) but that no red graph is offered. They declare the permission once
+ * (DECLARED_ONCE_SHOWN_EVERYWHERE) so the route door and the admin table read one catalog. They are NOT in CORE_TOOL_BUNDLE, so no graph
+ * or tool source can run them: work-item writes stay off for red programs until the program plumbing is ported.
+ */
+export const ROUTE_TWIN_CONTRACTS: readonly CatalogBoundTool[] = [
+  sharedTool("core__work_item_update"),
+  sharedTool("core__work_item_artifact_record"),
 ];
 
 /**

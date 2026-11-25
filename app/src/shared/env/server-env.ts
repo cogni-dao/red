@@ -162,6 +162,9 @@ export const serverSchema = z.object({
 
 	// GitHub webhook secret - HMAC-SHA256 verification for incoming GitHub webhook payloads.
 	// Required when GitHub webhook ingestion is enabled. Per WEBHOOK_SECRET_NOT_IN_CODE.
+	// Service assertions (story.0038): this node signs short-lived assertions as a home with an Ed25519 key derived from this 32-byte hex seed.
+	// Optional: unset = no jwks route and no outbound signer. Homes and targets are Git config (.cogni/service-links.yaml), not env.
+	SERVICE_ASSERTION_SIGNING_SEED: optionalString,
 	GH_WEBHOOK_SECRET: optionalString,
 
 	// Alchemy webhook secret - HMAC-SHA256 verification for incoming Alchemy webhook payloads.

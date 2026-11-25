@@ -38,6 +38,7 @@ export const POST = wrapRouteHandlerWithLogging<{
 }>(
   {
     routeId: "work.items.artifacts.create",
+    sameDoor: "core__work_item_artifact_record",
     auth: { mode: "required", getSessionUser },
   },
   async (ctx, request, sessionUser, context) => {

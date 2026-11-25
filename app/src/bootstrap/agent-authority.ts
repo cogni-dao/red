@@ -63,7 +63,6 @@ import {
 	type WithStore,
 	writeExternalPrincipal,
 } from "@cogni/agent-grants";
-import { canonicalRepoRef, ensureOrg, type OrgOwners, type OrgSource } from "@cogni/agent-grants/orgs";
 import {
 	findServicePrincipal,
 	requestServiceAccess,
@@ -150,11 +149,6 @@ export interface AgentToolAuthority {
 	registerAgent(input: { userId: string; name: string }): Promise<void>;
 	/** `org` for an org's user, `agent` for any other `agent_principals` row, else `human` (KIND_IS_THE_ROW). */
 	principalKind(userId: string): Promise<PrincipalKind>;
-	/**
-	 * The org for an owner source, created if absent (idempotent, one transaction): its users row, its `org` principal and one ordinary billing account. Grants
-	 * nothing (REGISTRATION_GRANTS_NOTHING). Throws `InvalidOrgSourceError` for a source that is not a canonical repo.
-	 */
-	ensureOrg(source: OrgSource): Promise<{ userId: string; billingAccountId: string }>;
 	/** The principal of a verified service assertion, or null until that service has asked (a call before the ask is a 401). */
 	servicePrincipalOf(assertion: Pick<VerifiedServiceAssertion, "issuer" | "service">): Promise<string | null>;
 	/**
@@ -232,8 +226,6 @@ export function createAgentToolAuthority(deps: {
 	toolBundle: readonly CatalogBoundTool[];
 	/** The id of the billing account this person owns, created on first use. A person who never opened credits has none until they decide a grant. */
 	ensureBillingAccount?: (userId: string) => Promise<string>;
-	/** Owner sources (0.8.0): with them an account owned by an org is also owned by each of the org's owners at the route door. */
-	owners?: OrgOwners;
 }): AgentToolAuthority {
 	const requiresById = buildRequiresById(deps.toolBundle);
 	// Declared once, shown everywhere: one derivation feeds the role routes, the ask door and agent discovery.
@@ -301,7 +293,7 @@ export function createAgentToolAuthority(deps: {
 			const decision: AuthzDecision = !requires
 				? { decision: "deny", code: "policy_denied", reason: "no_requires" }
 				: await withStore((store) =>
-						authorizeCaller(store, adminCheck, { userId, via, requires, accountId, owners: deps.owners })
+						authorizeCaller(store, adminCheck, { userId, via, requires, accountId })
 					).catch(
 						(): AuthzDecision => ({
 							decision: "deny",
@@ -413,7 +405,7 @@ export function createAgentToolAuthority(deps: {
 		async turnMineOn(me, input) {
 			// The orchestration (validate, then ensure the person's account, then decide) is the package's; this wrapper only wires the account hook and logs.
 			const result = await withStore((store) =>
-				turnMineOn(store, { me, on: input, declaredScopes, scopeKinds, ensureAccount: deps.ensureBillingAccount, owners: deps.owners })
+				turnMineOn(store, { me, on: input, declaredScopes, scopeKinds, ensureAccount: deps.ensureBillingAccount })
 			);
 			if (result.changed)
 				deps.log.info(
@@ -429,7 +421,7 @@ export function createAgentToolAuthority(deps: {
 			return { changed: result.changed };
 		},
 		async turnMineOff(me, input) {
-			const result = await withStore((store) => turnMineOff(store, { me, off: input, owners: deps.owners }));
+			const result = await withStore((store) => turnMineOff(store, { me, off: input }));
 			if (result.changed)
 				deps.log.info(
 					result.via === "row"
@@ -450,7 +442,7 @@ export function createAgentToolAuthority(deps: {
 			const owners = await ownersForBinding(
 				createPostgresPayerBindingStore(deps.sql),
 				createPostgresAgentGrantsStore(deps.sql),
-				deps.owners,
+				undefined,
 				id
 			);
 			const result = await deps.sql.begin((tx) =>
@@ -477,7 +469,7 @@ export function createAgentToolAuthority(deps: {
 			const owners = await ownersForBinding(
 				createPostgresPayerBindingStore(deps.sql),
 				createPostgresAgentGrantsStore(deps.sql),
-				deps.owners,
+				undefined,
 				id
 			);
 			const result = await deps.sql.begin((tx) =>
@@ -521,14 +513,6 @@ export function createAgentToolAuthority(deps: {
 			});
 		},
 		principalKind: (userId) => principalKindOf(deps.sql, userId),
-		async ensureOrg(source) {
-			const org = await deps.sql.begin((tx) => ensureOrg(tx, source));
-			deps.log.info(
-				{ event: EVENT_NAMES.ORG_ENSURED, orgUserId: org.userId, sourceRef: canonicalRepoRef(source.ref, source.path) ?? source.ref },
-				EVENT_NAMES.ORG_ENSURED
-			);
-			return org;
-		},
 		servicePrincipalOf: (assertion) => findServicePrincipal(deps.sql, assertion),
 		async requestServiceAccess(assertion, scope) {
 			const { userId, outcome } = await deps.sql.begin((tx) =>

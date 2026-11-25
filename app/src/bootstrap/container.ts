@@ -19,7 +19,7 @@ import type {
 	RepoCapability,
 	WebSearchCapability,
 } from "@cogni/ai-tools";
-import { CORE_TOOL_BUNDLE } from "@cogni/ai-tools";
+import { CORE_TOOL_BUNDLE, ROUTE_TWIN_CONTRACTS } from "@cogni/ai-tools";
 import type { AttributionStore } from "@cogni/attribution-ledger";
 import {
 	createDefaultRegistries,
@@ -157,7 +157,11 @@ import {
 	createAgentToolAuthority,
 } from "@/bootstrap/agent-authority";
 import { createToolBindings } from "@/bootstrap/ai/tool-bindings";
+import { createServiceAuth, type ServiceAuth } from "@/bootstrap/service-auth";
+import { createServiceLinks, type ServiceLinks } from "@/bootstrap/service-links";
+import { loadServiceLinksConfig } from "@/bootstrap/service-links-config";
 import { createBoundToolSource } from "@/bootstrap/ai/tool-source.factory";
+import { createAccountCreditsCapability } from "@/bootstrap/capabilities/account-credits";
 import { createCitationLinksPort } from "@/bootstrap/capabilities/citation-links";
 import {
 	createGoalMetrics,
@@ -182,7 +186,10 @@ import {
 } from "@/bootstrap/capabilities/work-item-pr-facts";
 import type { RateLimitBypassConfig } from "@/bootstrap/http/wrapPublicRoute";
 import { localReadinessPreflight } from "@/bootstrap/local-readiness-preflight";
-import { createApproversNodeAdminAuthority } from "@/bootstrap/node-admin-gate";
+import {
+	createAdminCheckNodeAdminAuthority,
+	createApproversNodeAdminAuthority,
+} from "@/bootstrap/node-admin-gate";
 import { createNodeAdminPort } from "@/bootstrap/node-admin-port";
 import { startProcessHealthPublisher } from "@/bootstrap/publishers";
 import { createStreamRedisClient } from "@/bootstrap/stream-redis-client";
@@ -301,6 +308,10 @@ export interface Container {
 	/** AI-access composition only; existing legacy admin surfaces keep their guards. */
 	agentAuthority: AgentToolAuthority;
 	nodeAdminPort: NodeAdminPort;
+	/** story.0038: this node as a home (signer) and as a target (verifier over the trusted homes). */
+	serviceAuth: ServiceAuth;
+	/** story.0038: the nodes this node's AI may ask (`.cogni/service-links.yaml`). */
+	serviceLinks: ServiceLinks;
 	/** Direct knowledge store port — exposed for the cookie-only browse endpoint. Undefined when DOLTGRES_URL is unset. */
 	knowledgeStorePort: KnowledgeStorePort | undefined;
 	/** EDO hypothesis-loop capability for the langgraph tool bindings AND the bearer-auth REST routes under /api/v1/edo. Always present (stubs throw when DOLTGRES_URL is unset). */
@@ -816,14 +827,47 @@ function createContainer(): Container {
 	let edoCapability: EdoCapability;
 	let knowledgeContributionService: ContributionService | undefined;
 	let goalMetrics: MetricService | undefined;
-	const nodeAdmin = createApproversNodeAdminAuthority();
+	// The repo-spec roster: handed only to the agent authority, which asks it per bound wallet inside `adminCheck` (ONE_ADMIN_CHECK).
+	const adminRoster = createApproversNodeAdminAuthority();
+	// Every caller asks the one admin check, never the roster. A thunk: the authority is built after this.
+	const nodeAdmin = createAdminCheckNodeAdminAuthority(
+		() => agentAuthority.adminCheck,
+	);
+	// story.0038: the homes this node trusts and the nodes its AI calls are Git config for this deployment (.cogni/service-links.yaml);
+	// none when the file or the key is missing. The signer is read lazily, so `serviceLinks` may be built first.
+	const serviceLinksConfig = loadServiceLinksConfig({
+		environment: env.DEPLOY_ENVIRONMENT,
+		repoRoot: env.COGNI_REPO_ROOT,
+		log,
+	});
+	const serviceLinks = createServiceLinks({
+		targets: serviceLinksConfig.targets,
+		signer: () => serviceAuth.getSigner(),
+		log,
+	});
+	const agentSql = serviceDb.$client as unknown as AgentAuthoritySql;
+	const serviceAuth = createServiceAuth({
+		env,
+		trustedHomes: serviceLinksConfig.trustedHomes,
+		nodeId,
+		log,
+	});
 	// One authority: its permission catalog derives from the tool contracts (DECLARED_ONCE_SHOWN_EVERYWHERE).
 	const agentAuthority = createAgentToolAuthority({
 		// Service role: agent_roles / agent_principals are deny-all for the app role.
-		sql: serviceDb.$client as unknown as AgentAuthoritySql,
-		nodeAdmin,
+		sql: agentSql,
+		nodeAdmin: adminRoster,
 		log,
-		toolBundle: [...CORE_TOOL_BUNDLE],
+		toolBundle: [...CORE_TOOL_BUNDLE, ...ROUTE_TWIN_CONTRACTS],
+		// The owner join in an account decision needs the person's account to exist; it is created on their first decision.
+		ensureBillingAccount: async (userId) =>
+			(
+				await new UserDrizzleAccountService(
+					db,
+					toUserId(userId),
+					financialLedger,
+				).getOrCreateBillingAccountForUser({ userId })
+			).id,
 	});
 	const nodeAdminPort = createNodeAdminPort(agentAuthority);
 	let knowledgeStorePort: KnowledgeStorePort | undefined;
@@ -1084,6 +1128,10 @@ function createContainer(): Container {
 		scheduleCapability,
 		vcsCapability: stubVcsCapability,
 		workItemCapability,
+		accountCreditsCapability: createAccountCreditsCapability({
+			accountsForUser: (userId: UserId) =>
+				new UserDrizzleAccountService(db, userId, financialLedger),
+		}),
 	});
 	const goalProgress = createGoalProgressReader({
 		// knowledgeStorePort uses doltClient, not the reserved knowledgeWriter.
@@ -1253,6 +1301,8 @@ function createContainer(): Container {
 		nodeAdmin,
 		agentAuthority,
 		nodeAdminPort,
+		serviceAuth,
+		serviceLinks,
 		knowledgeStorePort,
 		knowledgeReadCounter,
 		edoCapability,

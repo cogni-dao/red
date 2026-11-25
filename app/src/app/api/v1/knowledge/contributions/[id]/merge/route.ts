@@ -22,6 +22,8 @@ export const POST = wrapRouteHandlerWithLogging<{
 }>(
   {
     routeId: "knowledge.contributions.merge",
+    bearerWrite:
+			"merging runs the one admin check (agentAuthority.adminCheck) on the caller's own user id in the service, identical for a session and a bearer; no scope or role row",
     auth: { mode: "required", getSessionUser },
   },
   async (_ctx, request, sessionUser, context) => {

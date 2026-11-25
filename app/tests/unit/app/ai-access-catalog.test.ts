@@ -5,7 +5,7 @@
  * The admin table is derived from the tool contracts and the graph catalog, never from a hardcoded scope: every scope a
  * node AI's remaining tools declare shows with On/Off, and a live grant written before the derivation still reads On.
  */
-import { CORE_TOOL_BUNDLE } from "@cogni/ai-tools";
+import { CORE_TOOL_BUNDLE, ROUTE_TWIN_CONTRACTS } from "@cogni/ai-tools";
 import { describe, expect, it, vi } from "vitest";
 
 const NODE_AI = "00000000-0000-4000-a000-0000000a0001";
@@ -26,13 +26,14 @@ const authority = createAgentToolAuthority({
 	}) as unknown as AgentAuthoritySql,
 	nodeAdmin: {} as never,
 	log: { error: vi.fn(), info: vi.fn(), warn: vi.fn() } as never,
-	toolBundle: [...CORE_TOOL_BUNDLE],
+	toolBundle: [...CORE_TOOL_BUNDLE, ...ROUTE_TWIN_CONTRACTS],
 });
 
 describe("AI access permission catalog", () => {
 	it("declares the scope of every non-read tool contract", () => {
 		expect(authority.declaredScopes).toEqual(
 			expect.arrayContaining([
+				"account:read",
 				"edo:write",
 				"knowledge:write",
 				"sandbox:exec",
@@ -40,6 +41,7 @@ describe("AI access permission catalog", () => {
 				"vcs:create_branch",
 				"vcs:flight_candidate",
 				"vcs:merge_pr",
+				"work_item:transition",
 			]),
 		);
 	});

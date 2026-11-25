@@ -6,7 +6,8 @@
  * Purpose: Next.js 16 proxy (formerly middleware) for route protection.
  * Scope: Root-level proxy. Enforces session auth on /api/v1/* routes and page-level routing (redirect unauthenticated users away from app routes, redirect authenticated users from landing to /chat). Does not handle public infrastructure endpoints (e.g., /api/metrics, /api/health).
  * Invariants: /api/v1/public/* accessible without auth; /api/v1/* with cogni_ag_sk_v1_ bearer
- *   passes through (route handler validates token); other /api/v1/* require session.
+ *   passes through (route handler validates token); a revocable-key bearer passes only when its shape and checksum hold (else 401 here,
+ *   before any database read); other /api/v1/* require session.
  *   Single authority for auth routing — no client-side redirect logic.
  * Side-effects: none
  * Links: https://github.com/cogni-dao/cogni/blob/2321821e61dd12aa0cf75d235bd668ff65739109/docs/spec/security-auth.md
@@ -16,6 +17,10 @@
 /* eslint-disable boundaries/no-unknown-files */
 
 import { randomUUID } from "node:crypto";
+import {
+	isWellFormedRevocableKey,
+	REVOCABLE_KEY_PREFIX,
+} from "@cogni/agent-grants/credentials";
 import { type NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 
@@ -45,7 +50,11 @@ function isAppRoute(pathname: string): boolean {
 	);
 }
 
-const AGENT_BEARER_PREFIX = "Bearer cogni_ag_sk_v1_";
+// The signed-key prefix is wire format; the revocable-key prefix has ONE definition, in the package.
+const AGENT_BEARER_PREFIXES = [
+	"Bearer cogni_ag_sk_v1_",
+	`Bearer ${REVOCABLE_KEY_PREFIX}`,
+];
 
 function isPublicApiRoute(pathname: string): boolean {
 	// Agent register is the one bootstrap seam left open: register → key →
@@ -72,9 +81,33 @@ function isAgentApiRoute(pathname: string): boolean {
 	return pathname.startsWith("/api/v1/");
 }
 
-function hasAgentBearer(req: NextRequest): boolean {
+/**
+ * A revocable-key bearer whose shape or checksum fails (CHECKSUM_BEFORE_DB). Refused at the perimeter, so it never reaches a route handler,
+ * the credential store or its pool. The format has ONE definition, in the package.
+ */
+function hasMalformedRevocableBearer(req: NextRequest): boolean {
+	const authorization = req.headers.get("authorization");
+	const bearerPrefix = `Bearer ${REVOCABLE_KEY_PREFIX}`;
 	return (
-		req.headers.get("authorization")?.startsWith(AGENT_BEARER_PREFIX) ?? false
+		authorization !== null &&
+		authorization.startsWith(bearerPrefix) &&
+		!isWellFormedRevocableKey(authorization.slice("Bearer ".length))
+	);
+}
+
+/**
+ * A service assertion (story.0038) is a compact JWT: three base64url segments after `Bearer `. The route's identity resolver verifies it against the trusted
+ * homes; the perimeter only lets it through to the handler, like any other agent bearer.
+ */
+const SERVICE_ASSERTION_BEARER =
+	/^Bearer [A-Za-z0-9_-]{4,2048}\.[A-Za-z0-9_-]{4,2048}\.[A-Za-z0-9_-]{4,512}$/;
+
+function hasAgentBearer(req: NextRequest): boolean {
+	const authorization = req.headers.get("authorization");
+	return (
+		authorization !== null &&
+		(AGENT_BEARER_PREFIXES.some((prefix) => authorization.startsWith(prefix)) ||
+			SERVICE_ASSERTION_BEARER.test(authorization))
 	);
 }
 
@@ -98,7 +131,7 @@ function perimeterLog(): ReturnType<typeof makeLogger> {
 }
 
 /** Why an unauthenticated /api/v1 request was rejected at the perimeter. */
-type PerimeterDenyReason = "no_session" | "no_auth_secret";
+type PerimeterDenyReason = "no_session" | "no_auth_secret" | "bad_key_format";
 
 function logPerimeterDenial(
 	req: NextRequest,
@@ -125,74 +158,7 @@ function logPerimeterDenial(
 	}
 }
 
-/** Only declared operations on this exact endpoint get a permission terminal event. */
-function permissionOperation(req: NextRequest): "list" | "on" | "off" | null {
-	if (req.nextUrl.pathname !== "/api/v1/admin/ai-access") return null;
-	switch (req.method) {
-		case "GET":
-			return "list";
-		case "POST":
-			return "on";
-		case "DELETE":
-			return "off";
-		default:
-			return null;
-	}
-}
-
-function permissionRefusal(
-	operation: "list" | "on" | "off",
-	method: string,
-	reason: PerimeterDenyReason | "auth_resolution_unavailable",
-	status: 401 | 503,
-	started: number,
-): NextResponse {
-	const reqId = randomUUID();
-	const response = NextResponse.json(
-		{ error: status === 401 ? "Unauthorized" : "authz_unavailable" },
-		{ status, headers: { "x-request-id": reqId, "cache-control": "no-store" } },
-	);
-	try {
-		// App-local registry: use the same guarded direct logger as the generic denial.
-		perimeterLog().info(
-			{
-				event: EVENT_NAMES.AI_PERMISSION_COMPLETE,
-				reqId,
-				routeId: "admin.ai-access",
-				method,
-				actorUserId: null,
-				operation,
-				principalSlug: "node-ai",
-				scope: "sandbox:exec",
-				resource: "node",
-				status,
-				outcome: status === 401 ? "denied" : "unavailable",
-				errorCode: status === 401 ? "unauthorized" : "authz_unavailable",
-				reason,
-				durationMs: Math.max(0, performance.now() - started),
-			},
-			EVENT_NAMES.AI_PERMISSION_COMPLETE,
-		);
-	} catch {
-		// Logging failure must never weaken or break the refusal.
-	}
-	return response;
-}
-
-function denyAtPerimeter(
-	req: NextRequest,
-	reason: PerimeterDenyReason,
-	started: number,
-): NextResponse {
-	const operation = permissionOperation(req);
-	if (operation)
-		return permissionRefusal(operation, req.method, reason, 401, started);
-	logPerimeterDenial(req, reason);
-	return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-}
-
 export async function proxy(req: NextRequest): Promise<NextResponse> {
-	const started = performance.now();
 	const { pathname } = req.nextUrl;
 	const isPublicApi = isPublicApiRoute(pathname);
 	const isAgentBearerRequest = isAgentApiRoute(pathname) && hasAgentBearer(req);
@@ -200,6 +166,11 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
 	// Allow public namespace without authentication
 	if (isPublicApi) {
 		return NextResponse.next();
+	}
+
+	if (isAgentApiRoute(pathname) && hasMalformedRevocableBearer(req)) {
+		logPerimeterDenial(req, "bad_key_format");
+		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 	}
 
 	// Resolve token once — reused for both page and API checks.
@@ -215,26 +186,14 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
 		pathname.startsWith("/api/v1/") &&
 		!isAgentBearerRequest
 	) {
-		return denyAtPerimeter(req, "no_auth_secret", started);
+		logPerimeterDenial(req, "no_auth_secret");
+		return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 	}
 
-	let token: Awaited<ReturnType<typeof getToken>> = null;
-	try {
-		token =
-			tokenSecret && needsAuth
-				? await getToken({ req, secret: tokenSecret })
-				: null;
-	} catch (error) {
-		const operation = permissionOperation(req);
-		if (!operation) throw error;
-		return permissionRefusal(
-			operation,
-			req.method,
-			"auth_resolution_unavailable",
-			503,
-			started,
-		);
-	}
+	const token =
+		tokenSecret && needsAuth
+			? await getToken({ req, secret: tokenSecret })
+			: null;
 
 	const isLoggedIn = !!token;
 
@@ -262,7 +221,8 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
 			return NextResponse.next();
 		}
 		if (!isLoggedIn) {
-			return denyAtPerimeter(req, "no_session", started);
+			logPerimeterDenial(req, "no_session");
+			return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 		}
 	}
 

@@ -30,6 +30,7 @@ export const GET = wrapRouteHandlerWithLogging<{
 }>(
   {
     routeId: "knowledge.get",
+    sameDoor: "knowledge.read",
     auth: { mode: "required", getSessionUser },
   },
   async (ctx, request, sessionUser, context) => {

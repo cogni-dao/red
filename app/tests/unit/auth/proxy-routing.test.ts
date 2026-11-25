@@ -33,7 +33,6 @@ const mockLoggerInfo = vi.fn();
 vi.mock("@/shared/observability", () => ({
 	EVENT_NAMES: {
 		AUTH_PERIMETER_DENIED: "auth.perimeter.denied",
-		AI_PERMISSION_COMPLETE: "ai_permission.complete",
 	},
 	makeLogger: () => ({ info: mockLoggerInfo }),
 }));

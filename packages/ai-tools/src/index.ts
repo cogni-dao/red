@@ -79,6 +79,7 @@ export {
 export {
   type CatalogBoundTool,
   CORE_TOOL_BUNDLE,
+  ROUTE_TWIN_CONTRACTS,
   createToolCatalog,
   getToolById,
   getToolIds,

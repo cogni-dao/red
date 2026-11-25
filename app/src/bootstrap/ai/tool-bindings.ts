@@ -15,10 +15,13 @@
  */
 
 import type {
+  AccountCreditsCapability,
   KnowledgeCapability,
   WorkItemCapability,
 } from "@cogni/shared-ai-tools";
 import {
+  ACCOUNT_CREDITS_READ_NAME,
+  createAccountCreditsReadImplementation,
   createGoalListImplementation,
   GOAL_LIST_NAME,
   createKnowledgeSearchImplementation,
@@ -99,6 +102,8 @@ export interface ToolBindingDeps {
   readonly scheduleCapability: ScheduleCapability;
   readonly vcsCapability: VcsCapability;
   readonly workItemCapability: WorkItemCapability;
+  /** Reads the run's account as the acting principal, under row-level security (the `account:read` tool twin). */
+  readonly accountCreditsCapability: AccountCreditsCapability;
 }
 
 /**
@@ -126,6 +131,11 @@ export function createToolBindings(deps: ToolBindingDeps): ToolBindings {
   // cast to the base type. This is safe because contractToRuntime validates
   // at runtime via Zod schemas.
   return {
+    // Account read: opens only for a principal with a live `account:read` row for the run's account (guard), and RLS repeats the test.
+    [ACCOUNT_CREDITS_READ_NAME]: createAccountCreditsReadImplementation({
+      accountCreditsCapability: deps.accountCreditsCapability,
+    }) as AnyToolImplementation,
+
     // Pure tools (no I/O dependencies)
     [GET_CURRENT_TIME_NAME]:
       getCurrentTimeImplementation as AnyToolImplementation,
