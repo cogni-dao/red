@@ -69,8 +69,13 @@ vi.mock("@cogni/langgraph-graphs", () => {
 		},
 	};
 });
-vi.mock("@/shared/observability", () => ({
+vi.mock("@/shared/observability", async () => ({
 	EVENT_NAMES: {},
+	failureFields: (
+		await vi.importActual<
+			typeof import("@/shared/observability/db-error-fields")
+		>("@/shared/observability/db-error-fields")
+	).failureFields,
 	makeLogger: () => ({ debug() {}, info() {}, warn() {}, error() {} }),
 }));
 
