@@ -153,7 +153,8 @@ import {
 } from "@/adapters/test";
 import {
 	type AgentAuthoritySql,
-	createSharedAgentAuthority,
+	type AgentToolAuthority,
+	createAgentToolAuthority,
 } from "@/bootstrap/agent-authority";
 import { createToolBindings } from "@/bootstrap/ai/tool-bindings";
 import { createBoundToolSource } from "@/bootstrap/ai/tool-source.factory";
@@ -298,7 +299,7 @@ export interface Container {
 	/** GOAL_CHANGE_IS_NODE_ADMIN / P0P1_IS_NODE_ADMIN: this node's one node-admin authority (repo-spec admin wallets). */
 	nodeAdmin: NodeAdminAuthority;
 	/** AI-access composition only; existing legacy admin surfaces keep their guards. */
-	agentAuthority: ReturnType<typeof createSharedAgentAuthority>;
+	agentAuthority: AgentToolAuthority;
 	nodeAdminPort: NodeAdminPort;
 	/** Direct knowledge store port — exposed for the cookie-only browse endpoint. Undefined when DOLTGRES_URL is unset. */
 	knowledgeStorePort: KnowledgeStorePort | undefined;
@@ -816,15 +817,15 @@ function createContainer(): Container {
 	let knowledgeContributionService: ContributionService | undefined;
 	let goalMetrics: MetricService | undefined;
 	const nodeAdmin = createApproversNodeAdminAuthority();
-	const agentAuthority = createSharedAgentAuthority(
-		serviceDb.$client as unknown as AgentAuthoritySql,
+	// One authority: its permission catalog derives from the tool contracts (DECLARED_ONCE_SHOWN_EVERYWHERE).
+	const agentAuthority = createAgentToolAuthority({
+		// Service role: agent_roles / agent_principals are deny-all for the app role.
+		sql: serviceDb.$client as unknown as AgentAuthoritySql,
 		nodeAdmin,
 		log,
-	);
-	const nodeAdminPort = createNodeAdminPort(
-		agentAuthority.guardDeps.withStore,
-		log,
-	);
+		toolBundle: [...CORE_TOOL_BUNDLE],
+	});
+	const nodeAdminPort = createNodeAdminPort(agentAuthority);
 	let knowledgeStorePort: KnowledgeStorePort | undefined;
 	let doltgresWorkItems: WorkItemsDoltgresPort;
 	let workItemArtifacts: WorkItemArtifactDeps | undefined;

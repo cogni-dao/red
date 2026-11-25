@@ -771,71 +771,40 @@ describe("released sandbox billing custody", () => {
 });
 
 describe("authority lookup diagnostics", () => {
-	it.each([
-		['column "resource" does not exist', "resource"],
-		['column "private_value" does not exist', undefined],
-	])(
-		"reports only allowed missing authority columns",
-		async (message, expected) => {
-			const { createSharedAgentAuthority } = await import(
-				"@/bootstrap/agent-authority"
-			);
-			const failure = Object.assign(new Error(message), { code: "42703" });
-			const sql = Object.assign(
-				() => {
-					throw failure;
-				},
-				{
-					begin: async () => {
-						throw failure;
-					},
-				},
-			);
-			const logger = { error: vi.fn() };
-			const authority = createSharedAgentAuthority(
-				sql as any,
-				{} as any,
-				logger as any,
-			);
-			await expect(authority.resolvePrincipal("node-ai")).rejects.toBe(failure);
-			const fields = logger.error.mock.calls[0]?.[0] as any;
-			expect(fields.code).toBe("42703");
-			expect(fields.missingColumn).toBe(expected);
-			expect(JSON.stringify(fields)).not.toContain("private_value");
-		},
-	);
-});
-
-it("labels the actual published liveScopes lookup without exposing query values", async () => {
-	const { createSharedAgentAuthority } = await import(
-		"@/bootstrap/agent-authority"
-	);
-	const failure = Object.assign(new Error('column "resource" does not exist'), {
-		code: "42703",
+	it("logs the failure class and schema identifiers, never the message or query values", async () => {
+		const { createAgentToolAuthority } = await import(
+			"@/bootstrap/agent-authority"
+		);
+		const failure = Object.assign(
+			new Error('column "private_value" does not exist'),
+			{ code: "42703", column_name: "resource", table_name: "agent_roles" },
+		);
+		const sql = Object.assign(
+			async () => {
+				throw failure;
+			},
+			{ begin: async (fn: any) => fn(sql) },
+		);
+		const logger = { error: vi.fn() };
+		const authority = createAgentToolAuthority({
+			sql: sql as any,
+			nodeAdmin: {} as any,
+			log: logger as any,
+			toolBundle: [],
+		});
+		await expect(
+			authority.guardDeps.withStore((store) =>
+				store.liveScopes("private-principal", ["sandbox:exec"]),
+			),
+		).rejects.toBe(failure);
+		const fields = logger.error.mock.calls[0]?.[0] as any;
+		expect(fields).toMatchObject({
+			errorCode: "42703",
+			column: "resource",
+			table: "agent_roles",
+		});
+		expect(JSON.stringify(fields)).not.toContain("private_value");
+		expect(JSON.stringify(fields)).not.toContain("private-principal");
+		expect(JSON.stringify(fields)).not.toContain("sandbox:exec");
 	});
-	const sql = Object.assign(
-		async () => {
-			throw failure;
-		},
-		{ begin: async (fn: any) => fn(sql) },
-	);
-	const logger = { error: vi.fn() };
-	const authority = createSharedAgentAuthority(
-		sql as any,
-		{} as any,
-		logger as any,
-	);
-	await expect(
-		authority.guardDeps.withStore((store) =>
-			store.liveScopes("private-principal", ["sandbox:exec"]),
-		),
-	).rejects.toBe(failure);
-	const fields = logger.error.mock.calls[0]?.[0] as any;
-	expect(fields).toMatchObject({
-		operation: "liveScopes",
-		code: "42703",
-		missingColumn: "resource",
-	});
-	expect(JSON.stringify(fields)).not.toContain("private-principal");
-	expect(JSON.stringify(fields)).not.toContain("sandbox:exec");
 });

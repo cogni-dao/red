@@ -28,6 +28,12 @@ export const EVENT_NAMES = {
 	AGENT_ROLE_GRANTED: "agent_role.granted",
 	AGENT_ROLE_REVOKED: "agent_role.revoked",
 	AGENT_ROLES_UNAVAILABLE: "agent_roles.unavailable",
+	AGENT_TOOL_AUTHZ: "agent_tool.authz",
+	AGENT_ROLE_DENIED: "agent_role.denied",
+	AGENT_ROLE_REQUESTED: "agent_role.requested",
+	ORG_ENSURED: "org.ensured",
+	PAYER_BOUND: "payer.bound",
+	PAYER_REVOKED: "payer.revoked",
 } as const;
 
 export type EventName = (typeof EVENT_NAMES)[keyof typeof EVENT_NAMES];
@@ -53,3 +59,4 @@ export {
 } from "@cogni/node-shared";
 // --- App-local: server logger/metrics/redact (pino + prom-client runtime deps) ---
 export * from "./server";
+export { type FailureFields, failureFields } from "./db-error-fields";

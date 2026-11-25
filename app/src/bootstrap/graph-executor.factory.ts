@@ -75,10 +75,7 @@ import type {
 import { getNodeMission, getNodeName } from "@/shared/config";
 import { serverEnv } from "@/shared/env";
 import { makeLogger } from "@/shared/observability";
-import {
-	type AgentAuthoritySql,
-	createSharedAgentAuthority,
-} from "./agent-authority";
+import { type AgentAuthoritySql, createAgentToolAuthority } from "./agent-authority";
 import {
 	type AiAdapterDeps,
 	getContainer,
@@ -579,11 +576,12 @@ function createInProcProvider(
 					),
 				},
 			}),
-			...createSharedAgentAuthority(
-				resolveServiceDb().$client as unknown as AgentAuthoritySql,
-				container.nodeAdmin,
-				makeLogger({ component: "SharedAgentAuthority" }),
-			),
+			...createAgentToolAuthority({
+				sql: resolveServiceDb().$client as unknown as AgentAuthoritySql,
+				nodeAdmin: container.nodeAdmin,
+				log: makeLogger({ component: "SharedAgentAuthority" }),
+				toolBundle: [...CORE_TOOL_BUNDLE],
+			}),
 			isCodingActor: (actor) =>
 				serverEnv().COGNI_CODING_ACTOR_IDS.includes(actor),
 			sandboxReady: () => {
