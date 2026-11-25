@@ -20,6 +20,10 @@ const ingress = vi.hoisted(() => ({
 		avatarColor: null;
 	},
 }));
+// A valid signed key checks the credential store for a confirmed revocable key (V1_SUPERSEDED); none exists here.
+vi.mock("@/bootstrap/agent-credentials", () => ({
+	getAgentCredentialStore: () => ({ everConfirmed: async () => false }),
+}));
 vi.mock("next/headers", () => ({ headers: async () => ingress.headers }));
 vi.mock("@/lib/auth/server", () => ({
 	getServerSessionUser: async () => ingress.cookieUser,
