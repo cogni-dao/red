@@ -19,7 +19,8 @@ containers:
       #   b89bbfac-defe-4005-bc2a-28aa2caf6f0f  flock-leader-conductor: the trusted coding caller for candidate validation (live key COGNI_FLOCK_LEADER_RED_CANDIDATE_API_KEY)
       #   eb280790-4acc-4f7c-94af-46096ecbb58b  the CEO's candidate account: the user who approved node-ai's sandbox:exec role (agent_roles.approved_by on cogni_red, candidate-a)
       #   e9b3afe8-043f-49ec-bcd8-9001a4d46a36  flock-leader-red-prod-validator: a production validation caller registered on red.cognidao.org on 2026-11-26
-      COGNI_CODING_ACTOR_IDS: "dfa8570f-d487-4239-b40a-2e39ee4513f9,0acd8b06-5408-4c49-a284-c30cb489d92d,b89bbfac-defe-4005-bc2a-28aa2caf6f0f,eb280790-4acc-4f7c-94af-46096ecbb58b,e9b3afe8-043f-49ec-bcd8-9001a4d46a36"
+      #   552d07ff-dfa5-448b-973e-7575c19f5eb4  the CEO's Red production account (approved node-ai sandbox:exec on 2026-11-26)
+      COGNI_CODING_ACTOR_IDS: "dfa8570f-d487-4239-b40a-2e39ee4513f9,0acd8b06-5408-4c49-a284-c30cb489d92d,b89bbfac-defe-4005-bc2a-28aa2caf6f0f,eb280790-4acc-4f7c-94af-46096ecbb58b,e9b3afe8-043f-49ec-bcd8-9001a4d46a36,552d07ff-dfa5-448b-973e-7575c19f5eb4"
     resources:
       requests:
         cpu: "2"
