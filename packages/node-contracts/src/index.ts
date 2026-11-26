@@ -13,10 +13,7 @@
  * @public
  */
 
-export * from "./agent.access-requests.v1.contract";
-export * from "./agent.mine.v1.contract";
 export * from "./agent.register.v1.contract";
-export * from "./agent.roles.v1.contract";
 export * from "./agent.credentials.v1.contract";
 export * from "./agent.service-enrollment.v1.contract";
 export * from "./payer-bindings.v1.contract";

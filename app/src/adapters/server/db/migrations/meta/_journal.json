@@ -267,6 +267,13 @@
       "when": 1795637483680,
       "tag": "0037_past_gorgon",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1795674361491,
+      "tag": "0038_far_archangel",
+      "breakpoints": true
     }
   ]
 }

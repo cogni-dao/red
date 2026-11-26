@@ -15,6 +15,18 @@
  * Side-effects: IO (executes graphs via package runner, MCP tool resolution via HTTP)
  * Notes: Discovery is in LangGraphInProcAgentCatalogProvider, not here.
  * Links: https://node-template.cognidao.org/knowledge/graph-execution-invariants
+ *
+ * SOURCE PORT RECORD (https://cognidao.org/knowledge/port-node-source-once; story.0090, task.0175 Stage 4). This provider is a recorded literal source port, not a sync lane.
+ *   - Source symbols and destinations: node-template `app/src/adapters/server/ai/langgraph/inproc.provider.ts` (`LANGGRAPH_PROVIDER_ID`, `CompletionUnitAdapter`,
+ *     `SharedCogniDeps`, `LangGraphInProcProvider`) and `resolveNodeSourceContext`, here `inproc.provider.ts`, `source-context.ts` (`loadCogniSourceContext`) and `dispatch.ts`
+ *     (`createLangGraphDispatch`). Red diverges from node-template main in the graph-run, tool-guard and scope wiring; those hunks are node-owned composition.
+ *   - Reuse: node-template (source) and Red today; task.0175 lists beacon, toks5, poly, levelup and the operator as further holders, so expected reuse is five or more. Change
+ *     frequency is high: every guard, scope or catalog change has touched it.
+ *   - Prospective package API: the design is the hub atom `inproc-provider-package-design`, not merged yet, in the design inbox https://node-template.cognidao.org/knowledge/inbox/contrib-flock-leader-conductor-6e422af6 (task.0175 Stage 4); its API is the
+ *     contract and is not restated here. Node-local after extraction: `ExecutionScope` filling, the completion adapter, MCP source wiring and graph prompts.
+ *   - Not now: no published package carries the provider yet (agent-grants/host, work-items and sandbox 0.3.0 do not), a codemod cannot move a diverged 700-line file, and a
+ *     pinned workflow would rewrite node-owned hunks.
+ *   - Exit: task.0175 Stage 4. Extraction is forced by the first second cross-repo fix to this file, or by the package release that exports the provider, whichever is first.
  * @internal
  */
 

@@ -24,10 +24,16 @@ import {
 	resourceOfKind,
 } from "@cogni/agent-grants";
 import { REVOCABLE_KEY_PREFIX } from "@cogni/agent-grants/credentials";
-import { CORE_TOOL_BUNDLE, ROUTE_TWIN_CONTRACTS } from "@cogni/ai-tools";
+import {
+	buildPermissionCatalog,
+	buildRequiresById,
+} from "@cogni/agent-grants/host";
 import {
 	agentAccessRequestCreateOperation,
 	agentAccessRequestListOperation,
+} from "@cogni/agent-grants/http";
+import { CORE_TOOL_BUNDLE, ROUTE_TWIN_CONTRACTS } from "@cogni/ai-tools";
+import {
 	confirmAgentCredentialOperation,
 	creditsSummaryOperation,
 	knowledgeHistoryOperation,
@@ -53,10 +59,6 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { publicOrigin } from "@/app/_lib/public-origin";
 import {
-	buildPermissionCatalog,
-	buildRequiresById,
-} from "@/bootstrap/agent-permissions";
-import {
 	getNodeBrandColor,
 	getNodeBrandIcon,
 	getNodeHook,
@@ -73,7 +75,12 @@ export async function GET(request: Request) {
 	const origin = publicOrigin(request);
 	// DECLARED_ONCE_SHOWN_EVERYWHERE: rendered from the grant declarations on every read, never a copy table.
 	const { permissions: askable } = buildPermissionCatalog(
-		buildRequiresById([...CORE_TOOL_BUNDLE, ...ROUTE_TWIN_CONTRACTS]),
+		buildRequiresById(
+			[...CORE_TOOL_BUNDLE, ...ROUTE_TWIN_CONTRACTS].map((tool) => ({
+				id: tool.contract.name,
+				requires: tool.contract.requires,
+			})),
+		),
 	);
 	// Each askable permission says where its approval link opens, from its declared kind (an account permission: the person's profile; any
 	// other: the node-admin page). The ask returns the link itself (`approvalUrl`); this is its shape, so an agent can plan before it asks.
