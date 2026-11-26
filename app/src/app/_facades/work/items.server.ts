@@ -19,6 +19,7 @@ import type {
   WorkItemsPatchInput as ContractPatchInput,
   WorkItemCoordinationOutput,
   WorkItemDto,
+  WorkItemsGetOutput,
   WorkItemsListInput,
   WorkItemsListOutput,
   WorkItemSummariesListInput,
@@ -30,20 +31,25 @@ import type {
   WorkItem,
   WorkItemId,
   WorkItemScoresIssue,
+  WorkItemsBusyReason,
   WorkSummaryReadOptions,
+  WriteAttribution,
 } from "@cogni/work-items";
 import {
+  backendUnavailableReason,
   ChangeReasonInvalidError,
   CitesInvalidError,
   CitesUnsupportedError,
   EntryResolverUnavailableError,
   EntryUnresolvedError,
   composeItemEnvelope,
+  createItemRefPorts,
   judgeMoveSummaries,
   toWorkItemDto,
   toWorkItemId,
   toWorkItemsCreateInput,
   toWorkItemsPatchInput,
+  routeAttribution,
 } from "@cogni/work-items";
 
 import {
@@ -139,7 +145,10 @@ export class WorkItemLeaseConflictError extends Error {
 }
 
 export class WorkItemsBackendNotReadyError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly reason: WorkItemsBusyReason
+  ) {
     super(message);
     this.name = "WorkItemsBackendNotReadyError";
   }
@@ -306,9 +315,15 @@ function rethrowBackendError(error: unknown): never {
   if (
     (error as Error)?.name === "DoltgresNotConfiguredError" ||
     (error as Error)?.name === "WorkItemsBusyError" ||
+    (error as Error)?.name === "WorkItemsCapacityError" ||
+    (error as Error)?.name === "UnprovableTransitionError" ||
     (error as Error)?.name === "DoltMergeOutcomeUnknownError"
   ) {
-    throw new WorkItemsBackendNotReadyError(message);
+    // The 503 names its reason (task.0162); a busy-named error that carries none is the base "store busy" case.
+    throw new WorkItemsBackendNotReadyError(
+      message,
+      backendUnavailableReason(error) ?? "capacity_held"
+    );
   }
   if ((error as Error)?.name === "WorkItemAuthorizationError") {
     const id = (error as { id?: string }).id ?? "unknown";
@@ -491,9 +506,15 @@ export async function listWorkBoardColumns(
   return { columns, queryCount: columns.length };
 }
 
-/** Single-item read options; `includeLinks` adds the first page of citation links (`?include=links`). */
+/**
+ * Single-item read options; `includeLinks` adds the first page of citation links (`?include=links`), `includeArtifacts`
+ * and `includeHistory` the first page of artifact and history refs, `artifactId` one artifact in full (story.0058).
+ */
 export interface WorkItemReadOptions extends WorkSummaryReadOptions {
   readonly includeLinks?: boolean;
+  readonly includeArtifacts?: boolean;
+  readonly includeHistory?: boolean;
+  readonly artifactId?: string;
   /** Set false for a caller that needs only the stored move ids (the EDO expectations read). Default: resolve the chain. */
   readonly chain?: boolean;
 }
@@ -507,8 +528,9 @@ export interface WorkItemReadOptions extends WorkSummaryReadOptions {
 async function withItemEnvelope(
   dto: WorkItemDto,
   options?: WorkItemReadOptions
-): Promise<WorkItemDto> {
+): Promise<WorkItemsGetOutput> {
   const container = getContainer();
+  const artifactStore = container.workItemArtifacts?.artifacts;
   const readings = container.goalMetrics
     ? createMoveMetricPorts(
         () => container.goalMetrics,
@@ -521,6 +543,11 @@ async function withItemEnvelope(
     {
       readings,
       links: createCitationLinksPort(() => container.knowledgeStorePort),
+      // story.0058: refs first, then one read; the package builds the ports over red's artifact and history stores.
+      ...createItemRefPorts({
+        artifacts: artifactStore,
+        history: container.doltgresWorkItems,
+      }),
       log: (event) => container.log.warn(event, "work.items.envelope_degraded"),
     },
     options
@@ -530,7 +557,7 @@ async function withItemEnvelope(
 export async function getWorkItem(
   id: string,
   options?: WorkItemReadOptions
-): Promise<WorkItemDto | null> {
+): Promise<WorkItemsGetOutput | null> {
   const container = getContainer();
   // Doltgres-first: legacy markdown IDs (e.g. bug.0002) can also live in Doltgres
   // after the markdown→Doltgres import (task.5002). Fall back to markdown only when
@@ -547,16 +574,18 @@ export async function getWorkItem(
   return mdItem ? withItemEnvelope(toDto(mdItem), options) : null;
 }
 
+/** `attribution` is the route's one host-built value (`routeAttribution(caller)`): the same object the route's terminal event names, so the record and the log cannot disagree. */
 export async function createWorkItem(
   input: ContractCreateInput,
-  sessionUser: WorkItemActor
+  sessionUser: WorkItemActor,
+  attribution: WriteAttribution
 ): Promise<WorkItemDto> {
   await assertPriorityAuthority(input.priority, sessionUser);
   const container = getContainer();
   try {
     const created = await container.doltgresWorkItems.create(
       toWorkItemsCreateInput(input),
-      sessionUser.id
+      attribution
     );
     return await withMoveReadings(toDto(created));
   } catch (e) {
@@ -566,14 +595,15 @@ export async function createWorkItem(
 
 export async function patchWorkItem(
   input: ContractPatchInput,
-  sessionUser: WorkItemActor
+  sessionUser: WorkItemActor,
+  attribution: WriteAttribution
 ): Promise<WorkItemDto> {
   await assertPriorityAuthority(input.set.priority, sessionUser);
   const container = getContainer();
   try {
     const patched = await container.doltgresWorkItems.patch(
       toWorkItemsPatchInput(input),
-      sessionUser.id
+      attribution
     );
     if (!patched) throw new WorkItemNotFoundError(input.id);
     return await withMoveReadings(toDto(patched));
@@ -590,7 +620,7 @@ export async function deleteWorkItem(
   try {
     return await container.doltgresWorkItems.delete(
       toWorkItemId(id),
-      sessionUser.id
+      routeAttribution(sessionUser.id)
     );
   } catch (e) {
     rethrowBackendError(e);

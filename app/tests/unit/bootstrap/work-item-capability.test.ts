@@ -42,8 +42,11 @@ describe("RED live score writer", () => {
         list: vi.fn().mockResolvedValue({ items: [item] }),
       },
       backlogWriter: {
-        patch: patch as WorkItemsContentPort["patch"],
-        principalId: () => actor,
+        store: { patch: patch as WorkItemsContentPort["patch"] },
+        attribution: () => {
+          if (!actor) throw new Error("write denied: the run has no acting principal");
+          return { actor };
+        },
       },
     });
     const input = {
@@ -56,8 +59,8 @@ describe("RED live score writer", () => {
     actor = "actor-b";
     const result = await capability.patch(input);
     expect(patch.mock.calls.map((call) => call[1])).toEqual([
-      "actor-a",
-      "actor-b",
+      { actor: "actor-a" },
+      { actor: "actor-b" },
     ]);
     expect(result.scores).toEqual(scores);
     expect(result.rankScore).toBe(rankScore(scores));
@@ -66,7 +69,7 @@ describe("RED live score writer", () => {
     );
     actor = "";
     await expect(capability.patch(input)).rejects.toThrow(
-      "authenticated actor"
+      "no acting principal"
     );
     expect(patch).toHaveBeenCalledTimes(2);
     actor = "actor-b";
@@ -85,8 +88,8 @@ describe("RED live score writer", () => {
       workItemQuery: {} as never,
       workItemCommand: {} as never,
       backlogWriter: {
-        patch: patch as WorkItemsContentPort["patch"],
-        principalId: () => "actor-a",
+        store: { patch: patch as WorkItemsContentPort["patch"] },
+        attribution: () => ({ actor: "actor-a" }),
       },
     });
     const cites = [{ id: "change-history-design" }];
@@ -103,7 +106,7 @@ describe("RED live score writer", () => {
         cites,
         set: { rank: 2 },
       },
-      "actor-a"
+      { actor: "actor-a" }
     );
   });
   it("forwards mixed triage plus foreign content unchanged and preserves the package ownership denial", async () => {
@@ -115,7 +118,7 @@ describe("RED live score writer", () => {
     const capability = createWorkItemCapability({
       workItemQuery: {} as never,
       workItemCommand: {} as never,
-      backlogWriter: { patch, principalId: () => "foreign-creator" },
+      backlogWriter: { store: { patch }, attribution: () => ({ actor: "foreign-creator" }) },
     });
     const input = {
       id: item.id,
@@ -124,6 +127,6 @@ describe("RED live score writer", () => {
       set: { scores, summary: "foreign content" },
     };
     await expect(capability.patch(input)).rejects.toBe(denied);
-    expect(patch).toHaveBeenCalledWith(input, "foreign-creator");
+    expect(patch).toHaveBeenCalledWith(input, { actor: "foreign-creator" });
   });
 });

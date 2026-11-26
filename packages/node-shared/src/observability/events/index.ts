@@ -30,9 +30,16 @@ export const EVENT_NAMES = {
 	// The success twins: one terminal event per accepted create or patch, ids and counts only.
 	WORK_ITEMS_CREATE_SUCCESS: "work.items.create_success",
 	WORK_ITEMS_PATCH_SUCCESS: "work.items.patch_success",
+	// The single-item read (story.0085): one terminal event per GET from the package route core; ids, parts and codes only.
+	WORK_ITEMS_GET_SUCCESS: "work.items.get_success",
+	WORK_ITEMS_GET_REFUSED: "work.items.get_refused",
+	// A node run wrote with no run record to name (the record was missing, had no kind, or could not be read; task.0175): the write still happens as the principal, with no Run line. One warn per such write, with runId when known.
+	WORK_ITEMS_ATTRIBUTION_RUN_MISSING: "work.items.attribution_run_missing",
 	WORK_ITEMS_ARTIFACT_RECORDED: "work.items.artifact_recorded",
 	WORK_ITEMS_ARTIFACT_REFUSED: "work.items.artifact_refused",
 	WORK_ITEMS_ARTIFACTS_READ: "work.items.artifacts_read",
+	// A work-item store answered busy with no terminal event of its own (task.0162): one 503 line with its closed `reason`, never the error text.
+	WORK_ITEMS_BACKEND_UNAVAILABLE: "work.items.backend_unavailable",
 	// Work-item PR repo pin at boot (task.0122): unset or malformed leaves it unpinned; entries that are not owner/repo are ignored. Once at boot, never per request.
 	ADAPTER_WORK_ITEMS_PR_REPO_UNPINNED: "adapter.work_items.pr_repo_unpinned",
 	ADAPTER_WORK_ITEMS_PR_REPO_IGNORED: "adapter.work_items.pr_repo_ignored",

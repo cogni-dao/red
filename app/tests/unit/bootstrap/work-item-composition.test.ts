@@ -120,9 +120,9 @@ describe("RED shared content / legacy v1 composition", () => {
       reason: "test change",
       set: { scores: item.scores },
     };
-    await port.patch(patch, "collaborator");
-    expect(content.patch).toHaveBeenCalledWith(patch, "collaborator");
-    await port.delete(item.id, "creator");
+    await port.patch(patch, { actor: "collaborator" });
+    expect(content.patch).toHaveBeenCalledWith(patch, { actor: "collaborator" });
+    await port.delete(item.id, { actor: "creator" });
     expect(legacy.delete).toHaveBeenCalledWith(item.id, "creator");
     expect(content.delete).not.toHaveBeenCalled();
   });
@@ -134,8 +134,8 @@ describe("RED shared content / legacy v1 composition", () => {
     await port.history?.(item.id);
     expect(content.history).toHaveBeenCalledWith(item.id);
     const patch = { id: item.id, reason: "why", set: { title: "t" } };
-    await port.patch(patch, "collaborator");
-    expect(content.patch).toHaveBeenCalledWith(patch, "collaborator");
+    await port.patch(patch, { actor: "collaborator" });
+    expect(content.patch).toHaveBeenCalledWith(patch, { actor: "collaborator" });
   });
   it("forwards the composed board read with its bounds, and omits it when absent (task.0056)", async () => {
     const { content, legacy } = setup();

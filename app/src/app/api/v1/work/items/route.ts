@@ -17,7 +17,7 @@ import {
   workItemsCreateOperation,
   workItemsListOperation,
 } from "@cogni/node-contracts";
-import { handleWorkItemCreate } from "@cogni/work-items";
+import { handleWorkItemCreate, routeAttribution } from "@cogni/work-items";
 import { NextResponse } from "next/server";
 
 import {
@@ -29,6 +29,7 @@ import {
 } from "@/app/_facades/work/items.server";
 import { getSessionUser } from "@/app/_lib/auth/session";
 import { wrapRouteHandlerWithLogging } from "@/bootstrap/http";
+import { backendUnavailable } from "./_backend-unavailable";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -77,7 +78,7 @@ export const GET = wrapRouteHandlerWithLogging(
         return NextResponse.json({ error: "invalid cursor" }, { status: 400 });
       }
       if (e instanceof WorkItemsBackendNotReadyError) {
-        return NextResponse.json({ error: e.message }, { status: 503 });
+        return backendUnavailable(ctx, e.reason);
       }
       throw e;
     }
@@ -102,14 +103,20 @@ export const POST = wrapRouteHandlerWithLogging(
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
     // The package owns parse, refusals and the one terminal event (bug.0063); this route keeps auth, the actor and node errors.
+    const attribution = routeAttribution(sessionUser.id);
     const result = await handleWorkItemCreate({
       readJson: () => request.json(),
       parse: (body) => workItemsCreateOperation.input.safeParse(body),
       write: (input) =>
-        createWorkItem(input, {
-          id: sessionUser.id,
-          walletAddress: sessionUser.walletAddress,
-        }),
+        createWorkItem(
+          input,
+          {
+            id: sessionUser.id,
+            walletAddress: sessionUser.walletAddress,
+          },
+          attribution
+        ),
+      attribution,
       toBody: (created) => workItemsCreateOperation.output.parse(created),
       mapNodeError: (e) => {
         if (e instanceof NodeAdminRequiredError)
@@ -117,12 +124,6 @@ export const POST = wrapRouteHandlerWithLogging(
             status: e.status,
             errorCode: e.errorCode,
             body: { error: e.message, errorCode: e.errorCode, action: e.action },
-          };
-        if (e instanceof WorkItemsBackendNotReadyError)
-          return {
-            status: 503,
-            errorCode: "backend_unavailable",
-            body: { error: e.message },
           };
         return undefined;
       },
