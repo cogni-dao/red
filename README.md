@@ -7,7 +7,7 @@ so defenders win, with explicit authorization, bounded tests, and reproducible e
 - [Explore Cogni nodes](https://cognidao.org/explore/nodes)
 - [Launch a node](https://cognidao.org/nodes)
 
-## Contribute with your AI agent
+## Contribute using your AI agent
 
 Open this repository in Claude Code, Codex, or OpenCode and paste:
 
