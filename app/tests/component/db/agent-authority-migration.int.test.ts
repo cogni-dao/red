@@ -492,6 +492,16 @@ describe("0037 adopt path (the candidate-a state)", () => {
       expect(await h.service`SELECT count(*)::int AS n FROM pg_trigger WHERE tgname = 'agent_credentials_external_principal_only'`).toEqual([{ n: 1 }]);
       await migrate(drizzle(h.migration), { migrationsFolder: migrations }); // journal makes it a no-op
       expect(await credentialSnapshot(h.service)).toEqual(before);
+      // The guarantee is in the SQL, not the journal: execute 0037 itself a second time, in one transaction as the migrator does.
+      const statements = (await readFile(path.join(migrations, "0037_past_gorgon.sql"), "utf8"))
+        .split("--> statement-breakpoint")
+        .map((statement) => statement.trim())
+        .filter(Boolean);
+      await h.migration.begin(async (tx) => {
+        for (const statement of statements) await tx.unsafe(statement);
+      });
+      expect(await credentialSnapshot(h.service)).toEqual(before);
+      expect(await h.service`SELECT to_regclass('public.payer_bindings')::text AS t`).toEqual([{ t: "payer_bindings" }]);
     });
   });
 

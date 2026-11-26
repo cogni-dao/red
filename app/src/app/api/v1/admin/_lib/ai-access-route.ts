@@ -6,7 +6,7 @@
  * Purpose: The route builder of the admin AI-access table and its preview. The one admin mint decides first; the `@cogni/agent-grants/http` core then runs the
  *   call through the node's admin port with that session bound.
  * Scope: Next-side wiring only. Lives in the Admin route area (ADMIN_ACTS_IN_ADMIN): no file outside it names the admin port or the mint.
- * Classification: node-local route composition (node-template-architect: routes, auth and composition stay in the node). It mirrors node-template 2157e635 `%s`; Red keeps only auth, the response object and one `@cogni/agent-grants/http` call per route, and every status and body come from the package core. Exit: task.0204 item 3 may move the shared builders into `/http`.
+ * Classification: node-local route composition (node-template-architect: routes, auth and composition stay in the node). It mirrors node-template 2157e635 `app/src/app/api/v1/admin/_lib/ai-access-route.ts`; Red keeps only auth, the response object and one `@cogni/agent-grants/http` call per route, and every status and body come from the package core. Exit: a future task.0204 item, "extract route builders on a third consumer" (Poly would be the third).
  * Side-effects: none at import
  * @internal
  */
