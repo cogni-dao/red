@@ -69,7 +69,7 @@ System setup installers were moved to `scripts/bootstrap/` and are out of scope 
   - `RateLimitBypassConfig` - Test bypass config type (from `http/wrapPublicRoute`)
   - `TokenBucketRateLimiter`, `publicApiLimiter`, `extractClientIp` - Rate limiting utilities (from `http/`)
 - **Env/Config keys:** none (uses `@/shared/env`)
-- **Files considered API:** `container.ts`, `graph-executor.factory.ts`, `agent-discovery.ts`, `identity.ts`, `http/index.ts`, `http/wrapPublicRoute.ts`, `http/rateLimiter.ts`
+- **Files considered API:** `agent-authority.ts` (this node's authority object: `createAgentToolAuthority` from `@cogni/agent-grants/host` plus the service-assertion and payer methods that join the package after task.0181's release), `agent-credentials.ts` (the revocable agent key store over the service-role client), `container.ts`, `graph-executor.factory.ts`, `agent-discovery.ts`, `identity.ts`, `http/index.ts`, `http/wrapPublicRoute.ts`, `http/rateLimiter.ts`
 
 **Subdirectories:**
 

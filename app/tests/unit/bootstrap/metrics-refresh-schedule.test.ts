@@ -161,9 +161,9 @@ describe("Temporal schedule args", () => {
   });
 
   it("keeps graph-run schedules on their existing shape", () => {
-    expect(scheduleArgs({ ...base, graphId: "langgraph:brain" })).toEqual({
+    expect(scheduleArgs({ ...base, graphId: "langgraph:cogni" })).toEqual({
       nodeId: "test-node",
-      graphId: "langgraph:brain",
+      graphId: "langgraph:cogni",
       executionGrantId: GRANT,
       input: { executionGrantId: GRANT },
       runKind: "system_scheduled",

@@ -15,6 +15,7 @@
  * @public
  */
 
+import { ApprovalScrub } from "@/app/_lib/ApprovalScrub.client";
 import "@/styles/tailwind.css";
 import "@rainbow-me/rainbowkit/styles.css";
 
@@ -75,6 +76,7 @@ export default async function RootLayout({
 					disableTransitionOnChange
 				>
 					<Providers initialState={initialState}>
+						<ApprovalScrub />
 						<div id="main">{children}</div>
 					</Providers>
 				</ThemeProvider>

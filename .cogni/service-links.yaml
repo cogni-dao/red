@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: LicenseRef-PolyForm-Shield-1.0.0
+# SPDX-FileCopyrightText: 2026 Cogni-DAO
+#
+# Service links (story.0038): who this node trusts and who its AI may call. Public URLs belong in Git config, so this
+# file is committed; the only secret is the signing key (SERVICE_ASSERTION_SIGNING_SEED).
+# Red declares no trusted homes and no targets, so no service assertion is accepted and none is sent. To add one, add a key
+# named by DEPLOY_ENVIRONMENT with `trusted_homes` and/or `targets`; the shape is node-template's .cogni/service-links.yaml.
+{}

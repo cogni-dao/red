@@ -215,6 +215,60 @@ export const EVENT_NAMES = {
 	POLY_RECONCILER_NOT_FOUND: "poly.reconciler.not_found",
 	// Emitted at info when a stale row is promoted to canceled.
 	POLY_RECONCILER_NOT_FOUND_UPGRADE: "poly.reconciler.not_found_upgrade",
+	// The same-door check refused a route call (a bearer without the grant, or the grant store unreachable): one terminal event with routeId and errorCode (policy_denied | authz_unavailable).
+	AGENT_ROUTE_DENIED: "agent.route_denied",
+	/** One decision per scoped tool call (task.5456): principal, subject, payer, tool, decision, code. No tokens. */
+	AGENT_TOOL_AUTHZ: "agent_tool.authz",
+	/** A run ended cleanly because a tool was denied or every write tool was withheld (DENIAL_IS_TERMINAL): principal, tool, code, reason, modelCalls, modelCallsAfterDenial. */
+	AGENT_RUN_DENIED: "agent_run.denied",
+	/** A DAO admin granted / revoked an agent role (task.5456): principal, scope, approvedBy. */
+	AGENT_ROLE_GRANTED: "agent_role.granted",
+	AGENT_ROLE_REVOKED: "agent_role.revoked",
+	/** An agent asked for a permission for itself (a pending row): principalUserId, scope. */
+	AGENT_ROLE_REQUESTED: "agent_role.requested",
+	/** A DAO admin dismissed a pending ask: principalUserId, scope, deniedBy. */
+	AGENT_ROLE_DENIED: "agent_role.denied",
+	/** A service assertion verified (story.0038): issuer, service. Never the token. */
+	SERVICE_AUTH_VERIFIED: "service_auth.verified",
+	/** A service assertion was refused (story.0038): code, and issuer and service when the claims named them. Never the token. */
+	SERVICE_AUTH_REJECTED: "service_auth.rejected",
+	/** The signing key could not be used (partly configured, unusable, or a public key that is not the private key's): reason only, never the key. */
+	SERVICE_AUTH_SIGNER_UNAVAILABLE: "service_auth.signer_unavailable",
+	/** A payer binding was turned On by an owner of the account (story.0038): subject, billingAccountId, approvedBy. */
+	PAYER_BOUND: "payer.bound",
+	/** A payer binding ended, Off or dismissed (story.0038): subject, billingAccountId, revokedBy. */
+	PAYER_REVOKED: "payer.revoked",
+	/** A run was billed to a bound account instead of the caller's own (story.0038): subject, billingAccountId. */
+	PAYER_SELECTED: "payer.selected",
+	/** This node's AI asked a configured remote node for one permission (story.0038): alias, scope, httpStatus. Never a token. */
+	SERVICE_LINK_ASKED: "service_link.asked",
+	/** A remote knowledge read was signed and sent (story.0038): alias, op, outcome. Never a token or a body. */
+	REMOTE_KNOWLEDGE_READ: "remote_knowledge.read",
+	/** revocable agent keys (task.0070): upgraded / rotated (a pending key issued), confirmed, revoked, refused. Carry userId and credentialId, never a key or hash. */
+	AGENT_CREDENTIAL_UPGRADED: "agent.credential.upgraded",
+	AGENT_CREDENTIAL_ROTATED: "agent.credential.rotated",
+	AGENT_CREDENTIAL_CONFIRMED: "agent.credential.confirmed",
+	AGENT_CREDENTIAL_REVOKED: "agent.credential.revoked",
+	AGENT_CREDENTIAL_REFUSED: "agent.credential.refused",
+	/** A revocable key could not be verified because the credential store failed; the request got 503, not 401. Carries routeId, plus the cause's errorClass and sqlState when known (never its message). */
+	AGENT_CREDENTIAL_STORE_UNAVAILABLE: "agent.credential.store_unavailable",
+	/** A signed (v1) key was used after its user confirmed a revocable key: 401 `v1_superseded`. The best replay signal for a leaked signed key. Carries routeId and userId only. */
+	AGENT_CREDENTIAL_V1_SUPERSEDED_DENIED: "agent.credential.v1_superseded_denied",
+	/** A revocable key was refused as invalid (unknown, revoked, expired or wrong state): 401. Carries routeId only: no key, hash or prefix. */
+	AGENT_CREDENTIAL_INVALID_DENIED: "agent.credential.invalid_denied",
+	/** A client went over the per-IP limit on credential lookups: 429, no store read. Carries routeId only. */
+	AGENT_CREDENTIAL_RATE_LIMITED: "agent.credential.rate_limited",
+	/**
+	 * An agent-grants route or the grant authority failed and answered 503 `authz_unavailable` (store down, a SQL error, a bad response shape). Carries routeId and
+	 * the failure fields `errorName`, `errorCode` (SQLSTATE or Node code), `constraint`, `table`, `column`: never a message, detail, token, hash or key.
+	 */
+	AGENT_ROLES_UNAVAILABLE: "agent.roles.unavailable",
+	AGENT_ROLES_LIST_FAILED: "agent.roles.list_failed",
+	AGENT_ROLES_REFUSED: "agent.roles.refused",
+	/** A node-admin action passed `requireAdminSession()` (ADMIN_ACTS_IN_ADMIN): the action name and the admin's user id. Never a credential. */
+	ADMIN_ACTION: "admin.action",
+	/** A human route refused a request that carried an Authorization header; carries one of five fixed scheme names. */
+	HUMAN_PLANE_REFUSED: "human_plane.refused",
 } as const;
 
 export type EventName = (typeof EVENT_NAMES)[keyof typeof EVENT_NAMES];

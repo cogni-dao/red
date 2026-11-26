@@ -41,7 +41,8 @@ LangGraph graph definitions and runtime utilities for agentic AI execution. Cont
 
 - **Exports (subpaths):**
   - `@cogni/langgraph-graphs` — Barrel re-export of common types plus:
-    - `LANGGRAPH_CATALOG` — Graph catalog with registered graphs and metadata
+    - `LANGGRAPH_CATALOG` — Graph catalog: published core `cogni` (shared runtime, default) and `work-prioritizer` (read-only on Red), plus Red's own `red-solver`
+    - `LANGGRAPH_GRAPH_IDS`, `DEFAULT_LANGGRAPH_GRAPH_ID` (`langgraph:cogni`) — Namespaced graph ids
     - `McpToolSource` — ToolSourcePort implementation for MCP-discovered tools
     - `loadMcpTools()`, `parseMcpConfigFromEnv()` — MCP client connection + config parsing
     - `McpHttpServerConfig`, `McpSseServerConfig`, `McpStdioServerConfig` — Transport config types
@@ -56,17 +57,10 @@ LangGraph graph definitions and runtime utilities for agentic AI execution. Cont
     - **Cogni (uses ALS):** `CogniCompletionAdapter` (with `withStructuredOutput()` for Zod/JSON Schema response parsing), `runWithCogniExecContext()`, `getCogniExecContext()`, `hasCogniExecContext()`, `toLangChainToolsFromContext()`, `makeCogniGraph()`
     - `CogniExecContext` — Runtime context type (completionFn, tokenSink, toolExecFn; NO model per #35)
   - `@cogni/langgraph-graphs/graphs` — Graph factories and shared types:
-    - `createAutoresearchGraph()` — prompt-driven Karpathy-style autoresearch factory for `autoresearch-single-lane`, `autoresearch-syntropy-loop`, and `autoresearch-registry-swarm`
-    - `createPoetGraph()`, `createPondererGraph()` — React agent factories (TYPE_TRANSPARENT_RETURN)
-    - `createBrainGraph()` — Code-aware ReAct agent with repo tools (list, search, open)
-    - `createResearchGraph()` — 3-node MVP research graph (plan_queries → web_search_fanout → rank_and_report)
-    - `createPrReviewGraph()` — Single-call structured output graph for PR review (no tools, `responseFormat` for typed metrics)
-    - `createBrowserGraph()` — Browser automation agent via Playwright MCP (mcpServerIds: ["playwright"])
-    - `createFrontendTesterGraph()` — QA agent for UI testing via Playwright MCP
-    - `POET_GRAPH_NAME`, `PONDERER_GRAPH_NAME`, `BRAIN_GRAPH_NAME`, `RESEARCH_GRAPH_NAME`, `PR_REVIEW_GRAPH_NAME`, `BROWSER_GRAPH_NAME`, `FRONTEND_TESTER_GRAPH_NAME` — Graph name constants
+    - `createRedSolverGraph()`, `RED_SOLVER_GRAPH_NAME` — Red's authorized ethical red-team solver (ReAct, `http_request` + sandbox shell)
     - `InvokableGraph<I,O>`, `MessageGraphInput`, `MessageGraphOutput` — Type firewall
     - `GraphInvokeOptions`, `CreateReactAgentGraphOptions` — Factory types
-  - **Per-graph tools:** `src/graphs/*/tools.ts` exports `*_TOOL_IDS` constants (e.g., `BRAIN_TOOL_IDS`, `BrainToolId`)
+  - **Per-graph tools:** `src/graphs/*/tools.ts` exports `*_TOOL_IDS` constants (e.g., `RED_SOLVER_TOOL_IDS`, `RedSolverToolId`)
 - **Env/Config keys:** none (all deps injected)
 - **Files considered API:** `index.ts`, `inproc/index.ts`, `runtime/index.ts`, `graphs/index.ts`, `langgraph.json`
 - **Server entrypoints:** `src/graphs/*/server.ts` — LangGraph dev server (uses `makeServerGraph`)

@@ -24,7 +24,7 @@ import { createMockLogger } from "./_helpers/mock-logger";
 function makeRequest(overrides?: Partial<GraphRunRequest>): GraphRunRequest {
   return {
     runId: "run-1",
-    graphId: "langgraph:poet",
+    graphId: "langgraph:cogni",
     messages: [],
     modelRef: { providerKey: "platform", modelId: "gpt-4o" },
     ...overrides,

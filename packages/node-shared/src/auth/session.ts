@@ -12,13 +12,18 @@
  * @public
  */
 export interface SessionUser {
-  /**
-   * Primary database identifier (UUID).
-   * Maps to `users.id` in the `auth` schema.
-   * NEVER use wallet address here; use `walletAddress` field instead.
-   */
-  id: string;
-  walletAddress: string | null;
-  displayName: string | null;
-  avatarColor: string | null;
+	/**
+	 * Primary database identifier (UUID).
+	 * Maps to `users.id` in the `auth` schema.
+	 * NEVER use wallet address here; use `walletAddress` field instead.
+	 */
+	id: string;
+	walletAddress: string | null;
+	displayName: string | null;
+	avatarColor: string | null;
+	/**
+	 * How this request authenticated (`bearer` machine key or `session` cookie). Logging and the DENY_BY_DEFAULT write gate only:
+	 * it is never a tool-authority input. Every resolver sets it; an identity not proven `session` is treated as a bearer.
+	 */
+	via?: "bearer" | "session";
 }

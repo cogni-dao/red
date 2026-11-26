@@ -51,6 +51,8 @@ function handleRouteError(
 export const GET = wrapRouteHandlerWithLogging(
   {
     routeId: "payments.credits_summary",
+    sameDoor: "core__account_credits_read",
+			sameDoorAccountQuery: "accountId",
     auth: { mode: "required", getSessionUser },
   },
   async (ctx, request, sessionUser) => {

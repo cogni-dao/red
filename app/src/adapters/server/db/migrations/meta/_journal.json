@@ -246,6 +246,34 @@
       "when": 1795144912321,
       "tag": "0034_legal_vivisector",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1795241020115,
+      "tag": "0035_high_mockingbird",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1795241042644,
+      "tag": "0036_secret_red_wolf",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1795637483680,
+      "tag": "0037_past_gorgon",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1795674361491,
+      "tag": "0038_far_archangel",
+      "breakpoints": true
     }
   ]
 }

@@ -12,6 +12,13 @@ metadata:
 containers:
   app:
     image: .
+    variables:
+      # Authenticated callers trusted to start a sandbox coding run (union list; the sandbox:exec role still has to be On for the node AI).
+      #   dfa8570f-d487-4239-b40a-2e39ee4513f9  ladder-validator (validation caller; holds no live candidate key)
+      #   0acd8b06-5408-4c49-a284-c30cb489d92d  flock-leader on production (absent on candidate-a)
+      #   b89bbfac-defe-4005-bc2a-28aa2caf6f0f  flock-leader-conductor: the trusted coding caller for candidate validation (live key COGNI_FLOCK_LEADER_RED_CANDIDATE_API_KEY)
+      #   eb280790-4acc-4f7c-94af-46096ecbb58b  the CEO's candidate account: the user who approved node-ai's sandbox:exec role (agent_roles.approved_by on cogni_red, candidate-a)
+      COGNI_CODING_ACTOR_IDS: "dfa8570f-d487-4239-b40a-2e39ee4513f9,0acd8b06-5408-4c49-a284-c30cb489d92d,b89bbfac-defe-4005-bc2a-28aa2caf6f0f,eb280790-4acc-4f7c-94af-46096ecbb58b"
     resources:
       requests:
         cpu: "2"

@@ -52,6 +52,7 @@ Next.js App Router delivery layer. UI pages and API routes that expose features 
   - Protected pages: `/chat` (via `(app)/chat/page.tsx`)
   - Infra: `/health`, `/openapi.json`, `/meta/route-manifest` (via `(infra)/*`)
   - API: `/api/auth/*`, `/api/v1/chat/completions`
+  - AI admin: `/admin/ai-access`; `/api/v1/admin/ai-access` [GET/POST/DELETE] — internal Cogni sandbox permission only, shared authority rechecked on every request
   - Internal ops: `/api/internal/ops/governance/schedules/sync` [POST] (deploy-only trigger)
   - Agent discovery: `/.well-known/agent.json` [GET] — public discovery document for machine clients
 - **Files considered API:** layout.tsx, page.tsx, loading.tsx, error.tsx, api/\*\*/route.ts, (infra)/\*\*/route.ts, .well-known/\*\*/route.ts

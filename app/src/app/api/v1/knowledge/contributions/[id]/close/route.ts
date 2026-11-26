@@ -22,6 +22,8 @@ export const POST = wrapRouteHandlerWithLogging<{
 }>(
   {
     routeId: "knowledge.contributions.close",
+    bearerWrite:
+			"a principal closes its own inbox; closing another principal's inbox runs the one admin check (agentAuthority.adminCheck) in the service, whatever the credential",
     auth: { mode: "required", getSessionUser },
   },
   async (_ctx, request, sessionUser, context) => {

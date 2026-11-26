@@ -14,6 +14,10 @@
  */
 
 export * from "./agent.register.v1.contract";
+export * from "./agent.credentials.v1.contract";
+export * from "./agent.service-enrollment.v1.contract";
+export * from "./payer-bindings.v1.contract";
+export * from "./service-links.ask.v1.contract";
 // ── AI contracts ────────────────────────────────────────────────────────────
 export * from "./ai.activity.v1.contract";
 export * from "./ai.agents.v1.contract";

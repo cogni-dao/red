@@ -22,6 +22,7 @@ export const runtime = "nodejs";
 export const GET = wrapRouteHandlerWithLogging(
   {
     routeId: "knowledge.domains.list",
+    sameDoor: "knowledge.read",
     auth: { mode: "required", getSessionUser },
   },
   async (_ctx, request, sessionUser) => handleList(request, sessionUser)
@@ -30,6 +31,7 @@ export const GET = wrapRouteHandlerWithLogging(
 export const POST = wrapRouteHandlerWithLogging(
   {
     routeId: "knowledge.domains.create",
+    sameDoor: "knowledge.contribute",
     auth: { mode: "required", getSessionUser },
   },
   async (_ctx, request, sessionUser) => handleCreate(request, sessionUser)

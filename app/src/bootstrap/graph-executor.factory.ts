@@ -21,52 +21,65 @@
  */
 
 import type { SourceSystem, ToolSourcePort } from "@cogni/ai-core";
-import { CORE_TOOL_BUNDLE } from "@cogni/ai-tools";
+import { type CatalogBoundTool, CORE_TOOL_BUNDLE } from "@cogni/ai-tools";
 import type {
-  ExecutionContext,
-  GraphFinal,
-  GraphRunRequest,
-  GraphRunResult,
+	ExecutionContext,
+	GraphFinal,
+	GraphRunRequest,
+	GraphRunResult,
 } from "@cogni/graph-execution-core";
 import {
-  BillingEnrichmentGraphExecutorDecorator,
-  type CommitUsageFactFn,
-  NamespaceGraphRouter,
-  ObservabilityGraphExecutorDecorator,
-  PreflightCreditCheckDecorator,
-  UsageCommitDecorator,
+	BillingEnrichmentGraphExecutorDecorator,
+	type CommitUsageFactFn,
+	NamespaceGraphRouter,
+	ObservabilityGraphExecutorDecorator,
+	PreflightCreditCheckDecorator,
+	UsageCommitDecorator,
 } from "@cogni/graph-execution-host";
 import type { UserId } from "@cogni/ids";
 import {
-  LANGGRAPH_CATALOG,
-  loadMcpTools,
-  McpToolSource,
-  parseMcpConfigFromEnv,
+	LANGGRAPH_CATALOG,
+	loadMcpTools,
+	McpToolSource,
+	parseMcpConfigFromEnv,
 } from "@cogni/langgraph-graphs";
+import {
+	contractToRuntime,
+	createScheduleListImplementation,
+	createScheduleManageImplementation,
+	scheduleListContract,
+	scheduleManageContract,
+} from "@cogni/shared-ai-tools";
 import { trace } from "@opentelemetry/api";
 import {
-  type CompletionStreamFn,
-  createLangGraphDevClient,
-  InProcCompletionUnitAdapter,
-  LangGraphDevProvider,
-  LangGraphInProcProvider,
+	type CompletionStreamFn,
+	createLangGraphDevClient,
+	InProcCompletionUnitAdapter,
+	LangGraphDevProvider,
+	LangGraphInProcProvider,
 } from "@/adapters/server";
 import { runInScope } from "@/adapters/server/ai/execution-scope";
+import { createLangGraphDispatch } from "@/adapters/server/ai/langgraph/dispatch";
+import { loadCogniSourceContext } from "@/adapters/server/ai/langgraph/source-context";
+import { resolveSandboxWorkspaceOrigin } from "@/bootstrap/capabilities/sandbox-workspace";
+import { bindScheduleModel } from "@/bootstrap/capabilities/schedule-model";
 import type {
-  AiExecutionErrorCode,
-  BillingContext,
-  ConnectionBrokerPort,
-  GraphExecutorPort,
-  LlmService,
-  ModelProviderResolverPort,
-  PreflightCreditCheckFn,
+	AiExecutionErrorCode,
+	BillingContext,
+	ConnectionBrokerPort,
+	GraphExecutorPort,
+	LlmService,
+	ModelProviderResolverPort,
+	PreflightCreditCheckFn,
 } from "@/ports";
+import { getNodeMission, getNodeName } from "@/shared/config";
 import { serverEnv } from "@/shared/env";
 import { makeLogger } from "@/shared/observability";
 import {
-  type AiAdapterDeps,
-  getContainer,
-  resolveAiAdapterDeps,
+	type AiAdapterDeps,
+	getContainer,
+	resolveAiAdapterDeps,
+	resolveServiceDb,
 } from "./container";
 
 /**
@@ -87,33 +100,33 @@ import {
  * @returns GraphExecutorPort implementation with routing only
  */
 export function createGraphExecutor(
-  completionStreamFn: CompletionStreamFn,
-  userId: UserId
+	completionStreamFn: CompletionStreamFn,
+	userId: UserId,
 ): GraphExecutorPort {
-  const deps = resolveAiAdapterDeps(userId);
+	const deps = resolveAiAdapterDeps(userId);
 
-  // Per MUTUAL_EXCLUSION: choose provider based on LANGGRAPH_DEV_URL env
-  const devUrl = serverEnv().LANGGRAPH_DEV_URL;
-  const langGraphProvider = devUrl
-    ? createDevProvider(devUrl)
-    : createInProcProvider(deps, completionStreamFn);
+	// Per MUTUAL_EXCLUSION: choose provider based on LANGGRAPH_DEV_URL env
+	const devUrl = serverEnv().LANGGRAPH_DEV_URL;
+	const inproc = createInProcProvider(deps, completionStreamFn);
+	const dev = devUrl ? createDevProvider(devUrl) : undefined;
+	const langGraphProvider = createLangGraphDispatch(inproc, dev);
 
-  // Build namespace → provider map
-  const env = serverEnv();
-  // Both LangGraphInProcProvider and LangGraphDevProvider expose providerId
-  const providerId = (langGraphProvider as LangGraphInProcProvider).providerId;
-  const providers = new Map<string, GraphExecutorPort>([
-    [providerId, langGraphProvider],
-    ["sandbox", new LazySandboxGraphProvider(env.LITELLM_MASTER_KEY)],
-  ]);
+	// Build namespace → provider map
+	const env = serverEnv();
+	// Both LangGraphInProcProvider and LangGraphDevProvider expose providerId
+	const providerId = (langGraphProvider as LangGraphInProcProvider).providerId;
+	const providers = new Map<string, GraphExecutorPort>([
+		[providerId, langGraphProvider],
+		["sandbox", new LazySandboxGraphProvider(env.LITELLM_MASTER_KEY)],
+	]);
 
-  // Create namespace router with all configured providers
-  const router = new NamespaceGraphRouter(
-    providers,
-    makeLogger({ component: "NamespaceGraphRouter" })
-  );
+	// Create namespace router with all configured providers
+	const router = new NamespaceGraphRouter(
+		providers,
+		makeLogger({ component: "NamespaceGraphRouter" }),
+	);
 
-  return router;
+	return router;
 }
 
 /**
@@ -127,154 +140,154 @@ export function createGraphExecutor(
  * via AsyncLocalStorage — the resolved LlmService is set on the execution scope.
  */
 export function createScopedGraphExecutor(params: {
-  readonly executor: GraphExecutorPort;
-  readonly billing: BillingContext;
-  readonly preflightCheckFn: PreflightCreditCheckFn;
-  readonly commitByoUsage: CommitUsageFactFn;
-  readonly abortSignal?: AbortSignal;
-  readonly broker?: ConnectionBrokerPort;
-  readonly resolver: ModelProviderResolverPort;
-  readonly actorId: string;
+	readonly executor: GraphExecutorPort;
+	readonly billing: BillingContext;
+	readonly preflightCheckFn: PreflightCreditCheckFn;
+	readonly commitByoUsage: CommitUsageFactFn;
+	readonly abortSignal?: AbortSignal;
+	readonly broker?: ConnectionBrokerPort;
+	readonly resolver: ModelProviderResolverPort;
+	readonly actorId: string;
 }): GraphExecutorPort {
-  const container = getContainer();
+	const container = getContainer();
 
-  const enriched = new BillingEnrichmentGraphExecutorDecorator(
-    params.executor,
-    params.billing
-  );
+	const enriched = new BillingEnrichmentGraphExecutorDecorator(
+		params.executor,
+		params.billing,
+	);
 
-  // Validate usage_report events; commit BYO receipts directly, defer platform to callback.
-  const billed = new UsageCommitDecorator(
-    enriched,
-    container.log,
-    params.commitByoUsage
-  );
+	// Validate usage_report events; commit BYO receipts directly, defer platform to callback.
+	const billed = new UsageCommitDecorator(
+		enriched,
+		container.log,
+		params.commitByoUsage,
+	);
 
-  // Wrap with preflight credit check — uses provider resolver for billing policy
-  const preflighted = new PreflightCreditCheckDecorator(
-    billed,
-    params.preflightCheckFn as import("@cogni/graph-execution-host").PreflightCreditCheckFn,
-    params.billing.billingAccountId,
-    params.resolver,
-    container.log
-  );
+	// Wrap with preflight credit check — uses provider resolver for billing policy
+	const preflighted = new PreflightCreditCheckDecorator(
+		billed,
+		params.preflightCheckFn as import("@cogni/graph-execution-host").PreflightCreditCheckFn,
+		params.billing.billingAccountId,
+		params.resolver,
+		container.log,
+	);
 
-  // Wrap with observability decorator for Langfuse traces (outermost)
-  const observed = new ObservabilityGraphExecutorDecorator(
-    preflighted,
-    container.langfuse,
-    {
-      finalizationTimeoutMs: 15_000,
-      getTraceId: () =>
-        trace.getActiveSpan()?.spanContext().traceId ??
-        "00000000000000000000000000000000",
-      // Per LANGFUSE_NODE_ATTRIBUTION: stamp this node's identity on every trace.
-      nodeId: container.nodeId,
-    },
-    container.log,
-    params.billing.billingAccountId
-  );
+	// Wrap with observability decorator for Langfuse traces (outermost)
+	const observed = new ObservabilityGraphExecutorDecorator(
+		preflighted,
+		container.langfuse,
+		{
+			finalizationTimeoutMs: 15_000,
+			getTraceId: () =>
+				trace.getActiveSpan()?.spanContext().traceId ??
+				"00000000000000000000000000000000",
+			// Per LANGFUSE_NODE_ATTRIBUTION: stamp this node's identity on every trace.
+			nodeId: container.nodeId,
+		},
+		container.log,
+		params.billing.billingAccountId,
+	);
 
-  return {
-    runGraph(req: GraphRunRequest, ctx?: ExecutionContext): GraphRunResult {
-      // Resolve LlmService from provider BEFORE execution
-      const provider = params.resolver.resolve(req.modelRef.providerKey);
+	return {
+		runGraph(req: GraphRunRequest, ctx?: ExecutionContext): GraphRunResult {
+			// Resolve LlmService from provider BEFORE execution
+			const provider = params.resolver.resolve(req.modelRef.providerKey);
 
-      // Fail fast: connection-required providers must have connectionId + broker
-      if (provider.requiresConnection) {
-        if (!req.modelRef.connectionId) {
-          throw new Error(
-            `Provider "${req.modelRef.providerKey}" requires a connection but modelRef.connectionId is missing. ` +
-              `Ensure the model picker sends connectionId and the status endpoint returns it.`
-          );
-        }
-        if (!params.broker) {
-          throw new Error(
-            `Provider "${req.modelRef.providerKey}" requires a connection but ConnectionBroker is not configured. ` +
-              `Set CONNECTIONS_ENCRYPTION_KEY to enable BYO-AI.`
-          );
-        }
-      }
+			// Fail fast: connection-required providers must have connectionId + broker
+			if (provider.requiresConnection) {
+				if (!req.modelRef.connectionId) {
+					throw new Error(
+						`Provider "${req.modelRef.providerKey}" requires a connection but modelRef.connectionId is missing. ` +
+							`Ensure the model picker sends connectionId and the status endpoint returns it.`,
+					);
+				}
+				if (!params.broker) {
+					throw new Error(
+						`Provider "${req.modelRef.providerKey}" requires a connection but ConnectionBroker is not configured. ` +
+							`Set CONNECTIONS_ENCRYPTION_KEY to enable BYO-AI.`,
+					);
+				}
+			}
 
-      if (
-        provider.requiresConnection &&
-        req.modelRef.connectionId &&
-        params.broker
-      ) {
-        // BYO path: resolve credentials async, then run graph with provider's LlmService.
-        const broker = params.broker;
-        const connectionId = req.modelRef.connectionId;
-        let innerResult: GraphRunResult | undefined;
-        let resolveOuterFinal: ((v: GraphFinal) => void) | undefined;
-        const outerFinal = new Promise<GraphFinal>((r) => {
-          resolveOuterFinal = r;
-        });
+			if (
+				provider.requiresConnection &&
+				req.modelRef.connectionId &&
+				params.broker
+			) {
+				// BYO path: resolve credentials async, then run graph with provider's LlmService.
+				const broker = params.broker;
+				const connectionId = req.modelRef.connectionId;
+				let innerResult: GraphRunResult | undefined;
+				let resolveOuterFinal: ((v: GraphFinal) => void) | undefined;
+				const outerFinal = new Promise<GraphFinal>((r) => {
+					resolveOuterFinal = r;
+				});
 
-        const stream = (async function* () {
-          let llmService: LlmService;
-          try {
-            const connection = await broker.resolve(connectionId, {
-              actorId: params.actorId,
-              tenantId: params.billing.billingAccountId,
-            });
-            llmService = provider.createLlmService(connection);
-          } catch (err) {
-            container.log.error(
-              {
-                connectionId,
-                error: err instanceof Error ? err.message : String(err),
-              },
-              "Connection resolution failed"
-            );
-            yield {
-              type: "error" as const,
-              error:
-                "internal" as import("@cogni/ai-core").AiExecutionErrorCode,
-            };
-            yield { type: "done" as const };
-            // biome-ignore lint/style/noNonNullAssertion: assigned synchronously in Promise constructor
-            resolveOuterFinal!({
-              ok: false,
-              runId: req.runId,
-              requestId: ctx?.requestId ?? req.runId,
-              error:
-                "internal" as import("@cogni/ai-core").AiExecutionErrorCode,
-            });
-            return;
-          }
+				const stream = (async function* () {
+					let llmService: LlmService;
+					try {
+						const connection = await broker.resolve(connectionId, {
+							actorId: params.actorId,
+							tenantId: params.billing.billingAccountId,
+						});
+						llmService = provider.createLlmService(connection);
+					} catch (err) {
+						container.log.error(
+							{
+								connectionId,
+								error: err instanceof Error ? err.message : String(err),
+							},
+							"Connection resolution failed",
+						);
+						yield {
+							type: "error" as const,
+							error:
+								"internal" as import("@cogni/ai-core").AiExecutionErrorCode,
+						};
+						yield { type: "done" as const };
+						// biome-ignore lint/style/noNonNullAssertion: assigned synchronously in Promise constructor
+						resolveOuterFinal!({
+							ok: false,
+							runId: req.runId,
+							requestId: ctx?.requestId ?? req.runId,
+							error:
+								"internal" as import("@cogni/ai-core").AiExecutionErrorCode,
+						});
+						return;
+					}
 
-          innerResult = runGraphWithScope({
-            executor: observed,
-            req,
-            ...(ctx ? { ctx } : {}),
-            billing: params.billing,
-            llmService,
-            usageSource: provider.usageSource,
-            ...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
-          });
+					innerResult = runGraphWithScope({
+						executor: observed,
+						req,
+						...(ctx ? { ctx } : {}),
+						billing: params.billing,
+						llmService,
+						usageSource: provider.usageSource,
+						...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
+					});
 
-          yield* innerResult.stream;
-          const f = await innerResult.final;
-          // biome-ignore lint/style/noNonNullAssertion: assigned synchronously in Promise constructor
-          resolveOuterFinal!(f);
-        })();
+					yield* innerResult.stream;
+					const f = await innerResult.final;
+					// biome-ignore lint/style/noNonNullAssertion: assigned synchronously in Promise constructor
+					resolveOuterFinal!(f);
+				})();
 
-        return { stream, final: outerFinal };
-      }
+				return { stream, final: outerFinal };
+			}
 
-      // Standard path: use provider's LlmService (no connection needed)
-      const llmService = provider.createLlmService();
-      return runGraphWithScope({
-        executor: observed,
-        req,
-        ...(ctx ? { ctx } : {}),
-        billing: params.billing,
-        llmService,
-        usageSource: provider.usageSource,
-        ...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
-      });
-    },
-  };
+			// Standard path: use provider's LlmService (no connection needed)
+			const llmService = provider.createLlmService();
+			return runGraphWithScope({
+				executor: observed,
+				req,
+				...(ctx ? { ctx } : {}),
+				billing: params.billing,
+				llmService,
+				usageSource: provider.usageSource,
+				...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
+			});
+		},
+	};
 }
 
 /**
@@ -287,26 +300,26 @@ export function createScopedGraphExecutor(params: {
  * and the resolved LlmService.
  */
 export function runGraphWithScope(params: {
-  readonly executor: GraphExecutorPort;
-  readonly req: GraphRunRequest;
-  readonly ctx?: ExecutionContext;
-  readonly billing: BillingContext;
-  readonly llmService: LlmService;
-  readonly usageSource: SourceSystem;
-  readonly abortSignal?: AbortSignal;
+	readonly executor: GraphExecutorPort;
+	readonly req: GraphRunRequest;
+	readonly ctx?: ExecutionContext;
+	readonly billing: BillingContext;
+	readonly llmService: LlmService;
+	readonly usageSource: SourceSystem;
+	readonly abortSignal?: AbortSignal;
 }): GraphRunResult {
-  const { executor, req, ctx, billing, llmService, usageSource } = params;
-  return runInScope(
-    {
-      billing,
-      runId: req.runId,
-      llmService,
-      usageSource,
-      ...(ctx?.actorUserId ? { actorUserId: ctx.actorUserId } : {}),
-      ...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
-    },
-    () => executor.runGraph(req, ctx)
-  );
+	const { executor, req, ctx, billing, llmService, usageSource } = params;
+	return runInScope(
+		{
+			billing,
+			runId: req.runId,
+			llmService,
+			usageSource,
+			...(ctx?.actorUserId ? { actorUserId: ctx.actorUserId } : {}),
+			...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
+		},
+		() => executor.runGraph(req, ctx),
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -329,103 +342,103 @@ const mcpLog = makeLogger({ component: "mcp-bootstrap" });
  *   - GRACEFUL_DEGRADATION: Failed connections → null → agents work without MCP tools
  */
 class McpConnectionCache {
-  private state: {
-    source: ToolSourcePort;
-    close: () => Promise<void>;
-    createdAt: number;
-  } | null = null;
-  private connecting: Promise<ToolSourcePort | null> | null = null;
+	private state: {
+		source: ToolSourcePort;
+		close: () => Promise<void>;
+		createdAt: number;
+	} | null = null;
+	private connecting: Promise<ToolSourcePort | null> | null = null;
 
-  constructor(private readonly ttlMs: number = 5 * 60 * 1000) {}
+	constructor(private readonly ttlMs: number = 5 * 60 * 1000) {}
 
-  /**
-   * Get MCP tool source, reconnecting if stale or on first access.
-   * Cache hit returns immediately. Cache miss or TTL expiry triggers reconnect.
-   * Concurrent callers coalesce on a single reconnect attempt.
-   */
-  async getSource(): Promise<ToolSourcePort | null> {
-    // Fast path: cached and within TTL
-    if (this.state && Date.now() - this.state.createdAt < this.ttlMs) {
-      return this.state.source;
-    }
-    // Coalesce concurrent reconnect attempts
-    if (!this.connecting) {
-      this.connecting = this.connect().finally(() => {
-        this.connecting = null;
-      });
-    }
-    return this.connecting;
-  }
+	/**
+	 * Get MCP tool source, reconnecting if stale or on first access.
+	 * Cache hit returns immediately. Cache miss or TTL expiry triggers reconnect.
+	 * Concurrent callers coalesce on a single reconnect attempt.
+	 */
+	async getSource(): Promise<ToolSourcePort | null> {
+		// Fast path: cached and within TTL
+		if (this.state && Date.now() - this.state.createdAt < this.ttlMs) {
+			return this.state.source;
+		}
+		// Coalesce concurrent reconnect attempts
+		if (!this.connecting) {
+			this.connecting = this.connect().finally(() => {
+				this.connecting = null;
+			});
+		}
+		return this.connecting;
+	}
 
-  /**
-   * Invalidate cached connection. Called on connection errors during tool exec.
-   * Next `getSource()` call will reconnect.
-   */
-  invalidate(): void {
-    if (this.state) {
-      const { close } = this.state;
-      this.state = null;
-      // Fire-and-forget close of dead connection
-      close().catch((err) =>
-        mcpLog.warn({ err }, "Error closing stale MCP connection")
-      );
-    }
-  }
+	/**
+	 * Invalidate cached connection. Called on connection errors during tool exec.
+	 * Next `getSource()` call will reconnect.
+	 */
+	invalidate(): void {
+		if (this.state) {
+			const { close } = this.state;
+			this.state = null;
+			// Fire-and-forget close of dead connection
+			close().catch((err) =>
+				mcpLog.warn({ err }, "Error closing stale MCP connection"),
+			);
+		}
+	}
 
-  /** Graceful shutdown. Call on SIGTERM/SIGINT. */
-  async close(): Promise<void> {
-    if (this.state) {
-      mcpLog.info("Closing MCP server connections");
-      try {
-        await this.state.close();
-      } catch (err) {
-        mcpLog.error({ err }, "Error closing MCP connections");
-      }
-      this.state = null;
-    }
-  }
+	/** Graceful shutdown. Call on SIGTERM/SIGINT. */
+	async close(): Promise<void> {
+		if (this.state) {
+			mcpLog.info("Closing MCP server connections");
+			try {
+				await this.state.close();
+			} catch (err) {
+				mcpLog.error({ err }, "Error closing MCP connections");
+			}
+			this.state = null;
+		}
+	}
 
-  private async connect(): Promise<ToolSourcePort | null> {
-    // Close previous connection if any
-    this.invalidate();
+	private async connect(): Promise<ToolSourcePort | null> {
+		// Close previous connection if any
+		this.invalidate();
 
-    const config = parseMcpConfigFromEnv();
-    const serverNames = Object.keys(config);
-    if (serverNames.length === 0) {
-      mcpLog.warn(
-        "No MCP servers configured — agents with mcpServerIds will have no tools"
-      );
-      return null;
-    }
+		const config = parseMcpConfigFromEnv();
+		const serverNames = Object.keys(config);
+		if (serverNames.length === 0) {
+			mcpLog.warn(
+				"No MCP servers configured — agents with mcpServerIds will have no tools",
+			);
+			return null;
+		}
 
-    mcpLog.info({ servers: serverNames }, "Connecting to MCP servers");
-    try {
-      const result = await loadMcpTools(config);
-      const innerSource = new McpToolSource(result.tools);
+		mcpLog.info({ servers: serverNames }, "Connecting to MCP servers");
+		try {
+			const result = await loadMcpTools(config);
+			const innerSource = new McpToolSource(result.tools);
 
-      // Wrap with error detection — connection errors trigger cache invalidation
-      const source = new ErrorDetectingMcpToolSource(innerSource, () =>
-        this.invalidate()
-      );
+			// Wrap with error detection — connection errors trigger cache invalidation
+			const source = new ErrorDetectingMcpToolSource(innerSource, () =>
+				this.invalidate(),
+			);
 
-      this.state = {
-        source,
-        close: () => result.close(),
-        createdAt: Date.now(),
-      };
-      mcpLog.info(
-        {
-          toolCount: result.tools.length,
-          toolNames: result.tools.map((t) => t.name),
-        },
-        "MCP tools connected"
-      );
-      return source;
-    } catch (err) {
-      mcpLog.error({ err }, "Failed to connect MCP tools; continuing without");
-      return null;
-    }
-  }
+			this.state = {
+				source,
+				close: () => result.close(),
+				createdAt: Date.now(),
+			};
+			mcpLog.info(
+				{
+					toolCount: result.tools.length,
+					toolNames: result.tools.map((t) => t.name),
+				},
+				"MCP tools connected",
+			);
+			return source;
+		} catch (err) {
+			mcpLog.error({ err }, "Failed to connect MCP tools; continuing without");
+			return null;
+		}
+	}
 }
 
 /**
@@ -436,72 +449,72 @@ class McpConnectionCache {
  * invalidated so the next request gets a fresh connection.
  */
 class ErrorDetectingMcpToolSource implements ToolSourcePort {
-  constructor(
-    private readonly delegate: McpToolSource,
-    private readonly onConnectionError: () => void
-  ) {}
+	constructor(
+		private readonly delegate: McpToolSource,
+		private readonly onConnectionError: () => void,
+	) {}
 
-  getBoundTool(
-    toolId: string
-  ): import("@cogni/ai-core").BoundToolRuntime | undefined {
-    const bound = this.delegate.getBoundTool(toolId);
-    if (!bound) return undefined;
+	getBoundTool(
+		toolId: string,
+	): import("@cogni/ai-core").BoundToolRuntime | undefined {
+		const bound = this.delegate.getBoundTool(toolId);
+		if (!bound) return undefined;
 
-    const onErr = this.onConnectionError;
-    return {
-      ...bound,
-      async exec(
-        args: unknown,
-        ctx: import("@cogni/ai-core").ToolInvocationContext,
-        caps: import("@cogni/ai-core").ToolCapabilities
-      ): Promise<unknown> {
-        try {
-          return await bound.exec(args, ctx, caps);
-        } catch (err) {
-          if (isConnectionError(err)) {
-            mcpLog.warn(
-              { toolId, err },
-              "MCP connection error — invalidating cache for reconnect"
-            );
-            onErr();
-          }
-          throw err;
-        }
-      },
-    };
-  }
+		const onErr = this.onConnectionError;
+		return {
+			...bound,
+			async exec(
+				args: unknown,
+				ctx: import("@cogni/ai-core").ToolInvocationContext,
+				caps: import("@cogni/ai-core").ToolCapabilities,
+			): Promise<unknown> {
+				try {
+					return await bound.exec(args, ctx, caps);
+				} catch (err) {
+					if (isConnectionError(err)) {
+						mcpLog.warn(
+							{ toolId, err },
+							"MCP connection error — invalidating cache for reconnect",
+						);
+						onErr();
+					}
+					throw err;
+				}
+			},
+		};
+	}
 
-  listToolSpecs(): readonly import("@cogni/ai-core").ToolSpec[] {
-    return this.delegate.listToolSpecs();
-  }
+	listToolSpecs(): readonly import("@cogni/ai-core").ToolSpec[] {
+		return this.delegate.listToolSpecs();
+	}
 
-  hasToolId(toolId: string): boolean {
-    return this.delegate.hasToolId(toolId);
-  }
+	hasToolId(toolId: string): boolean {
+		return this.delegate.hasToolId(toolId);
+	}
 }
 
 /** Detect transport-level connection errors (not application errors from MCP tools). */
 function isConnectionError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const m = err.message.toLowerCase();
-  return (
-    m.includes("econnrefused") ||
-    m.includes("econnreset") ||
-    m.includes("socket hang up") ||
-    m.includes("fetch failed") ||
-    m.includes("network error") ||
-    m.includes("session not found")
-  );
+	if (!(err instanceof Error)) return false;
+	const m = err.message.toLowerCase();
+	return (
+		m.includes("econnrefused") ||
+		m.includes("econnreset") ||
+		m.includes("socket hang up") ||
+		m.includes("fetch failed") ||
+		m.includes("network error") ||
+		m.includes("session not found")
+	);
 }
 
 /** Module-scoped MCP cache instance */
 let _mcpCache: McpConnectionCache | null = null;
 
 function getMcpCache(): McpConnectionCache {
-  if (!_mcpCache) {
-    _mcpCache = new McpConnectionCache();
-  }
-  return _mcpCache;
+	if (!_mcpCache) {
+		_mcpCache = new McpConnectionCache();
+	}
+	return _mcpCache;
 }
 
 /**
@@ -509,10 +522,10 @@ function getMcpCache(): McpConnectionCache {
  * With HTTP transport, this disconnects the client (no subprocess cleanup needed).
  */
 export async function closeMcpConnections(): Promise<void> {
-  if (_mcpCache) {
-    await _mcpCache.close();
-    _mcpCache = null;
-  }
+	if (_mcpCache) {
+		await _mcpCache.close();
+		_mcpCache = null;
+	}
 }
 
 /**
@@ -521,22 +534,75 @@ export async function closeMcpConnections(): Promise<void> {
  * MCP tools resolved via shared cache with reconnect-on-error.
  */
 function createInProcProvider(
-  deps: AiAdapterDeps,
-  completionStreamFn: CompletionStreamFn
+	deps: AiAdapterDeps,
+	completionStreamFn: CompletionStreamFn,
 ): GraphExecutorPort {
-  const container = getContainer();
-  const inprocAdapter = new InProcCompletionUnitAdapter(
-    deps,
-    completionStreamFn
-  );
+	const container = getContainer();
+	const inprocAdapter = new InProcCompletionUnitAdapter(
+		deps,
+		completionStreamFn,
+	);
 
-  const cache = getMcpCache();
-  return new LangGraphInProcProvider(
-    inprocAdapter,
-    container.toolSource,
-    () => cache.getSource(),
-    [...CORE_TOOL_BUNDLE]
-  );
+	const cache = getMcpCache();
+	return new LangGraphInProcProvider(
+		inprocAdapter,
+		container.toolSource,
+		() => cache.getSource(),
+		[...CORE_TOOL_BUNDLE],
+		{
+			sharedTools: (req) => ({
+				[scheduleListContract.name]: {
+					contract:
+						scheduleListContract as unknown as CatalogBoundTool["contract"],
+					runtime: contractToRuntime(
+						scheduleListContract,
+						createScheduleListImplementation({
+							scheduleCapability: container.sharedScheduleCapability,
+						}),
+					),
+				},
+				[scheduleManageContract.name]: {
+					contract:
+						scheduleManageContract as unknown as CatalogBoundTool["contract"],
+					runtime: contractToRuntime(
+						scheduleManageContract,
+						createScheduleManageImplementation({
+							scheduleCapability: bindScheduleModel(
+								container.sharedScheduleCapability,
+								req.modelRef,
+							),
+						}),
+					),
+				},
+			}),
+			guardDeps: container.agentAuthority.guardDeps,
+			resolvePrincipal: container.agentAuthority.resolvePrincipal,
+			isCodingActor: (actor) =>
+				serverEnv().COGNI_CODING_ACTOR_IDS.includes(actor),
+			sandboxReady: () => {
+				const env = serverEnv();
+				return Boolean(
+					env.SANDBOX_EXECD_TOKEN &&
+						env.NODE_AI_OPERATOR_KEY &&
+						env.COGNI_OPERATOR_URL &&
+						resolveSandboxWorkspaceOrigin(env, getNodeName()),
+				);
+			},
+			sourceContext: async () => {
+				const env = serverEnv();
+				const mission = getNodeMission();
+				if (!mission || !env.APP_BASE_URL || !container.knowledgeStorePort)
+					throw new Error("node_source_context_unavailable");
+				return loadCogniSourceContext({
+					store: container.knowledgeStorePort,
+					nodeId: container.nodeId,
+					origin: env.APP_BASE_URL,
+					mission,
+					buildSha: env.APP_BUILD_SHA,
+				});
+			},
+		},
+	);
 }
 
 /**
@@ -544,9 +610,11 @@ function createInProcProvider(
  * Per MVP_DEV_ONLY: connects to langgraph dev (port 2024).
  */
 function createDevProvider(apiUrl: string): LangGraphDevProvider {
-  const client = createLangGraphDevClient({ apiUrl });
-  const availableGraphs = Object.keys(LANGGRAPH_CATALOG);
-  return new LangGraphDevProvider(client, { availableGraphs });
+	const client = createLangGraphDevClient({ apiUrl });
+	const availableGraphs = Object.keys(LANGGRAPH_CATALOG).filter(
+		(name) => name !== "cogni",
+	);
+	return new LangGraphDevProvider(client, { availableGraphs });
 }
 
 // ---------------------------------------------------------------------------
@@ -557,17 +625,17 @@ function createDevProvider(apiUrl: string): LangGraphDevProvider {
 let _sandboxProvider: Promise<GraphExecutorPort> | null = null;
 
 function loadSandboxProvider(
-  litellmMasterKey: string
+	litellmMasterKey: string,
 ): Promise<GraphExecutorPort> {
-  if (!_sandboxProvider) {
-    _sandboxProvider = import("@/adapters/server/sandbox").then(
-      ({ SandboxRunnerAdapter, SandboxGraphProvider }) => {
-        const runner = new SandboxRunnerAdapter({ litellmMasterKey });
-        return new SandboxGraphProvider(runner) as GraphExecutorPort;
-      }
-    );
-  }
-  return _sandboxProvider;
+	if (!_sandboxProvider) {
+		_sandboxProvider = import("@/adapters/server/sandbox").then(
+			({ SandboxRunnerAdapter, SandboxGraphProvider }) => {
+				const runner = new SandboxRunnerAdapter({ litellmMasterKey });
+				return new SandboxGraphProvider(runner) as GraphExecutorPort;
+			},
+		);
+	}
+	return _sandboxProvider;
 }
 
 /**
@@ -580,44 +648,44 @@ function loadSandboxProvider(
  * the async generator inside awaits the cached import before delegating.
  */
 class LazySandboxGraphProvider implements GraphExecutorPort {
-  private readonly delegate: Promise<GraphExecutorPort>;
+	private readonly delegate: Promise<GraphExecutorPort>;
 
-  constructor(litellmMasterKey: string) {
-    this.delegate = loadSandboxProvider(litellmMasterKey);
-  }
+	constructor(litellmMasterKey: string) {
+		this.delegate = loadSandboxProvider(litellmMasterKey);
+	}
 
-  runGraph(req: GraphRunRequest, ctx?: ExecutionContext): GraphRunResult {
-    const delegate = this.delegate;
+	runGraph(req: GraphRunRequest, ctx?: ExecutionContext): GraphRunResult {
+		const delegate = this.delegate;
 
-    // Shared promise: resolves to delegate's runGraph result once module loads
-    const innerResult = delegate.then((p) => p.runGraph(req, ctx));
+		// Shared promise: resolves to delegate's runGraph result once module loads
+		const innerResult = delegate.then((p) => p.runGraph(req, ctx));
 
-    const stream = (async function* () {
-      let inner: GraphRunResult;
-      try {
-        inner = await innerResult;
-      } catch {
-        yield {
-          type: "error" as const,
-          error: "internal" as AiExecutionErrorCode,
-        };
-        yield { type: "done" as const };
-        return;
-      }
-      yield* inner.stream;
-    })();
+		const stream = (async function* () {
+			let inner: GraphRunResult;
+			try {
+				inner = await innerResult;
+			} catch {
+				yield {
+					type: "error" as const,
+					error: "internal" as AiExecutionErrorCode,
+				};
+				yield { type: "done" as const };
+				return;
+			}
+			yield* inner.stream;
+		})();
 
-    const final = innerResult.then(
-      (r) => r.final,
-      () =>
-        ({
-          ok: false,
-          runId: req.runId,
-          requestId: ctx?.requestId ?? req.runId,
-          error: "internal",
-        }) as const
-    );
+		const final = innerResult.then(
+			(r) => r.final,
+			() =>
+				({
+					ok: false,
+					runId: req.runId,
+					requestId: ctx?.requestId ?? req.runId,
+					error: "internal",
+				}) as const,
+		);
 
-    return { stream, final };
-  }
+		return { stream, final };
+	}
 }

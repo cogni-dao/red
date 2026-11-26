@@ -3,38 +3,28 @@
 
 /**
  * Module: `@tests/contract/app/knowledge.domains.crud`
- * Purpose: Prove the item-scoped domain routes (GET / PATCH / DELETE /api/v1/knowledge/domains/[domain]) accept any
- *   authenticated principal like POST register, validate input against the contract, and map store failures to typed error bodies.
- * Scope: Real route handlers and shared perimeter against the in-memory fake store. Does not test Doltgres SQL; storage conformance belongs to the published package.
- * Invariants: DOMAIN_READ_REQUIRES_PRINCIPAL, DOMAIN_MUTATION_BEARER_OR_SESSION (a bearer agent can update and delete;
- *   no principal gets 401), DOMAIN_ID_IS_IMMUTABLE, DOMAIN_DELETE_REFUSES_NONEMPTY, DOMAIN_BASELINE_IS_PROTECTED,
+ * Purpose: Prove the item-scoped domain routes (GET / PATCH / DELETE /api/v1/knowledge/domains/[domain]): GET accepts any
+ *   authenticated principal, PATCH and DELETE accept a signed-in human and refuse a bearer agent (deny-by-default, bug.0045);
+ *   input is validated against the contract and store failures map to typed error bodies.
+ * Scope: Real route handlers and shared perimeter against the in-memory fake store. Does not test Doltgres SQL (see tests/component/db/doltgres-domains.int.test.ts).
+ * Invariants: DOMAIN_READ_REQUIRES_PRINCIPAL, DOMAIN_MUTATION_HUMAN_ONLY (a signed-in human can update and delete; a bearer
+ *   agent gets 403 bearer_write_undeclared; no principal gets 401), DOMAIN_ID_IS_IMMUTABLE, DOMAIN_DELETE_REFUSES_NONEMPTY, DOMAIN_BASELINE_IS_PROTECTED,
  *   DOMAIN_ERRORS_ARE_TYPED.
  * Side-effects: none (container + auth mocked, fake in-memory store)
  * Links: src/app/api/v1/knowledge/domains/[domain]/route.ts, packages/node-contracts/src/knowledge.domains.v1.contract.ts
  * @internal
  */
 
-// Match the Next server runtime before loading the real route harness.
-import "next/dist/server/node-environment";
-
+import { DomainsErrorResponseSchema } from "@cogni/node-contracts";
+import type { SessionUser } from "@cogni/node-shared";
+import { FakeKnowledgeStoreAdapter } from "@cogni/knowledge-store/adapters/fake";
 import {
   KnowledgeBusyError,
   KnowledgeWriteOutcomeUnknownError,
 } from "@cogni/knowledge-store";
-import { FakeKnowledgeStoreAdapter } from "@cogni/knowledge-store/adapters/fake";
-import { DomainsErrorResponseSchema } from "@cogni/node-contracts";
-import type { SessionUser } from "@cogni/node-shared";
-import { NextRequest } from "next/server";
 import { testApiHandler } from "next-test-api-route-handler";
+import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-vi.mock(
-  "@cogni/node-contracts",
-  () =>
-    import(
-      "../../../../packages/node-contracts/src/knowledge.domains.v1.contract"
-    )
-);
 
 vi.mock("next-auth/jwt", () => ({ getToken: vi.fn(async () => null) }));
 vi.mock("@/auth", () => ({
@@ -48,6 +38,15 @@ const BEARER_AGENT: SessionUser = {
   walletAddress: null,
   displayName: "agent",
   avatarColor: null,
+  via: "bearer",
+};
+// A signed-in human: resolveRequestIdentity() marks a cookie session `via: "session"`.
+const SESSION_HUMAN: SessionUser = {
+  id: "human-user",
+  walletAddress: null,
+  displayName: "human",
+  avatarColor: null,
+  via: "session",
 };
 let currentUser: SessionUser | null = BEARER_AGENT;
 vi.mock("@/app/_lib/auth/session", () => ({
@@ -69,6 +68,10 @@ vi.mock("@/bootstrap/container", () => ({
     clock: { now: vi.fn(() => new Date("2026-01-01T00:00:00Z")) },
     config: { unhandledErrorPolicy },
     knowledgeStorePort: mockStore,
+    // The GET routes carry the knowledge.read door; its allow/deny is proven in knowledge.read-principal.test.ts.
+    agentAuthority: {
+      authorizeRoute: vi.fn(async () => ({ decision: "allow", basis: "role" })),
+    },
   })),
 }));
 
@@ -142,16 +145,6 @@ function expectTypedError(body: unknown, errorCode: string) {
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  vi.mocked(getContainer).mockReset();
-  vi.mocked(getContainer).mockImplementation(
-    () =>
-      ({
-        log,
-        clock: { now: vi.fn(() => new Date("2026-01-01T00:00:00Z")) },
-        config: { unhandledErrorPolicy },
-        knowledgeStorePort: mockStore,
-      }) as ReturnType<typeof getContainer>
-  );
   log.child.mockImplementation(() => log);
   currentUser = BEARER_AGENT;
   unhandledErrorPolicy = "rethrow";
@@ -197,6 +190,11 @@ describe("GET /knowledge/domains/[domain] — DOMAIN_READ_REQUIRES_PRINCIPAL", (
 });
 
 describe("domain item shared perimeter", () => {
+  // The perimeter checks run past the deny-by-default gate, so they act as a signed-in human.
+  beforeEach(() => {
+    currentUser = SESSION_HUMAN;
+  });
+
   it.each(["GET", "PATCH", "DELETE"] as const)(
     "validates the real wrapper %s bootstrap 503",
     async (method) => {
@@ -267,8 +265,22 @@ describe("domain item shared perimeter", () => {
   );
 });
 
-describe("PATCH /knowledge/domains/[domain] — DOMAIN_MUTATION_BEARER_OR_SESSION", () => {
-  it("a bearer agent updates the description (the build-evals 'probe' fix) and name; one commit each", async () => {
+describe("PATCH /knowledge/domains/[domain] — DOMAIN_MUTATION_HUMAN_ONLY", () => {
+  beforeEach(() => {
+    currentUser = SESSION_HUMAN;
+  });
+
+  it("a bearer agent is refused 403 bearer_write_undeclared and nothing changes", async () => {
+    currentUser = BEARER_AGENT;
+    const commitsBefore = mockStore.commitLog.length;
+    const res = await call("build-evals", "PATCH", { name: "Hijacked" });
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: "bearer_write_undeclared", code: "bearer_write_undeclared" });
+    expect(mockStore.commitLog.length).toBe(commitsBefore);
+    expect(await mockStore.getDomain("build-evals")).toMatchObject({ name: "build-evals" });
+  });
+
+  it("a signed-in human updates the description (the build-evals 'probe' fix) and name; one commit each", async () => {
     const commitsBefore = mockStore.commitLog.length;
     const res = await call("build-evals", "PATCH", {
       description: "Evals: scorecards, harnesses and benchmark datasets.",
@@ -359,8 +371,20 @@ describe("PATCH /knowledge/domains/[domain] — DOMAIN_MUTATION_BEARER_OR_SESSIO
   });
 });
 
-describe("DELETE /knowledge/domains/[domain] — DOMAIN_MUTATION_BEARER_OR_SESSION + DOMAIN_DELETE_REFUSES_NONEMPTY", () => {
-  it("a bearer agent deletes an empty domain; it disappears from list and get", async () => {
+describe("DELETE /knowledge/domains/[domain] — DOMAIN_MUTATION_HUMAN_ONLY + DOMAIN_DELETE_REFUSES_NONEMPTY", () => {
+  beforeEach(() => {
+    currentUser = SESSION_HUMAN;
+  });
+
+  it("a bearer agent is refused 403 bearer_write_undeclared and the domain stays", async () => {
+    currentUser = BEARER_AGENT;
+    const res = await call("empty-shelf", "DELETE");
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: "bearer_write_undeclared", code: "bearer_write_undeclared" });
+    expect(await mockStore.domainExists("empty-shelf")).toBe(true);
+  });
+
+  it("a signed-in human deletes an empty domain; it disappears from list and get", async () => {
     const res = await call("empty-shelf", "DELETE");
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ id: "empty-shelf", deleted: true });
