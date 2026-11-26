@@ -20,10 +20,10 @@
 
 import type { SandboxShellCapability } from "@cogni/ai-tools";
 import {
-	createSandboxPushTokenEnv,
-	createSandboxShellCapability as composeSandboxShellCapability,
-	deriveIsolatedServiceOrigin,
-	SANDBOX_SERVICE_NAME,
+  createSandboxPushTokenEnv,
+  createSandboxShellCapability as composeSandboxShellCapability,
+  deriveIsolatedServiceOrigin,
+  SANDBOX_SERVICE_NAME,
 } from "@cogni/sandbox";
 
 import { getExecutionScope } from "@/adapters/server";
@@ -51,15 +51,15 @@ export function resolveSandboxWorkspaceOrigin(
 export function createSandboxShellCapability(
   env: ServerEnv
 ): SandboxShellCapability | null {
-	const accessToken = env.SANDBOX_EXECD_TOKEN;
-	if (!accessToken) return null;
-	const nodeSlug = getNodeName();
-	const baseUrl = resolveSandboxWorkspaceOrigin(env, nodeSlug);
-	if (!baseUrl) return null;
-	return composeSandboxShellCapability({
-		baseUrl,
-		accessToken,
-		runId: () => getExecutionScope().runId,
+  const accessToken = env.SANDBOX_EXECD_TOKEN;
+  if (!accessToken) return null;
+  const nodeSlug = getNodeName();
+  const baseUrl = resolveSandboxWorkspaceOrigin(env, nodeSlug);
+  if (!baseUrl) return null;
+  return composeSandboxShellCapability({
+    baseUrl,
+    accessToken,
+    runId: () => getExecutionScope().runId,
 		callEnv: createSandboxPushTokenEnv({
 			operatorKey: env.NODE_AI_OPERATOR_KEY,
 			operatorUrl: env.COGNI_OPERATOR_URL,
@@ -70,18 +70,21 @@ export function createSandboxShellCapability(
 					EVENT_NAMES.ADAPTER_SANDBOX_PUSH_TOKEN
 				),
 		}),
-		onTick: (report) => {
-			if ("errorCode" in report) {
-				logger.warn(
-					{ event: EVENT_NAMES.ADAPTER_SANDBOX_TICK, error_code: report.errorCode },
-					EVENT_NAMES.ADAPTER_SANDBOX_TICK
-				);
-			} else {
-				logger.info(
-					{ event: EVENT_NAMES.ADAPTER_SANDBOX_TICK, ...report },
-					EVENT_NAMES.ADAPTER_SANDBOX_TICK
-				);
-			}
-		},
-	});
+    onTick: (report) => {
+      if ("errorCode" in report) {
+        logger.warn(
+          {
+            event: EVENT_NAMES.ADAPTER_SANDBOX_TICK,
+            error_code: report.errorCode,
+          },
+          EVENT_NAMES.ADAPTER_SANDBOX_TICK
+        );
+      } else {
+        logger.info(
+          { event: EVENT_NAMES.ADAPTER_SANDBOX_TICK, ...report },
+          EVENT_NAMES.ADAPTER_SANDBOX_TICK
+        );
+      }
+    },
+  });
 }

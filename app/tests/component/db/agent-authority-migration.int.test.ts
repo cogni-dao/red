@@ -16,6 +16,16 @@ import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createPostgresAgentGrantsStore, type SqlTag } from "@cogni/agent-grants";
+import { runCredentialConformance } from "@cogni/agent-grants/conformance";
+import {
+  agentRolesHasRoles,
+  assertV1NotSuperseded,
+  confirmCredential,
+  type CredentialSql,
+  createPostgresCredentialStore,
+  upgradeSignedKey,
+  verifyBearer,
+} from "@cogni/agent-grants/credentials";
 import { runGrantConformance } from "@cogni/agent-grants/grants-conformance";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
@@ -33,6 +43,7 @@ const roles = {
 const password = "isolated_authority_fixture";
 let admin: postgres.Sql;
 let baseline: string;
+let through36: string;
 
 function urlFor(database: string, role?: string) {
   const adminUrl = process.env.TEST_POSTGRES_ADMIN_URL;
@@ -62,6 +73,14 @@ beforeAll(async () => {
   await writeFile(path.join(baseline, "meta/_journal.json"), JSON.stringify(journal));
   for (const e of journal.entries)
     await copyFile(path.join(migrations, `${e.tag}.sql`), path.join(baseline, `${e.tag}.sql`));
+  // The candidate-a state: history through 0036 applied, 0037 not yet (the adopt path starts here).
+  through36 = await mkdtemp(path.join(tmpdir(), "red-authority-through36-"));
+  await mkdir(path.join(through36, "meta"));
+  const full = JSON.parse(await readFile(path.join(migrations, "meta/_journal.json"), "utf8"));
+  full.entries = full.entries.filter((e: { idx: number }) => e.idx < 37);
+  await writeFile(path.join(through36, "meta/_journal.json"), JSON.stringify(full));
+  for (const e of full.entries)
+    await copyFile(path.join(migrations, `${e.tag}.sql`), path.join(through36, `${e.tag}.sql`));
 }, 30_000);
 
 afterAll(async () => {
@@ -69,6 +88,7 @@ afterAll(async () => {
     await admin.unsafe(`DROP ROLE ${name}`);
   await admin.end();
   await rm(baseline, { recursive: true, force: true });
+  await rm(through36, { recursive: true, force: true });
 });
 
 async function fixture(
@@ -420,6 +440,89 @@ describe("agent authority migration", () => {
   });
 });
 
+// red#67 (story.5158, reverted) left agent_credentials on candidate-a. This is that shape, written independently of 0037: a real old database is the input.
+const preexistingCredentials = `
+CREATE TABLE agent_credentials (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id text NOT NULL, token_hash text NOT NULL, created_from text NOT NULL,
+ predecessor_id uuid, issued_at timestamptz NOT NULL DEFAULT now(), expires_at timestamptz NOT NULL, renew_until timestamptz NOT NULL,
+ pending_expires_at timestamptz, confirmed_at timestamptz, revoked_at timestamptz, revoked_reason text, revoked_by text,
+ CONSTRAINT agent_credentials_created_from_canonical CHECK (created_from IN ('spawn_grant','rotation','key_upgrade','binding_recovery','recovery_grant')),
+ CONSTRAINT agent_credentials_renew_after_expiry CHECK (renew_until > expires_at));
+ALTER TABLE agent_credentials ENABLE ROW LEVEL SECURITY;
+ALTER TABLE agent_credentials ADD CONSTRAINT agent_credentials_user_id_users_id_fk FOREIGN KEY (user_id) REFERENCES users(id);
+ALTER TABLE agent_credentials ADD CONSTRAINT agent_credentials_predecessor_id_fk FOREIGN KEY (predecessor_id) REFERENCES agent_credentials(id);
+CREATE UNIQUE INDEX agent_credentials_token_hash_unique ON agent_credentials(token_hash);
+CREATE UNIQUE INDEX agent_credentials_one_pending_successor ON agent_credentials(predecessor_id) WHERE confirmed_at IS NULL AND revoked_at IS NULL;
+CREATE INDEX agent_credentials_user_idx ON agent_credentials(user_id);
+ALTER TABLE agent_credentials FORCE ROW LEVEL SECURITY;
+`;
+
+/** Candidate-like start: history through 0036, then the red#67 table with real rows (inserted as the service role, so the phantom-orphan RLS condition holds for the owner). */
+async function candidateLike(h: { app: postgres.Sql; service: postgres.Sql; migration: postgres.Sql }) {
+  await migrate(drizzle(h.migration), { migrationsFolder: through36 });
+  await h.app.unsafe(preexistingCredentials);
+  await h.service`INSERT INTO users(id,name) VALUES ('a1','agent one'),('a2','agent two')`;
+  await h.service`INSERT INTO agent_principals(kind,user_id) VALUES ('external','a1'),('external','a2')`;
+  await h.service`INSERT INTO agent_credentials(user_id,token_hash,created_from,expires_at,renew_until,confirmed_at) VALUES
+    ('a1','h1','key_upgrade',now()+interval '30 days',now()+interval '60 days',now()),
+    ('a2','h2','key_upgrade',now()+interval '30 days',now()+interval '60 days',now())`;
+}
+
+async function credentialSnapshot(service: postgres.Sql) {
+  const [rows] = await service`SELECT md5(string_agg(t::text, '|' ORDER BY t.id)) AS md5, count(*)::int AS n FROM agent_credentials t`;
+  const constraints = await service`SELECT conname, oid::int AS oid, convalidated FROM pg_constraint WHERE conrelid = 'public.agent_credentials'::regclass ORDER BY conname`;
+  const indexes = await service`SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'agent_credentials' ORDER BY indexname`;
+  return { rows, constraints, indexes };
+}
+
+describe("0037 adopt path (the candidate-a state)", () => {
+  it("adopts a pre-existing agent_credentials without touching its rows, constraints or the users foreign key, then 0038 applies and a re-run is a no-op", async () => {
+    await fixture(async (h) => {
+      await candidateLike(h);
+      const before = await credentialSnapshot(h.service);
+      expect(before.rows?.n).toBe(2);
+      expect(before.constraints.every((c) => c.convalidated)).toBe(true);
+      await h.migration.unsafe("SELECT 1"); // the migrating role stays usable
+      await migrate(drizzle(h.migration), { migrationsFolder: migrations });
+      expect(await credentialSnapshot(h.service)).toEqual(before); // rows, constraint oids and index definitions are byte-identical
+      expect(await h.service`SELECT to_regclass('public.payer_bindings')::text AS t`).toEqual([{ t: "payer_bindings" }]);
+      expect(
+        await h.service`SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'agent_principals' AND column_name IN ('owner_source_kind','owner_source_ref')`,
+      ).toEqual([{ n: 2 }]);
+      expect(await h.service`SELECT count(*)::int AS n FROM pg_trigger WHERE tgname = 'agent_credentials_external_principal_only'`).toEqual([{ n: 1 }]);
+      await migrate(drizzle(h.migration), { migrationsFolder: migrations }); // journal makes it a no-op
+      expect(await credentialSnapshot(h.service)).toEqual(before);
+    });
+  });
+
+  it.each([
+    ["an extra column", `ALTER TABLE agent_credentials ADD COLUMN surprise text`, /agent_credentials exists with an unexpected shape/],
+    ["a wrong column type", `ALTER TABLE agent_credentials ALTER COLUMN token_hash TYPE varchar(64)`, /agent_credentials exists with an unexpected shape/],
+    ["a missing check constraint", `ALTER TABLE agent_credentials DROP CONSTRAINT agent_credentials_renew_after_expiry`, /without its primary key or check constraints/],
+  ])("fails closed on %s and changes nothing", async (_name, drift, message) => {
+    await fixture(async (h) => {
+      await candidateLike(h);
+      await h.app.unsafe(drift);
+      const before = await credentialSnapshot(h.service);
+      await expect(migrate(drizzle(h.migration), { migrationsFolder: migrations })).rejects.toMatchObject({
+        cause: { message: expect.stringMatching(message) },
+      });
+      expect(await credentialSnapshot(h.service)).toEqual(before);
+      expect(await h.service`SELECT to_regclass('public.payer_bindings')::text AS t`).toEqual([{ t: null }]); // the whole batch rolled back
+    });
+  });
+
+  it("fails closed on a pre-existing payer_bindings of unknown shape", async () => {
+    await fixture(async (h) => {
+      await candidateLike(h);
+      await h.app.unsafe(`CREATE TABLE payer_bindings (id uuid, subject_user_id text)`);
+      await expect(migrate(drizzle(h.migration), { migrationsFolder: migrations })).rejects.toMatchObject({
+        cause: { message: expect.stringMatching(/payer_bindings exists with an unexpected shape/) },
+      });
+    });
+  });
+});
+
 // Reuse the released behavioral contract over the actual adopted SQL store.
 // Every case gets its own complete database and real separated roles.
 let conformanceService: postgres.Sql;
@@ -467,4 +570,108 @@ runGrantConformance({
     createPostgresAgentGrantsStore(() => {
       throw new Error("isolated test outage");
     }),
+});
+
+// The credential adoption gate: the package's own rows over the adopted SQL store. Red runs them as the BYPASSRLS service role (the store's role);
+// the rows below prove the app role is walled off and a store on the wrong role is unavailable, never "never confirmed".
+let credService: postgres.Sql;
+let credApp: postgres.Sql;
+const credentialStore = (sql: postgres.Sql) =>
+  createPostgresCredentialStore(sql as unknown as CredentialSql, { hasRoles: agentRolesHasRoles(sql as unknown as CredentialSql) });
+async function makeCredUser(opts: { human?: boolean; internal?: boolean } = {}) {
+  const id = randomUUID();
+  await credService`INSERT INTO users(id,name) VALUES (${id}, ${`cred-${id.slice(0, 6)}`})`;
+  if (opts.internal)
+    await credService`INSERT INTO agent_principals(kind,slug,user_id) VALUES ('internal', ${`conf-${id}`}, ${id})`;
+  else if (!opts.human) await credService`INSERT INTO agent_principals(kind,user_id) VALUES ('external', ${id})`;
+  return id;
+}
+runCredentialConformance({
+  describe,
+  it: (name, run) =>
+    it(name, () =>
+      fixture(async ({ app, service, adopt }) => {
+        await adopt();
+        credService = service;
+        credApp = app;
+        await run();
+      }),
+    ),
+  expect,
+  async setup(facts) {
+    const ids: Record<string, string> = {};
+    for (const [name, f] of Object.entries(facts)) {
+      const id = await makeCredUser({ human: f.human === true, internal: f.internal === true });
+      ids[name] = id;
+      const admin = f.roles ? await makeCredUser() : null;
+      if (f.wallet) {
+        const wallet = `0x${randomUUID().replaceAll("-", "").padEnd(40, "0").slice(0, 40)}`;
+        await credService`INSERT INTO user_bindings(id,user_id,provider,external_id) VALUES (${randomUUID()}, ${id}, 'wallet', ${wallet})`;
+        if (f.human) await credService`UPDATE users SET wallet_address = ${wallet} WHERE id = ${id}`;
+      }
+      if (f.roles)
+        await credService`INSERT INTO agent_roles(principal_user_id,scope,approved_by,granted_at) VALUES (${id}, 'probe:scope', ${admin}, now())`;
+      if (f.github)
+        await credService`INSERT INTO user_bindings(id,user_id,provider,external_id) VALUES (${randomUUID()}, ${id}, 'github', ${`gh-${randomUUID()}`})`;
+    }
+    return { store: credentialStore(credService), ids };
+  },
+  async age(credentialId, to) {
+    if (to === "pending_expired")
+      await credService`UPDATE agent_credentials SET pending_expires_at = now() - interval '1 second' WHERE id = ${credentialId}`;
+    else if (to === "renew_only")
+      await credService`UPDATE agent_credentials SET expires_at = now() - interval '1 hour', renew_until = now() + interval '1 day' WHERE id = ${credentialId}`;
+    else
+      await credService`UPDATE agent_credentials SET expires_at = now() - interval '2 hour', renew_until = now() - interval '1 minute' WHERE id = ${credentialId}`;
+  },
+  async addRoles(userId) {
+    const admin = await makeCredUser();
+    await credService`INSERT INTO agent_roles(principal_user_id,scope,approved_by,granted_at) VALUES (${userId}, 'probe:scope', ${admin}, now())`;
+  },
+  broken: () =>
+    createPostgresCredentialStore(
+      (async () => {
+        throw new Error("db down");
+      }) as unknown as CredentialSql,
+      { hasRoles: async () => false },
+    ),
+  storedHash: async (credentialId) =>
+    (await credService`SELECT token_hash FROM agent_credentials WHERE id = ${credentialId}`)[0]?.token_hash ?? null,
+  liveSuccessors: async (predecessorId) =>
+    (
+      await credService`SELECT count(*)::int AS n FROM agent_credentials WHERE predecessor_id = ${predecessorId} AND confirmed_at IS NULL AND revoked_at IS NULL`
+    )[0]?.n ?? 0,
+});
+
+describe("agent credentials: rows only the adopted SQL can prove", () => {
+  it("the app role sees no credential row (FORCE RLS, no policy), cannot write one, and a store on that role is unavailable, never 'never confirmed'", async () => {
+    await fixture(async ({ app, service, adopt }) => {
+      await adopt();
+      credService = service;
+      const user = await makeCredUser();
+      const key = await upgradeSignedKey(credentialStore(service), { userId: user });
+      if (!key.ok) throw new Error(`refused: ${key.reason}`);
+      await confirmCredential(credentialStore(service), { credentialId: key.credentialId });
+      expect(await app`SELECT 1 FROM agent_credentials`).toHaveLength(0);
+      await expect(
+        app`INSERT INTO agent_credentials(user_id,token_hash,created_from,expires_at,renew_until) VALUES (${user}, 'x', 'rotation', now(), now() + interval '1 day')`,
+      ).rejects.toThrow();
+      const wrongRole = createPostgresCredentialStore(app as unknown as CredentialSql, { hasRoles: async () => false });
+      await expect(assertV1NotSuperseded(wrongRole, user)).rejects.toMatchObject({ code: "authz_unavailable" });
+      expect(await verifyBearer(wrongRole, key.apiKey)).toEqual({ ok: false, reason: "unavailable" });
+      await expect(assertV1NotSuperseded(credentialStore(service), user)).rejects.toMatchObject({ code: "v1_superseded" });
+    });
+  });
+
+  it("only a user with an EXTERNAL agent principal may hold a credential (trigger)", async () => {
+    await fixture(async ({ service, adopt }) => {
+      await adopt();
+      credService = service;
+      const plain = await makeCredUser({ human: true });
+      const insert = (userId: string) =>
+        service`INSERT INTO agent_credentials(user_id,token_hash,created_from,expires_at,renew_until) VALUES (${userId}, ${randomUUID()}, 'key_upgrade', now() + interval '1 day', now() + interval '2 day')`;
+      await expect(insert(plain)).rejects.toThrow(/requires an external agent principal/);
+      await expect(insert(nodeAi)).rejects.toThrow(/requires an external agent principal/);
+    });
+  });
 });

@@ -11,7 +11,9 @@
 --     transaction-local app.current_user_id; the owner role then sees ONE users row and every credential looks orphaned (the old re-add of the users foreign key failed with that
 --     exact error, and a DELETE on that predicate would have removed all six real rows; both patches were reverted). Reproduced on a scratch Postgres.
 --   - Production never ran red#67: its Red migration receipts show declared == applied through 0034_legal_vivisector, with no unknown ledger row. On production every object below is created.
--- RULES OF THIS FILE: no DELETE, no UPDATE, no DROP; an existing table must already have the expected shape (asserted, else the migration fails loudly); constraints, indexes, functions and
+-- APPROVED: the manager, delegated by the CEO, on 2026-11-26, chose this adopt-safe 0037 over waiting for operator story.5036 (candidate DB reset), as database-expert review of the
+-- evidence above. It is also correct on a reset or fresh database (every object is then created), so it does not depend on story.5036. Same shape of record as node-template 0039.
+-- RULES OF THIS FILE: no DELETE, no UPDATE, no DROP; an existing table must already have the expected shape (asserted below: column names, types and nullability, plus the primary key and check constraints by name; defaults, check bodies and index definitions are not compared; else the migration fails loudly); constraints, indexes, functions and
 -- the trigger are added only when absent; the users foreign key is never dropped or re-added.
 --
 -- Role handling matches 0035: act as the non-bypass owner of public.users, so the new tables belong to the same owner whether this runs
@@ -84,6 +86,16 @@ BEGIN
   IF (SELECT count(*) FROM pg_constraint WHERE conrelid = 'public.agent_credentials'::regclass
         AND conname IN ('agent_credentials_pkey', 'agent_credentials_created_from_canonical', 'agent_credentials_renew_after_expiry')) <> 3 THEN
     RAISE EXCEPTION 'agent_credentials exists without its primary key or check constraints; refusing to adopt it';
+  END IF;
+END $$;
+--> statement-breakpoint
+DO $$
+DECLARE actual text;
+BEGIN
+  SELECT string_agg(a.attname || ':' || format_type(a.atttypid, a.atttypmod) || ':' || a.attnotnull::text, ',' ORDER BY a.attname COLLATE "C") INTO actual
+    FROM pg_attribute a WHERE a.attrelid = 'public.payer_bindings'::regclass AND a.attnum > 0 AND NOT a.attisdropped;
+  IF actual IS DISTINCT FROM 'approved_at:timestamp with time zone:false,approved_by:text:false,billing_account_id:text:true,created_at:timestamp with time zone:true,id:uuid:true,revoked_at:timestamp with time zone:false,revoked_by:text:false,subject_user_id:text:true' THEN
+    RAISE EXCEPTION 'payer_bindings exists with an unexpected shape; refusing to adopt it: %', actual;
   END IF;
 END $$;
 --> statement-breakpoint

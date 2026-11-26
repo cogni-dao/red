@@ -17,6 +17,7 @@
  * Links: https://node-template.cognidao.org/knowledge/graph-execution-invariants
  *
  * SOURCE PORT RECORD (https://cognidao.org/knowledge/port-node-source-once; story.0090, task.0175 Stage 4). This provider is a recorded literal source port, not a sync lane.
+ *   - Source revision: node-template main 2157e635 (task.0175 merge); Red's file predates it and diverges.
  *   - Source symbols and destinations: node-template `app/src/adapters/server/ai/langgraph/inproc.provider.ts` (`LANGGRAPH_PROVIDER_ID`, `CompletionUnitAdapter`,
  *     `SharedCogniDeps`, `LangGraphInProcProvider`) and `resolveNodeSourceContext`, here `inproc.provider.ts`, `source-context.ts` (`loadCogniSourceContext`) and `dispatch.ts`
  *     (`createLangGraphDispatch`). Red diverges from node-template main in the graph-run, tool-guard and scope wiring; those hunks are node-owned composition.

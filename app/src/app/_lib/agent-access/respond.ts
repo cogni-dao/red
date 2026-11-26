@@ -6,6 +6,7 @@
  * Purpose: The three framework lines every agent access route needs around a `@cogni/agent-grants/http` core: read the JSON body, send the core's response,
  *   and log an unavailable store under the registered event with this node's failure fields.
  * Scope: Next-side wiring only. The cores own every status, body and refusal.
+ * Classification: node-local route composition (node-template-architect: routes, auth and composition stay in the node). It mirrors node-template 2157e635 `%s`; Red keeps only auth, the response object and one `@cogni/agent-grants/http` call per route, and every status and body come from the package core. Exit: task.0204 item 3 may move the shared builders into `/http`.
  * Side-effects: none (the logger is the caller's)
  * @internal
  */

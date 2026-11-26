@@ -9,8 +9,8 @@
  *   role. Decides nothing itself (ONE_AUTHORIZE_FN lives in the package).
  * Invariants:
  *   - ADMIN_FROM_USER_BINDINGS, DECLARED_SCOPES_FROM_CONTRACTS, NO_SECRETS_IN_LOGS: owned by the package host; see `@cogni/agent-grants/host`.
- *   - AGENT_WALLET_IS_NOT_A_PAYEE (a payout guard, not an authority rule): an agent may bind a wallet (`/api/v1/identity/wallet/bind`), so it can pass
- *     `adminCheck` when the DAO lists that wallet (AUTHORITY_IS_NOT_KIND). Claimant resolution skips agent-owned wallets and the database refuses a payout leaf for one.
+ *   - DEFERRED: the AGENT_WALLET_IS_NOT_A_PAYEE payout guard (node-template 0043 trigger on both leaf tables, 0044 principal backfill) is NOT adopted in Red; no database trigger
+ *     enforces it here. Red has no agent wallet-bind route today; the port is a follow-up recorded on story.0090.
  * Side-effects: IO (service-role database reads and writes)
  * Links: packages/agent-grants/src/host.ts, https://cognidao.org/knowledge/node-capability-grants-standard
  * @internal

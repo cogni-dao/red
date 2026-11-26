@@ -17,8 +17,8 @@
  *     and ONE narrow select policy (an account row naming the connection's own user as principal); no write policy.
  *     `agent_principals` is readable by every role (its select policy) and writable only by a BYPASSRLS service
  *     connection. FORCE is added by hand in the migration.
- *   - AGENT_WALLET_IS_NOT_A_PAYEE (a payout guard, enforced in the database; it does not decide who may be admin): an agent principal may bind a wallet, but a trigger
- *     on `epoch_distribution_leaves` and `distribution_settlement_leaves` (migration 0043) refuses a payout leaf whose account is a wallet an agent principal owns.
+ *   - DEFERRED (story.0090): the AGENT_WALLET_IS_NOT_A_PAYEE payout guard (node-template 0043 trigger on `epoch_distribution_leaves` and `distribution_settlement_leaves`, 0044 backfill)
+ *     is not adopted in Red; no trigger enforces it here.
  * Side-effects: none (schema definitions only)
  * Links: https://cognidao.org/knowledge/node-capability-grants-standard
  * @public

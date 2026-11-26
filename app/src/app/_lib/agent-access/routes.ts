@@ -6,6 +6,7 @@
  * Purpose: The route builder the person's own agent access table shares (human plane, session only). It resolves who the caller is, then hands the call to its
  *   `@cogni/agent-grants/http` core.
  * Scope: Next-side wiring only. Auth and plane checks stay here; every status and body comes from the core.
+ * Classification: node-local route composition (node-template-architect: routes, auth and composition stay in the node). It mirrors node-template 2157e635 `%s`; Red keeps only auth, the response object and one `@cogni/agent-grants/http` call per route, and every status and body come from the package core. Exit: task.0204 item 3 may move the shared builders into `/http`.
  * Side-effects: none at import
  * @internal
  */
