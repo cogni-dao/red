@@ -65,7 +65,7 @@ describe("Red's composed catalog", () => {
 			(tool) => tool.contract.name === HTTP,
 		)?.contract;
 		expect(contract?.requires).toMatchObject({
-			scope: "red:http_request",
+			scope: "red.http_request",
 			kind: "node",
 		});
 	});
@@ -153,15 +153,15 @@ async function runRedSolver(options: {
 }
 
 describe("red-solver on the shared provider", () => {
-	it("runs and offers the HTTP tool once its principal holds red:http_request", async () => {
-		const result = await runRedSolver({ granted: ["red:http_request"] });
+	it("runs and offers the HTTP tool once its principal holds red.http_request", async () => {
+		const result = await runRedSolver({ granted: ["red.http_request"] });
 		expect(result.final.ok).toBe(true);
 		expect(result.offered).toContain(HTTP);
 	});
 
 	it("withholds the shell from a run that carries no claim, and still runs", async () => {
 		const result = await runRedSolver({
-			granted: ["red:http_request", "sandbox:exec"],
+			granted: ["red.http_request", "sandbox:exec"],
 		});
 		expect(result.final.ok).toBe(true);
 		expect(result.offered).toContain(HTTP);
@@ -170,7 +170,7 @@ describe("red-solver on the shared provider", () => {
 
 	it("offers the shell on a claimed run by an audience caller whose principal holds sandbox:exec", async () => {
 		const result = await runRedSolver({
-			granted: ["red:http_request", "sandbox:exec"],
+			granted: ["red.http_request", "sandbox:exec"],
 			claimed: true,
 		});
 		expect(result.final.ok).toBe(true);
@@ -179,7 +179,7 @@ describe("red-solver on the shared provider", () => {
 
 	it("withholds the shell from a claimed caller outside the audience", async () => {
 		const result = await runRedSolver({
-			granted: ["red:http_request", "sandbox:exec"],
+			granted: ["red.http_request", "sandbox:exec"],
 			claimed: true,
 			actor: "someone-else",
 		});
@@ -195,7 +195,7 @@ describe("red-solver on the shared provider", () => {
 	it("fails before the model when the red-solver principal is not seeded", async () => {
 		const result = await runRedSolver({
 			seeded: false,
-			granted: ["red:http_request"],
+			granted: ["red.http_request"],
 		});
 		expect(result.final.ok).toBe(false);
 		expect(result.modelCalls).toBe(0);

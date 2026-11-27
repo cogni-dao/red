@@ -2,7 +2,7 @@
 -- The provider looks up each catalog graph's principal slug before any tool runs and denies the run when no seed row exists (SCOPED_TOOL_NEEDS_PRINCIPAL).
 --   - prioritizer: named by the published work-prioritizer entry. Red seeded only node-ai (0035), because its old runner ignored the catalog principal.
 --     Id and slug match INTERNAL_AGENT_PRINCIPALS in @cogni-dao/agent-grants (migrations/agent_authority.sql).
---   - red-solver: Red's own graph. Node-owned id, outside the package's a0001..a0002 range. It holds no role row until a node admin turns red:http_request (and, for the shell, sandbox:exec) On.
+--   - red-solver: Red's own graph. Node-owned id, outside the package's a0001..a0002 range. It holds no role row until a node admin turns red.http_request (and, for the shell, sandbox:exec) On.
 -- Seed identity only: no wallet, no credential, no role row. Same role handling as 0035/0038: act as the non-bypass owner of public.users.
 DO $$
 DECLARE owner_name text;

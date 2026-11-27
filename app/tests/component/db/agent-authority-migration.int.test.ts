@@ -185,7 +185,7 @@ describe("agent authority migration", () => {
       // 0039: the in-process provider's principal lock needs a seed row for each catalog graph's principal (no role rows).
       expect(await store.findInternalPrincipal("prioritizer")).toEqual({ userId: prioritizer });
       expect(await store.findInternalPrincipal("red-solver")).toEqual({ userId: redSolver });
-      expect(await store.liveScopes(redSolver, ["red:http_request", "sandbox:exec"])).toEqual([]);
+      expect(await store.liveScopes(redSolver, ["red.http_request", "sandbox:exec"])).toEqual([]);
       expect(await store.liveScopes(nodeAi, ["sandbox:exec"])).toEqual([]);
       expect(await service`SELECT * FROM agent_roles`).toHaveLength(0);
       expect(await service`SELECT wallet_address, email FROM users WHERE id = ${nodeAi}`).toEqual([

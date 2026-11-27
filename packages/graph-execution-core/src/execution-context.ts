@@ -29,6 +29,12 @@
  */
 export interface ExecutionContext {
   /**
+   * Host-verified: this run is a validated schedule tick (the internal route checked its execution grant): no caller waits on
+   * it. The provider words a step-limit stop for a tick and ends, before any model call, a run whose every write tool is
+   * withheld; it never grants or removes a tool. Set only by that route, never from a payload.
+   */
+  readonly unattended?: true;
+  /**
    * Host-verified: the internal run route checked this run's signed launcher proof. Set only by that route, never from a
    * payload. Without it, a run never gets the sandbox shell (shell-caller-run-claim). A grant-backed or system run lacks it.
    */

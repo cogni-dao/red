@@ -206,7 +206,7 @@ describe("POST /api/internal/graphs/{graphId}/runs terminal publication", () => 
 	it("finalizes failure when durable done publication rejects", async () => {
 		const response = await POST(
 			new NextRequest(
-				"http://localhost/api/internal/graphs/langgraph:default/runs",
+				"http://localhost/api/internal/graphs/sandbox:default/runs",
 				{
 					method: "POST",
 					headers: {
@@ -228,7 +228,7 @@ describe("POST /api/internal/graphs/{graphId}/runs terminal publication", () => 
 					}),
 				},
 			),
-			{ params: Promise.resolve({ graphId: "langgraph:default" }) },
+			{ params: Promise.resolve({ graphId: "sandbox:default" }) },
 		);
 
 		expect(response.status).toBe(200);
@@ -261,7 +261,7 @@ describe("POST /api/internal/graphs/{graphId}/runs terminal publication", () => 
 
 		const response = await POST(
 			new NextRequest(
-				"http://localhost/api/internal/graphs/langgraph:default/runs",
+				"http://localhost/api/internal/graphs/sandbox:default/runs",
 				{
 					method: "POST",
 					headers: {
@@ -284,7 +284,7 @@ describe("POST /api/internal/graphs/{graphId}/runs terminal publication", () => 
 					}),
 				},
 			),
-			{ params: Promise.resolve({ graphId: "langgraph:default" }) },
+			{ params: Promise.resolve({ graphId: "sandbox:default" }) },
 		);
 
 		expect(response.status).toBe(200);
@@ -435,6 +435,54 @@ describe("shared Cogni receiver ownership", () => {
 		);
 		expect(mocks.executeCount).toBe(1);
 	});
+	it("claims a verified chat actor's run of red-solver, and refuses it without the proof", async () => {
+		const graphId = "langgraph:red-solver";
+		const params = { params: Promise.resolve({ graphId }) };
+		mocks.createPendingRequest.mockResolvedValue({
+			status: "claimed",
+			request: { runId: RUN_ID },
+		});
+		const solverRequest = (proof?: string) =>
+			new NextRequest(`http://localhost/api/internal/graphs/${graphId}/runs`, {
+				method: "POST",
+				headers: {
+					authorization: "Bearer scheduler-secret-value-1234567890",
+					"content-type": "application/json",
+					"idempotency-key": `api:${RUN_ID}`,
+				},
+				body: JSON.stringify({
+					runId: RUN_ID,
+					executionGrantId: null,
+					input: {
+						...payload,
+						actorUserId: USER_ID,
+						billingAccountId: BILLING_ID,
+						virtualKeyId: VIRTUAL_KEY_ID,
+						executionRequestHash: hash,
+						executionClaimKey: key,
+						...(proof ? { chatActorProof: proof } : {}),
+					},
+				}),
+			});
+		// A proof signed for another graph, or none, is refused before the executor.
+		expect(
+			(
+				await POST(
+					solverRequest(signChatActor(identity, secret)),
+					params,
+				)
+			).status,
+		).toBe(403);
+		expect((await POST(solverRequest(), params)).status).toBe(403);
+		expect(mocks.executeCount).toBe(0);
+		// The launcher's proof for this graph is accepted and the run is claimed.
+		const proof = signChatActor({ ...identity, graphId }, secret);
+		expect((await POST(solverRequest(proof), params)).status).toBe(200);
+		expect(mocks.executeArgs[1]).toMatchObject({
+			actorUserId: USER_ID,
+			runClaimVerified: true,
+		});
+	});
 	it("sets the run claim only after the launcher proof verified", async () => {
 		const params = { params: Promise.resolve({ graphId: "langgraph:cogni" }) };
 		mocks.createPendingRequest.mockResolvedValue({
@@ -496,6 +544,9 @@ describe("scheduled Cogni ingress", () => {
 		expect(mocks.validateGrant).toHaveBeenCalledOnce();
 		expect(mocks.executeCount).toBe(1);
 		expect(mocks.executeArgs[1]).toMatchObject({ actorUserId: USER_ID });
+		// A validated schedule tick is unattended and never claimed: no caller waits on it, and it never gets the shell.
+		expect(mocks.executeArgs[1]).toMatchObject({ unattended: true });
+		expect(mocks.executeArgs[1]).not.toHaveProperty("runClaimVerified");
 	});
 	it("persists the trusted complete initiating model and admits the resulting scheduled tick", async () => {
 		const { bindScheduleModel } = await import(
@@ -609,13 +660,16 @@ describe("scheduled Cogni ingress", () => {
 
 describe("authenticated facade to guarded shared receiver", () => {
 	it.each([
-		["cookie", false],
-		["bearer", false],
-		["cookie", true],
-		["bearer", true],
+		["cookie", false, "langgraph:cogni"],
+		["bearer", false, "langgraph:cogni"],
+		["cookie", true, "langgraph:cogni"],
+		["bearer", true, "langgraph:cogni"],
+		["cookie", false, "langgraph:red-solver"],
+		["cookie", true, "langgraph:red-solver"],
+		["bearer", true, "langgraph:red-solver"],
 	])(
-		"carries %s identity and billing across the durable claim (grant %s)",
-		async (method, granted) => {
+		"carries %s identity and billing across the durable claim (grant %s, %s)",
+		async (method, granted, graphName) => {
 			const { completionStream } = await import(
 				"@/app/_facades/ai/completion.server"
 			);
@@ -738,10 +792,10 @@ describe("authenticated facade to guarded shared receiver", () => {
 				const accepted = await completionStream(
 					{
 						sessionUser: sessionUser!,
-						graphName: "langgraph:cogni",
+						graphName,
 						messages: [{ role: "user", content: "hello" }],
 						modelRef: { providerKey: "platform", modelId: "test-model" },
-						idempotencyKey: `case-${method}`,
+						idempotencyKey: `case-${method}-${graphName}`,
 						acceptanceMode: "workflow-start",
 					},
 					ctx,
@@ -752,7 +806,7 @@ describe("authenticated facade to guarded shared receiver", () => {
 				);
 				const response = await POST(
 					new NextRequest(
-						"http://localhost/api/internal/graphs/langgraph:cogni/runs",
+						`http://localhost/api/internal/graphs/${graphName}/runs`,
 						{
 							method: "POST",
 							headers: {
@@ -767,7 +821,7 @@ describe("authenticated facade to guarded shared receiver", () => {
 							}),
 						},
 					),
-					{ params: Promise.resolve({ graphId: "langgraph:cogni" }) },
+					{ params: Promise.resolve({ graphId: graphName }) },
 				);
 				expect(response.status).toBe(200);
 				expect(leased).toBe(true);

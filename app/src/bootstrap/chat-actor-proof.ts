@@ -3,6 +3,15 @@
 /** Bind an authenticated chat actor to its durable workflow invocation. */
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+/**
+ * Every LangGraph graph a chat actor starts carries the launcher's proof, not only `langgraph:cogni`. The facade signs it and the
+ * internal run route verifies it, then sets `runClaimVerified`; a run without a verified proof never gets the sandbox shell.
+ * A grant-backed (scheduled) run has no chat actor and is never claimed.
+ */
+export function isClaimedChatGraph(graphId: string): boolean {
+	return graphId.startsWith("langgraph:");
+}
+
 interface ChatActorIdentity {
 	readonly nodeId: string;
 	readonly lane: string;
