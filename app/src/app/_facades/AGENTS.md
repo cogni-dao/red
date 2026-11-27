@@ -77,3 +77,5 @@ pnpm typecheck
 
 - Underscore prefix signals internal app code (not routes)
 - Facades provide streaming variants when needed
+
+Work-item coordination delegates token-bound PostgreSQL owner receipts; item deletion has no facade writer. HTTP and tool envelopes bind the released artifact/history ports.

@@ -61,4 +61,4 @@ Capability factories bridging ai-tools interfaces to adapters. Creates environme
 
 - Pattern: test mode uses fake adapter, prod requires env vars or returns stub
 
-`createWorkItemCapability` binds live score writes to the current execution actor. `composeWorkItemContent` retains legacy v1 lease/delete methods and overlays only claim metadata over current scored content.
+`createWorkItemCapability` binds live score writes to the current execution actor. `composeWorkItemContent` re-exports the published PostgreSQL lease composition; content retains bridge writer fencing. Tokens appear only in authenticated lease receipts. Item tools forward artifact/history options through the same released envelope as HTTP.

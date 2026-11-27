@@ -80,12 +80,13 @@ import { PostgresScheduleRunReader } from "@cogni/scheduling/adapters/postgres";
 import type { KnowledgeCapability } from "@cogni/shared-ai-tools";
 import {
 	createWorkItemWriters,
+	createItemRefPorts,
 	type WorkItemArtifactDeps,
 	type WorkItemQueryPort,
 } from "@cogni/work-items";
 import { DoltgresWorkItemAdapter } from "@cogni/work-items/adapters/doltgres";
 import { MarkdownWorkItemAdapter } from "@cogni/work-items/markdown";
-import { DoltgresWorkItemAdapter as LegacyWorkItemAdapter } from "@cogni/work-items-legacy/adapters/doltgres";
+import { PostgresWorkItemLeaseAdapter } from "@cogni/work-items/adapters/postgres";
 import {
 	type GoalsProgress,
 	KpiBindingsSchema,
@@ -803,6 +804,13 @@ function createContainer(): Container {
 		moveReadings: moveMetrics.readings,
 		// task.0118: first page of an item's citation links, the same read the UI and the route use.
 		links: createCitationLinksPort(() => knowledgeStorePort),
+		refs: () => {
+			const store = workItemArtifacts?.artifacts;
+			return {
+				...createItemRefPorts({ artifacts: store, history: doltgresWorkItems }),
+				...(store && { artifacts: { latest: (id: string) => store.latest(id) } }),
+			};
+		},
 		log: (event) => log.warn(event, "work.items.envelope_degraded"),
 		backlogReader: {
 			get: (id) => doltgresWorkItems.get(id),
@@ -892,12 +900,6 @@ function createContainer(): Container {
 		const workItemsClient = createWorkItemsClient();
 		// Node stores start their allocator at 1; operator alone reserves the
 		// imported legacy range below 5000.
-		const createLegacyWorkItemsClient = () =>
-			buildDoltgresClient({
-				connectionString: env.DOLTGRES_URL as string,
-				applicationName: `cogni_work_items_v1_${env.SERVICE_NAME ?? "app"}`,
-				max: 1,
-			});
 		const createWorkItemsReadClient = () =>
 			buildDoltgresClient({
 				connectionString: env.DOLTGRES_URL as string,
@@ -948,10 +950,7 @@ function createContainer(): Container {
 					? { hubOrigin: new URL(env.APP_BASE_URL).origin }
 					: {}),
 			}),
-			new LegacyWorkItemAdapter(createLegacyWorkItemsClient(), {
-				logger: log,
-				recreateClient: createLegacyWorkItemsClient,
-			}),
+			new PostgresWorkItemLeaseAdapter(serviceDb.$client, { logger: log }),
 		);
 		// story.0061: a successful patch also records the (atom, item) pairs it cites; the route and the agent tool share
 		// this patch, and the record never fails or delays it.

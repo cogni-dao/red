@@ -4,162 +4,82 @@
 import { describe, expect, it, vi } from "vitest";
 import type { WorkItem, WorkItemsContentPort } from "@cogni/work-items";
 import { toWorkItemId } from "@cogni/work-items";
+import { workItemsHeartbeatOperation, workItemsReleaseOperation } from "@cogni/node-contracts";
 import { composeWorkItemContent } from "../../../src/bootstrap/capabilities/work-item-composition";
 
 const item = {
-  id: toWorkItemId("task.0001"),
-  type: "task",
-  title: "Current content",
-  status: "cancelled",
-  node: "red",
-  actor: "either",
-  assignees: [],
-  externalRefs: [],
-  labels: [],
-  specRefs: [],
-  revision: 8,
-  deployVerified: false,
-  createdAt: "2026-10-23",
-  updatedAt: "2026-10-23",
-  scores: {
-    goal: { v: 3 },
-    time: { v: 2 },
-    unblocks: { v: 1 },
-    ease: { v: 3 },
-    confidence: { v: 2 },
-    agent: { v: 3 },
-  },
+  id: toWorkItemId("task.0001"), type: "task", title: "Current content",
+  status: "needs_implement", node: "red", actor: "either", assignees: [],
+  externalRefs: [], labels: [], specRefs: [], revision: 8, deployVerified: false,
+  createdAt: "2026-10-23", updatedAt: "2026-10-23",
 } as WorkItem;
+const lease = {
+  id: item.id, runId: "run-a", leaseToken: "00000000-0000-4000-a000-000000000001",
+  claimedAt: "2026-11-27T16:00:00.000Z", expiresAt: "2026-11-27T16:05:00.000Z",
+  lastCommand: "/implement", active: true,
+};
 function setup() {
-  const old = {
-    ...item,
-    title: "Stale legacy content",
-    revision: 2,
-    scores: undefined,
-    claimedByRun: "run-a",
-    claimedAt: "2026-10-23",
-    lastCommand: "/implement",
-  };
   const content = {
     get: vi.fn().mockResolvedValue(item),
-    list: vi.fn().mockResolvedValue({
-      items: [item],
-      pageInfo: { endCursor: null, hasMore: false },
-    }),
-    listSummaries: vi.fn().mockResolvedValue({
-      items: [],
-      pageInfo: { endCursor: null, hasMore: false },
-    }),
-    history: vi.fn().mockResolvedValue([]),
-    create: vi.fn(),
-    patch: vi.fn().mockResolvedValue(item),
-    delete: vi.fn(),
+    list: vi.fn().mockResolvedValue({ items: [item, { ...item, id: toWorkItemId("task.0002") }], pageInfo: { endCursor: null, hasMore: false } }),
+    listSummaries: vi.fn(), history: vi.fn(), historyPage: vi.fn(),
+    writerHealth: vi.fn().mockReturnValue({ state: "available" }),
+    create: vi.fn(), patch: vi.fn().mockResolvedValue(item), delete: vi.fn(),
   };
-  const legacy = {
-    get: vi.fn().mockResolvedValue(old),
-    list: vi.fn().mockResolvedValue({
-      items: [old],
-      pageInfo: { endCursor: null, hasMore: false },
-    }),
-    claim: vi.fn().mockResolvedValue(old),
-    heartbeat: vi.fn().mockResolvedValue(old),
-    release: vi.fn().mockResolvedValue({
-      ...old,
-      claimedByRun: undefined,
-      claimedAt: undefined,
-      lastCommand: undefined,
-    }),
-    delete: vi.fn().mockResolvedValue(true),
+  const leases = {
+    getMany: vi.fn().mockResolvedValue(new Map([[item.id, lease]])),
+    claim: vi.fn().mockResolvedValue(lease), heartbeat: vi.fn().mockResolvedValue(lease),
+    release: vi.fn().mockResolvedValue({ ...lease, active: false }),
   };
-  return {
-    content,
-    legacy,
-    port: composeWorkItemContent(content as WorkItemsContentPort, legacy),
-  };
+  return { content, leases, port: composeWorkItemContent(content as WorkItemsContentPort, leases) };
 }
-describe("RED shared content / legacy v1 composition", () => {
-  it("overlays only claim fields, preserving primary score content and revision", async () => {
-    const { port } = setup();
-    expect(await port.get(item.id)).toEqual({
-      ...item,
-      claimedByRun: "run-a",
-      claimedAt: "2026-10-23",
-      lastCommand: "/implement",
-    });
-    expect((await port.list()).items[0]).toMatchObject({
-      title: item.title,
-      revision: 8,
-      scores: item.scores,
-      claimedByRun: "run-a",
-    });
+describe("Red released content / PostgreSQL lease boundary", () => {
+  it("projects one bounded batch per page without exposing any lease token", async () => {
+    const { port, leases } = setup();
+    const page = await port.list({ limit: 2 });
+    expect(leases.getMany).toHaveBeenCalledExactlyOnceWith([item.id, "task.0002"]);
+    expect(page.items[0]).toMatchObject({ title: item.title, revision: 8, claimedByRun: lease.runId });
+    expect(page.items[1]?.claimedByRun).toBeUndefined();
+    expect(JSON.stringify(page)).not.toContain(lease.leaseToken);
+    const detail = await port.get(item.id);
+    expect(detail?.revision).toBe(8);
+    expect(JSON.stringify(detail)).not.toContain(lease.leaseToken);
   });
-  it("preserves lease inputs/fences and DELETE while CAS reaches only new content", async () => {
-    const { content, legacy, port } = setup();
-    const claim = {
-      id: item.id,
-      runId: "run-a",
-      principalId: "actor-a",
-      command: "/implement",
-    };
-    expect((await port.claim(claim)).scores).toEqual(item.scores);
-    expect(legacy.claim).toHaveBeenCalledWith(claim);
-    await port.heartbeat(claim);
-    await port.release(claim);
-    expect(legacy.heartbeat).toHaveBeenCalledWith(claim);
-    expect(legacy.release).toHaveBeenCalledWith(claim);
-    const conflict = Object.assign(new Error("foreign run"), {
-      name: "WorkItemLeaseConflictError",
-    });
-    legacy.heartbeat.mockRejectedValueOnce(conflict);
-    await expect(port.heartbeat({ ...claim, runId: "run-b" })).rejects.toBe(
-      conflict
-    );
-    const patch = {
-      id: item.id,
-      expectedRevision: 8,
-      reason: "test change",
-      set: { scores: item.scores },
-    };
-    await port.patch(patch, { actor: "collaborator" });
-    expect(content.patch).toHaveBeenCalledWith(patch, { actor: "collaborator" });
-    await port.delete(item.id, { actor: "creator" });
-    expect(legacy.delete).toHaveBeenCalledWith(item.id, "creator");
-    expect(content.delete).not.toHaveBeenCalled();
+  it("returns the owner receipt and delegates heartbeat/release without a content write or read", async () => {
+    const { port, content, leases } = setup();
+    const owner = { id: item.id, runId: lease.runId, principalId: "principal-P", command: "/implement" };
+    await expect(port.claim(owner)).resolves.toBe(lease);
+    expect(leases.claim).toHaveBeenCalledExactlyOnceWith(owner);
+    content.get.mockClear();
+    const tokenOwner = { ...owner, leaseToken: lease.leaseToken };
+    await port.heartbeat(tokenOwner);
+    await port.release(tokenOwner);
+    expect(leases.heartbeat).toHaveBeenCalledExactlyOnceWith(tokenOwner);
+    expect(leases.release).toHaveBeenCalledExactlyOnceWith(tokenOwner);
+    const conflict = Object.assign(new Error("stale token"), { name: "WorkItemLeaseConflictError" });
+    leases.heartbeat.mockRejectedValueOnce(conflict);
+    await expect(port.heartbeat({ ...tokenOwner, leaseToken: "00000000-0000-4000-a000-000000000002" })).rejects.toBe(conflict);
+    expect(content.get).not.toHaveBeenCalled();
+    expect(content.patch).not.toHaveBeenCalled();
   });
-  it("forwards listSummaries, history and the change reason to the content port", async () => {
-    const { content, port } = setup();
+  it("refuses tokenless renewal/release at the wire boundary", () => {
+    const owner = { id: item.id, runId: lease.runId };
+    expect(workItemsHeartbeatOperation.input.safeParse(owner).success).toBe(false);
+    expect(workItemsReleaseOperation.input.safeParse(owner).success).toBe(false);
+    expect(workItemsHeartbeatOperation.input.safeParse({ ...owner, leaseToken: lease.leaseToken }).success).toBe(true);
+  });
+  it("retains content CAS, history paging, writer health and bounded summary reads", async () => {
+    const { port, content, leases } = setup();
+    const patch = { id: item.id, expectedRevision: 8, reason: "cancel with retained history", set: { status: "cancelled" as const } };
+    const attribution = { actor: "principal-P", requestedBy: "requester-S", run: { id: "run-a", kind: "system_scheduled" as const } };
+    await port.patch(patch, attribution);
+    expect(content.patch).toHaveBeenCalledExactlyOnceWith(patch, attribution);
+    await port.historyPage?.(item.id, { limit: 20 });
+    expect(content.historyPage).toHaveBeenCalledExactlyOnceWith(item.id, { limit: 20 });
+    expect(port.writerHealth?.()).toEqual({ state: "available" });
     const options = { maxScanRows: 10 };
     await port.listSummaries({ limit: 5 }, options);
-    expect(content.listSummaries).toHaveBeenCalledWith({ limit: 5 }, options);
-    await port.history?.(item.id);
-    expect(content.history).toHaveBeenCalledWith(item.id);
-    const patch = { id: item.id, reason: "why", set: { title: "t" } };
-    await port.patch(patch, { actor: "collaborator" });
-    expect(content.patch).toHaveBeenCalledWith(patch, { actor: "collaborator" });
-  });
-  it("forwards the composed board read with its bounds, and omits it when absent (task.0056)", async () => {
-    const { content, legacy } = setup();
-    const pages = { columns: [], queryCount: 1 };
-    const listBoardColumns = vi.fn().mockResolvedValue(pages);
-    const port = composeWorkItemContent(
-      { ...content, listBoardColumns } as WorkItemsContentPort,
-      legacy
-    );
-    const signal = new AbortController().signal;
-    await expect(
-      port.listBoardColumns?.({}, ["done"], 20, { signal })
-    ).resolves.toBe(pages);
-    expect(listBoardColumns).toHaveBeenCalledWith({}, ["done"], 20, { signal });
-    expect(legacy.list).not.toHaveBeenCalled();
-    expect(
-      composeWorkItemContent(content as WorkItemsContentPort, legacy)
-        .listBoardColumns
-    ).toBeUndefined();
-  });
-  it("omits history when the content port has none", () => {
-    const { content, legacy } = setup();
-    const { history: _history, ...noHistory } = content;
-    const port = composeWorkItemContent(noHistory as WorkItemsContentPort, legacy);
-    expect(port.history).toBeUndefined();
+    expect(content.listSummaries).toHaveBeenCalledExactlyOnceWith({ limit: 5 }, options);
+    expect(leases.getMany).not.toHaveBeenCalled();
   });
 });

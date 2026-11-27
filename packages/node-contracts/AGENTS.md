@@ -72,3 +72,5 @@ All require `Authorization: Bearer ${SCHEDULER_API_TOKEN}`.
 - `ChatMessage` exported from `ai.completions.v1.contract` (OpenAI-compatible format); chat contract's `ChatMessage` excluded from barrel to avoid TS2308
 
 WorkItemDtoSchema re-exports work-items; KnowledgeRowSchema re-exports the pure knowledge-store/contracts subpath. HTTP contracts inherit their domain-owned fields; no additional public package is required.
+
+Work-item lease routes return owner receipts, require UUID tokens for heartbeat/release, and never add tokens to item reads. The removed DELETE operation documents HTTP 410 and revision-bound reasoned cancellation.

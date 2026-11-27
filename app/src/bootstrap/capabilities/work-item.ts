@@ -32,6 +32,7 @@ import type {
 import type {
   EnvelopeDegradedEvent,
   ItemLinksPort,
+  ItemEnvelopeDeps,
   MoveReadingPort,
 } from "@cogni/work-items";
 import {
@@ -48,6 +49,8 @@ export interface WorkItemCapabilityDeps {
   readonly moveReadings?: MoveReadingPort | undefined;
   /** First page of an item's citation links (`read` with `includeLinks`); absent reads `unavailable`. */
   readonly links?: ItemLinksPort | undefined;
+  /** Lazy because the content/artifact stores are assigned later during bootstrap. */
+  readonly refs?: () => ItemEnvelopeDeps;
   /** One event per degraded envelope part (chain or links). */
   readonly log?: ((event: EnvelopeDegradedEvent) => void) | undefined;
   readonly backlogReader?: Pick<WorkItemsContentPort, "get" | "list">;
@@ -105,8 +108,8 @@ export function createWorkItemCapability(
       // ONE_COMPOSITION: the same `composeItemEnvelope` the HTTP facade calls.
       return composeItemEnvelope(
         item,
-        { readings: deps.moveReadings, links: deps.links, log: deps.log },
-        { includeLinks: options?.includeLinks === true }
+        { ...deps.refs?.(), readings: deps.moveReadings, links: deps.links, log: deps.log },
+        options
       );
     },
     query: async (params) =>
@@ -132,8 +135,8 @@ export function createWorkItemCapability(
           });
           throw error;
         }
-        return toInfo(
-          await deps.backlogWriter.store.patch(
+        try {
+          return toInfo(await deps.backlogWriter.store.patch(
             {
               id: toWorkItemId(input.id),
               ...(input.expectedRevision !== undefined && {
@@ -146,8 +149,14 @@ export function createWorkItemCapability(
               >[0]["set"],
             },
             attribution
-          )
-        );
+          ));
+        } catch (error) {
+          if (error instanceof Error && error.name === "WorkItemRevisionConflictError") {
+            const conflict = error as Error & { expectedRevision: number; currentRevision: number };
+            throw new WorkItemPatchConflictError(input.id, conflict.expectedRevision, conflict.currentRevision);
+          }
+          throw error;
+        }
       }
       const current = await deps.workItemQuery.get(toWorkItemId(input.id));
       if (!current) throw new Error(`Work item not found: ${input.id}`);

@@ -76,6 +76,7 @@ export const POST = wrapRouteHandlerWithLogging<{
       const result = await heartbeatWorkItem({
         id: parsed.data.id,
         runId: parsed.data.runId,
+        leaseToken: parsed.data.leaseToken,
         ...(parsed.data.command !== undefined && {
           command: parsed.data.command,
         }),
@@ -86,7 +87,8 @@ export const POST = wrapRouteHandlerWithLogging<{
         "work.items.heartbeat_success"
       );
       return NextResponse.json(
-        workItemsHeartbeatOperation.output.parse(result)
+        workItemsHeartbeatOperation.output.parse(result),
+        { headers: { "cache-control": "no-store" } }
       );
     } catch (error) {
       if (error instanceof WorkItemNotFoundError) {

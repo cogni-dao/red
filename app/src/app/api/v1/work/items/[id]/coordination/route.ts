@@ -30,6 +30,7 @@ export const GET = wrapRouteHandlerWithLogging<{
 }>(
   {
     routeId: "work.items.coordination",
+    sameDoor: "core__work_item_update",
     auth: { mode: "required", getSessionUser },
   },
   async (ctx, _request, _sessionUser, context) => {
