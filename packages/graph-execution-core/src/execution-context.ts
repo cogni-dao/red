@@ -28,6 +28,11 @@
  *   Temporal uses Context.current().cancellationSignal for activity cancellation
  */
 export interface ExecutionContext {
+  /**
+   * Host-verified: the internal run route checked this run's signed launcher proof. Set only by that route, never from a
+   * payload. Without it, a run never gets the sandbox shell (shell-caller-run-claim). A grant-backed or system run lacks it.
+   */
+  readonly runClaimVerified?: true;
   /** Actor who initiated this run (user ID for user-initiated, undefined for system) */
   readonly actorUserId?: string;
   /** Session ID for observability grouping (e.g., Langfuse sessions) */

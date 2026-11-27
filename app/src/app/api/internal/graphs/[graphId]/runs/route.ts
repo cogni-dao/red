@@ -768,6 +768,8 @@ export const POST = wrapRouteHandlerWithLogging<RouteParams>(
 				actorUserId,
 				requestId: runId,
 				...(sessionId ? { sessionId } : {}),
+				// Set only after `verifyChatActor` accepted this run's launcher proof above; never from the payload. The shell needs it.
+				...(sharedChat ? { runClaimVerified: true as const } : {}),
 			},
 		);
 

@@ -19,11 +19,6 @@
       "types": "./dist/graphs/index.d.ts",
       "import": "./dist/graphs/index.js",
       "default": "./dist/graphs/index.js"
-    },
-    "./inproc": {
-      "types": "./dist/inproc/index.d.ts",
-      "import": "./dist/inproc/index.js",
-      "default": "./dist/inproc/index.js"
     }
   },
   "types": "./dist/index.d.ts",
@@ -43,7 +38,7 @@
     "@cogni/ai-core": "workspace:*",
     "@cogni/ai-tools": "https://github.com/cogni-dao/node-template/releases/download/ai-tools-v0.16.0/cogni-dao-ai-tools-0.16.0.tgz",
     "@cogni/red-ai-tools": "workspace:@cogni/ai-tools@*",
-    "@cogni/shared-langgraph-graphs": "https://github.com/cogni-dao/node-template/releases/download/langgraph-graphs-v0.11.0/cogni-dao-langgraph-graphs-0.11.0.tgz",
+    "@cogni/shared-langgraph-graphs": "https://github.com/cogni-dao/node-template/releases/download/langgraph-graphs-v0.12.0/cogni-dao-langgraph-graphs-0.12.0.tgz",
     "@langchain/core": "1.2.14",
     "@langchain/langgraph": "1.4.10",
     "@langchain/mcp-adapters": "^1.1.3",

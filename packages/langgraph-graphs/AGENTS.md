@@ -41,17 +41,12 @@ LangGraph graph definitions and runtime utilities for agentic AI execution. Cont
 
 - **Exports (subpaths):**
   - `@cogni/langgraph-graphs` — Barrel re-export of common types plus:
-    - `LANGGRAPH_CATALOG` — Graph catalog: published core `cogni` (shared runtime, default) and `work-prioritizer` (read-only on Red), plus Red's own `red-solver`
+    - `LANGGRAPH_CATALOG` — Red's one composed catalog, built with `createNodeCatalog` over the published catalog: `cogni` (default), `work-prioritizer` (narrowed read-only), `work-closeout` omitted, plus Red's own `red-solver` (principal `red-solver`)
+    - `createLangGraphInProcProvider()`, `createNodeCatalog()`, `createInProcGraphRunner()`, `requiresInProcess()`, `resolveNodeSourceContext()`, `INPROC_EVENTS` and their port types — re-exported from the published `@cogni-dao/langgraph-graphs/inproc` (pinned as `@cogni/shared-langgraph-graphs`). Red keeps no copy of the provider, the guard or the runner.
     - `LANGGRAPH_GRAPH_IDS`, `DEFAULT_LANGGRAPH_GRAPH_ID` (`langgraph:cogni`) — Namespaced graph ids
     - `McpToolSource` — ToolSourcePort implementation for MCP-discovered tools
     - `loadMcpTools()`, `parseMcpConfigFromEnv()` — MCP client connection + config parsing
     - `McpHttpServerConfig`, `McpSseServerConfig`, `McpStdioServerConfig` — Transport config types
-  - `@cogni/langgraph-graphs/inproc` — InProc execution runner:
-    - `createInProcGraphRunner()` — Generic InProc graph runner factory
-    - `InProcRunnerOptions`, `InProcGraphRequest`, `GraphResult` (includes optional `structuredOutput`) — Runner types
-    - `CompletionFn`, `CompletionResult` — Injected completion function types
-    - `CreateGraphFn`, `CreateGraphOptions` — Graph factory types
-    - `ToolExecFn`, `ToolExecResult` — Tool execution types
   - `@cogni/langgraph-graphs/runtime` — LangChain utilities (split: `core/` generic, `cogni/` ALS-based):
     - **Core (no ALS):** `makeLangChainTool()`, `toLangChainToolsCaptured()`, `toBaseMessage()`, `fromBaseMessage()`, `AsyncQueue`, `makeServerGraph()`
     - **Cogni (uses ALS):** `CogniCompletionAdapter` (with `withStructuredOutput()` for Zod/JSON Schema response parsing), `runWithCogniExecContext()`, `getCogniExecContext()`, `hasCogniExecContext()`, `toLangChainToolsFromContext()`, `makeCogniGraph()`
@@ -62,7 +57,7 @@ LangGraph graph definitions and runtime utilities for agentic AI execution. Cont
     - `GraphInvokeOptions`, `CreateReactAgentGraphOptions` — Factory types
   - **Per-graph tools:** `src/graphs/*/tools.ts` exports `*_TOOL_IDS` constants (e.g., `RED_SOLVER_TOOL_IDS`, `RedSolverToolId`)
 - **Env/Config keys:** none (all deps injected)
-- **Files considered API:** `index.ts`, `inproc/index.ts`, `runtime/index.ts`, `graphs/index.ts`, `langgraph.json`
+- **Files considered API:** `index.ts`, `runtime/index.ts`, `graphs/index.ts`, `langgraph.json`
 - **Server entrypoints:** `src/graphs/*/server.ts` — LangGraph dev server (uses `makeServerGraph`)
 - **Cogni entrypoints:** `src/graphs/*/cogni-exec.ts` — Cogni executor (uses `makeCogniGraph`)
 
@@ -110,7 +105,7 @@ pnpm --filter @cogni/langgraph-graphs test
 
 - Per NO_LANGCHAIN_IN_SRC: `src/**` cannot import `@langchain/*` — only this package
 - Per PACKAGES_NO_SRC_IMPORTS: This package cannot import from `src/**`
-- `LangGraphInProcProvider` in `src/adapters/server/ai/langgraph/` wires this package
+- `LangGraphInProcProvider` in `src/adapters/server/ai/langgraph/` is Red's thin adapter over the published provider; it holds wiring only
 - Package isolation enables LangGraph Server to import graphs without Next.js deps
 - **Dual tsconfig:** LangGraph CLI generates runtime `.ts` files (`__langgraph__*.ts`) that break `composite` mode. This package uses `tsconfig.json` (noEmit, for CLI) + `tsconfig.build.json` (composite, for `tsc -b`). Root tsconfig.json references the build config explicitly. This is not proper form, but a valid workaround.
 

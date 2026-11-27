@@ -297,6 +297,9 @@ describe("POST /api/internal/graphs/{graphId}/runs terminal publication", () => 
 			ok: false,
 			errorCode: "internal",
 		});
+		// A run with no verified launcher proof never carries the run claim, so it never gets the shell.
+		expect(mocks.executeArgs[1]).toMatchObject({ actorUserId: USER_ID });
+		expect(mocks.executeArgs[1]).not.toHaveProperty("runClaimVerified");
 	});
 });
 
@@ -431,6 +434,18 @@ describe("shared Cogni receiver ownership", () => {
 			expect.any(String),
 		);
 		expect(mocks.executeCount).toBe(1);
+	});
+	it("sets the run claim only after the launcher proof verified", async () => {
+		const params = { params: Promise.resolve({ graphId: "langgraph:cogni" }) };
+		mocks.createPendingRequest.mockResolvedValue({
+			status: "claimed",
+			request: { runId: RUN_ID },
+		});
+		expect((await POST(request(), params)).status).toBe(200);
+		expect(mocks.executeArgs[1]).toMatchObject({
+			actorUserId: USER_ID,
+			runClaimVerified: true,
+		});
 	});
 });
 
@@ -670,8 +685,8 @@ describe("authenticated facade to guarded shared receiver", () => {
 				name: shell,
 				requires: { scope: "sandbox:exec", kind: "node", subject: "member" },
 			};
-			mocks.provider = new LangGraphInProcProvider(
-				{
+			mocks.provider = new LangGraphInProcProvider({
+				completion: {
 					executeCompletionUnit: () => {
 						model++;
 						modelScope = getExecutionScope();
@@ -685,14 +700,13 @@ describe("authenticated facade to guarded shared receiver", () => {
 						};
 					},
 				} as any,
-				{
+				tools: {
 					getBoundTool: (id: string) => (id === shell ? runtime : undefined),
 					listToolSpecs: () => [],
 					hasToolId: (id: string) => id === shell,
 				} as any,
-				async () => null,
-				[{ contract }],
-				{
+				toolBundle: [{ contract }] as any,
+				authority: {
 					resolvePrincipal: async () => "principal",
 					guardDeps: {
 						withStore: async (fn: any) =>
@@ -702,16 +716,18 @@ describe("authenticated facade to guarded shared receiver", () => {
 							}),
 						adminCheck: async () => "denied",
 					},
-					sourceContext: async () => ({
-						nodeId: "red",
-						origin: "https://red.cognidao.org",
-						mission: { content: "Red", sourceRef: "fixture", buildSha: null },
-						governingIndex: [],
-					}),
-					isCodingActor: (id: string) => id === actor,
-					sandboxReady: () => true,
 				} as any,
-			);
+				sourceContext: async () => ({
+					nodeId: "red",
+					origin: "https://red.cognidao.org",
+					mission: { content: "Red", sourceRef: "fixture", buildSha: null },
+					governingIndex: [],
+				}),
+				coding: {
+					isCodingActor: (id: string) => id === actor,
+					prerequisitesReady: () => true,
+				},
+			});
 			mocks.publish.mockResolvedValue(undefined);
 			const ctx: any = {
 				reqId: "request",
@@ -767,7 +783,8 @@ describe("authenticated facade to guarded shared receiver", () => {
 						},
 					});
 				} else {
-					expect(result.ok).toBe(false);
+					// A claimed audience caller without the shell grant stops before the first model call and ends cleanly (DENIAL_IS_TERMINAL), not as an error.
+					expect(result.ok).toBe(true);
 					expect(model).toBe(0);
 				}
 				expect([sandbox, mint]).toEqual([0, 0]);

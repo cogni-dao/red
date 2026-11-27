@@ -823,8 +823,8 @@ importers:
         specifier: workspace:@cogni/ai-tools@*
         version: link:../ai-tools
       '@cogni/shared-langgraph-graphs':
-        specifier: https://github.com/cogni-dao/node-template/releases/download/langgraph-graphs-v0.11.0/cogni-dao-langgraph-graphs-0.11.0.tgz
-        version: '@cogni-dao/langgraph-graphs@https://github.com/cogni-dao/node-template/releases/download/langgraph-graphs-v0.11.0/cogni-dao-langgraph-graphs-0.11.0.tgz(agon3uksz7sb5ijzhh3renfhay)'
+        specifier: https://github.com/cogni-dao/node-template/releases/download/langgraph-graphs-v0.12.0/cogni-dao-langgraph-graphs-0.12.0.tgz
+        version: '@cogni-dao/langgraph-graphs@https://github.com/cogni-dao/node-template/releases/download/langgraph-graphs-v0.12.0/cogni-dao-langgraph-graphs-0.12.0.tgz(agon3uksz7sb5ijzhh3renfhay)'
       '@langchain/anthropic':
         specifier: 1.5.12
         version: 1.5.12(@langchain/core@1.2.14(@opentelemetry/api@1.9.1)(@opentelemetry/exporter-trace-otlp-proto@0.208.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.2.0(@opentelemetry/api@1.9.1))(openai@7.55.0(undici@7.27.2)(ws@8.21.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))(zod@3.25.76))(ws@8.21.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)))
@@ -1410,12 +1410,12 @@ packages:
     resolution: {integrity: sha512-dZqlXY3nnq+AM1wgwtCJnVvAzSbrIcW3MVw681AZqYhJTHDD2EZcR6S+eScky431N1VpXN/u5EokhoARaDei8A==, tarball: https://github.com/cogni-dao/node-template/releases/download/knowledge-store-v0.21.0/cogni-dao-knowledge-store-0.21.0.tgz}
     version: 0.21.0
 
-  '@cogni-dao/langgraph-graphs@https://github.com/cogni-dao/node-template/releases/download/langgraph-graphs-v0.11.0/cogni-dao-langgraph-graphs-0.11.0.tgz':
-    resolution: {tarball: https://github.com/cogni-dao/node-template/releases/download/langgraph-graphs-v0.11.0/cogni-dao-langgraph-graphs-0.11.0.tgz}
-    version: 0.11.0
+  '@cogni-dao/langgraph-graphs@https://github.com/cogni-dao/node-template/releases/download/langgraph-graphs-v0.12.0/cogni-dao-langgraph-graphs-0.12.0.tgz':
+    resolution: {tarball: https://github.com/cogni-dao/node-template/releases/download/langgraph-graphs-v0.12.0/cogni-dao-langgraph-graphs-0.12.0.tgz}
+    version: 0.12.0
     peerDependencies:
-      '@cogni/agent-grants': '>=0.8.1'
-      '@cogni/ai-tools': '>=0.16.0'
+      '@cogni/agent-grants': '>=0.8.1 <1'
+      '@cogni/ai-tools': '>=0.16.0 <1'
 
   '@cogni-dao/metrics@https://github.com/cogni-dao/node-template/releases/download/metrics-v0.20.0/cogni-dao-metrics-0.20.0.tgz':
     resolution: {integrity: sha512-Q+GwuljgFRT2PlrYoYIbVfWmQ76SfWHc7NEt/eQWZc/lnbfN0AWgPOXz0vcseK73vzwXO9MYpyU6MGoSbuNrGw==, tarball: https://github.com/cogni-dao/node-template/releases/download/metrics-v0.20.0/cogni-dao-metrics-0.20.0.tgz}
@@ -9968,7 +9968,7 @@ snapshots:
       postgres: 3.4.9
       zod: 4.4.3
 
-  '@cogni-dao/langgraph-graphs@https://github.com/cogni-dao/node-template/releases/download/langgraph-graphs-v0.11.0/cogni-dao-langgraph-graphs-0.11.0.tgz(agon3uksz7sb5ijzhh3renfhay)':
+  '@cogni-dao/langgraph-graphs@https://github.com/cogni-dao/node-template/releases/download/langgraph-graphs-v0.12.0/cogni-dao-langgraph-graphs-0.12.0.tgz(agon3uksz7sb5ijzhh3renfhay)':
     dependencies:
       '@cogni/agent-grants': '@cogni-dao/agent-grants@https://github.com/cogni-dao/node-template/releases/download/agent-grants-v0.10.0/cogni-dao-agent-grants-0.10.0.tgz(drizzle-orm@0.44.7(@opentelemetry/api@1.9.1)(postgres@3.4.9))'
       '@cogni/ai-tools': '@cogni-dao/ai-tools@https://github.com/cogni-dao/node-template/releases/download/ai-tools-v0.16.0/cogni-dao-ai-tools-0.16.0.tgz(@cogni-dao/knowledge-store@https://github.com/cogni-dao/node-template/releases/download/knowledge-store-v0.21.0/cogni-dao-knowledge-store-0.21.0.tgz)(@cogni-dao/metrics@https://github.com/cogni-dao/node-template/releases/download/metrics-v0.20.0/cogni-dao-metrics-0.20.0.tgz(drizzle-orm@0.44.7(@opentelemetry/api@1.9.1)(postgres@3.4.9))(postgres@3.4.9))(@cogni-dao/work-items@https://github.com/cogni-dao/node-template/releases/download/work-items-v0.17.0/cogni-dao-work-items-0.17.0.tgz)'
