@@ -35,6 +35,7 @@ import {
 import {
   CitationTargetNotFoundError,
   CitationTypeMismatchError,
+  CommitTextInvalidError,
   ContributionConflictError,
   ContributionForbiddenError,
   ContributionNotFoundError,
@@ -52,6 +53,7 @@ import type { SessionUser } from "@cogni/node-shared";
 import { NextResponse } from "next/server";
 
 import { getContainer } from "@/bootstrap/container";
+import { routeAttribution } from "@cogni/work-items";
 
 /**
  * Same auth-source detector used by knowledge/contributions. Bearer agents
@@ -93,6 +95,9 @@ function mapError(e: unknown): NextResponse {
     return NextResponse.json({ error: e.message }, { status: 409 });
   if (e instanceof ContributionQuotaError)
     return NextResponse.json({ error: e.message }, { status: 429 });
+  // An entry id with a line break would forge a commit line: caller input (any other bad attribution is a host defect and stays a 500).
+  if (e instanceof CommitTextInvalidError)
+    return NextResponse.json({ error: e.message }, { status: 400 });
   if (e instanceof KnowledgeGateError)
     return NextResponse.json(
       { error: "knowledge gate rejected write", issues: e.errors },
@@ -276,7 +281,7 @@ export async function handleHypothesize(
       ...(parsed.data.confidencePct !== undefined
         ? { confidencePct: parsed.data.confidencePct }
         : {}),
-    });
+    }, routeAttribution(sessionUser.id));
     log.info(
       {
         route: "edo.hypothesize",
@@ -376,7 +381,7 @@ export async function handleDecide(
       ...(parsed.data.confidencePct !== undefined
         ? { confidencePct: parsed.data.confidencePct }
         : {}),
-    });
+    }, routeAttribution(sessionUser.id));
     log.info(
       {
         route: "edo.decide",
@@ -544,7 +549,7 @@ export async function handleRecordOutcome(
       ...(parsed.data.confidencePct !== undefined
         ? { confidencePct: parsed.data.confidencePct }
         : {}),
-    });
+    }, routeAttribution(sessionUser.id));
     log.info(
       {
         route: "edo.record_outcome",

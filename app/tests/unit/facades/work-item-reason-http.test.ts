@@ -80,7 +80,7 @@ describe("work-item PATCH reason and cites HTTP boundary (task.0086)", () => {
     expect(response.status).toBe(200);
     expect(patch).toHaveBeenCalledWith(
       { id: "task.0001", reason: "r", set: { summary: "updated" } },
-      "principal-1"
+      { actor: "principal-1" }
     );
   });
 
@@ -121,7 +121,7 @@ describe("work-item PATCH reason and cites HTTP boundary (task.0086)", () => {
     expect(response.status).toBe(200);
     expect(patch).toHaveBeenCalledWith(
       { id: "task.0001", reason: "r", cites, set: { summary: "updated" } },
-      "principal-1"
+      { actor: "principal-1" }
     );
     expect(info).toHaveBeenCalledWith(
       expect.objectContaining({

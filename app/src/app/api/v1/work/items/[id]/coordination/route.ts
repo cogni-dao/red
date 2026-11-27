@@ -20,6 +20,7 @@ import {
 } from "@/app/_facades/work/items.server";
 import { getSessionUser } from "@/app/_lib/auth/session";
 import { wrapRouteHandlerWithLogging } from "@/bootstrap/http";
+import { backendUnavailable } from "../../_backend-unavailable";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -29,6 +30,7 @@ export const GET = wrapRouteHandlerWithLogging<{
 }>(
   {
     routeId: "work.items.coordination",
+    sameDoor: "core__work_item_update",
     auth: { mode: "required", getSessionUser },
   },
   async (ctx, _request, _sessionUser, context) => {
@@ -53,7 +55,7 @@ export const GET = wrapRouteHandlerWithLogging<{
         return NextResponse.json({ error: error.message }, { status: 404 });
       }
       if (error instanceof WorkItemsBackendNotReadyError) {
-        return NextResponse.json({ error: error.message }, { status: 503 });
+        return backendUnavailable(ctx, error.reason);
       }
       throw error;
     }

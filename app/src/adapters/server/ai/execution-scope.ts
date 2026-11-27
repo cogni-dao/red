@@ -17,6 +17,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import type { SourceSystem } from "@cogni/ai-core";
+import type { WriteRunKind } from "@cogni/work-items";
 import type { BillingContext, LlmService } from "@/ports";
 
 /**
@@ -29,6 +30,8 @@ export interface ExecutionScope {
 	readonly billing: BillingContext;
 	/** The run this scope serves. A tool that needs per-run state (the sandbox folder) reads it here. */
 	readonly runId?: string;
+	/** The run record's kind (`graph_runs.run_kind`), host-set when the record names one. Absent when the record is missing or unreadable: the write then carries no `Run:` line. */
+	readonly runKind?: WriteRunKind;
 	/** Actor who initiated this run. Used by tools that need user-scoped operations (e.g., schedule CRUD). */
 	readonly actorUserId?: string;
 	readonly principalId?: string;

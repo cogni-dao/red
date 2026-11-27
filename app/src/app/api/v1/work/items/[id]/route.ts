@@ -3,32 +3,35 @@
 
 /**
  * Module: `@app/api/v1/work/items/[id]/route`
- * Purpose: HTTP endpoints for getting, patching, and deleting a single work item by ID.
- * Scope: Auth-protected GET (node-local Doltgres first, markdown fallback), PATCH (Doltgres only), and DELETE (Doltgres hard-delete with dolt_log audit).
- * Invariants: VALIDATE_IO, CONTRACTS_ARE_TRUTH, AUTH_VIA_GETSESSIONUSER, PATCH_ALLOWLIST, HARD_DELETE_RECOVERABLE_VIA_DOLT_REVERT.
+ * Purpose: HTTP endpoints for getting, patching, and retiring deletion of a single work item by ID.
+ * Scope: Auth-protected GET (node-local Doltgres first, markdown fallback), PATCH (Doltgres only), and DELETE (authenticated HTTP 410).
+ * Invariants: VALIDATE_IO, CONTRACTS_ARE_TRUTH, AUTH_VIA_GETSESSIONUSER, PATCH_ALLOWLIST, CANCELLATION_PRESERVES_HISTORY.
  * Write errors (bug.0063): `handleWorkItemPatch` from @cogni/work-items parses, answers every write-contract error and returns the one terminal event; this route keeps only auth, the actor, 403, 404, node-admin and backend-unavailable.
  * Moves (story.0033): `set.moves` with an unknown or deprecated metric id is HTTP400 `cite_unresolved` with an issue at `set.moves`; a bad list is HTTP400 `invalid input`; a non-empty list with no metric wiring is HTTP400 `moves_unsupported`; a resolver failure is HTTP503 `cite_resolver_unavailable`; a baseline failure is HTTP503 `metric_baseline_unavailable`. The client never sets a baseline: the server pins it. `workItemWriteErrorResponse` (@cogni/work-items) answers these.
- * Envelope (task.0118): GET returns each `moves` entry with its metric, KPI and goal; `?include=links` adds the first page of citation links (same read as /api/v1/citations/{id}); an unknown include is HTTP400.
+ * Envelope (task.0118): GET returns each `moves` entry with its metric, KPI and goal; `?include=links,artifacts,history` adds the first page of citation links and of artifact and history refs, `?artifact=<id>` one artifact in full; an unknown include is HTTP400.
+ * Read core (story.0085): `handleWorkItemGet` from @cogni/work-items parses `include`/`artifact`, refuses 400/404 and returns the one
+ *   terminal event; this route keeps only auth and the store read.
  * Side-effects: IO (HTTP response, filesystem read via port, Doltgres read/write/delete)
  * Links: contracts/work.items.{get,patch,delete}.v1.contract
  * @public
  */
 
 import {
-  workItemsDeleteOperation,
   workItemsGetOperation,
   workItemsPatchOperation,
 } from "@cogni/node-contracts";
-import { handleWorkItemPatch } from "@cogni/work-items";
+import {
+	handleWorkItemGet,
+	handleWorkItemPatch,
+	routeAttribution,
+} from "@cogni/work-items";
 import { NextResponse } from "next/server";
 
 import {
-  deleteWorkItem,
   getWorkItem,
   patchWorkItem,
   WorkItemForbiddenError,
   WorkItemNotFoundError,
-  WorkItemsBackendNotReadyError,
   NodeAdminRequiredError,
 } from "@/app/_facades/work/items.server";
 import { getSessionUser } from "@/app/_lib/auth/session";
@@ -49,45 +52,16 @@ export const GET = wrapRouteHandlerWithLogging<{
     if (!context) throw new Error("context required for dynamic routes");
     const { id } = await context.params;
 
-    // `?include=links` (comma list): optional envelope parts. Unknown parts are a 400, not ignored.
-    const requested = new URL(request.url).searchParams
-      .getAll("include")
-      .flatMap((value) => value.split(","))
-      .filter(Boolean);
-    const input = workItemsGetOperation.input.safeParse({
-      id,
-      ...(requested.length && { include: requested }),
+    // The package owns the `include`/`artifact` parse, the 400/404/503/499 refusals and the one terminal event (story.0085).
+    const result = await handleWorkItemGet(id, {
+      searchParams: new URL(request.url).searchParams,
+      signal: request.signal,
+      read: (itemId, options) =>
+        getWorkItem(itemId, { signal: request.signal, ...options }),
+      toBody: (item) => workItemsGetOperation.output.parse(item),
     });
-    if (!input.success) {
-      return NextResponse.json(
-        { error: "invalid input", issues: input.error.issues },
-        { status: 400 }
-      );
-    }
-
-    let item: Awaited<ReturnType<typeof getWorkItem>>;
-    try {
-      item = await getWorkItem(id, {
-        signal: request.signal,
-        includeLinks: input.data.include?.includes("links") ?? false,
-      });
-    } catch (e) {
-      if (e instanceof WorkItemsBackendNotReadyError) {
-        return NextResponse.json({ error: e.message }, { status: 503 });
-      }
-      throw e;
-    }
-
-    if (!item) {
-      return NextResponse.json(
-        { error: `Work item not found: ${id}` },
-        { status: 404 }
-      );
-    }
-
-    ctx.log.info({ workItemId: id }, "work.items.get_success");
-
-    return NextResponse.json(workItemsGetOperation.output.parse(item));
+    ctx.log.info(result.event, result.event.event);
+    return NextResponse.json(result.body, { status: result.status });
   }
 );
 
@@ -109,14 +83,20 @@ export const PATCH = wrapRouteHandlerWithLogging<{
 
     const { id } = await context.params;
     // The package owns parse, refusals and the one terminal event (bug.0063); this route keeps auth, the actor and node errors.
+    const attribution = routeAttribution(sessionUser.id);
     const result = await handleWorkItemPatch(id, {
       readJson: () => request.json(),
       parse: (body) => workItemsPatchOperation.input.safeParse(body),
       write: (input) =>
-        patchWorkItem(input, {
-          id: sessionUser.id,
-          walletAddress: sessionUser.walletAddress,
-        }),
+        patchWorkItem(
+          input,
+          {
+            id: sessionUser.id,
+            walletAddress: sessionUser.walletAddress,
+          },
+          attribution
+        ),
+      attribution,
       toBody: (patched) => workItemsPatchOperation.output.parse(patched),
       mapNodeError: (e) => {
         if (e instanceof WorkItemNotFoundError)
@@ -137,12 +117,6 @@ export const PATCH = wrapRouteHandlerWithLogging<{
             errorCode: e.errorCode,
             body: { error: e.message, errorCode: e.errorCode, action: e.action },
           };
-        if (e instanceof WorkItemsBackendNotReadyError)
-          return {
-            status: 503,
-            errorCode: "backend_unavailable",
-            body: { error: e.message },
-          };
         return undefined;
       },
     });
@@ -151,55 +125,22 @@ export const PATCH = wrapRouteHandlerWithLogging<{
   }
 );
 
-/**
- * DELETE /api/v1/work/items/:id — Hard-delete a work item from Doltgres.
- *
- * The deletion is captured as a dolt_log commit; recovery via dolt_revert
- * remains available. Idempotent at the contract level: a missing id returns 404,
- * not 500. Returns `{id, deleted: true}` on success.
- */
+/** Authenticated tombstone. Cancellation uses PATCH with reason and expectedRevision. */
 export const DELETE = wrapRouteHandlerWithLogging<{
   params: Promise<{ id: string }>;
 }>(
-  { routeId: "work.items.delete", auth: { mode: "required", getSessionUser } },
-  async (ctx, _request, sessionUser, context) => {
-    if (!context) throw new Error("context required for dynamic routes");
-    if (!sessionUser) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
-
-    const { id } = await context.params;
-
-    const inputParse = workItemsDeleteOperation.input.safeParse({ id });
-    if (!inputParse.success) {
-      return NextResponse.json(
-        { error: "invalid input", issues: inputParse.error.issues },
-        { status: 400 }
-      );
-    }
-
-    try {
-      const deleted = await deleteWorkItem(id, {
-        id: sessionUser.id,
-      });
-      if (!deleted) {
-        return NextResponse.json(
-          { error: `Work item not found: ${id}` },
-          { status: 404 }
-        );
-      }
-      ctx.log.info({ workItemId: id }, "work.items.delete_success");
-      return NextResponse.json(
-        workItemsDeleteOperation.output.parse({ id, deleted: true })
-      );
-    } catch (e) {
-      if (e instanceof WorkItemForbiddenError) {
-        return NextResponse.json({ error: e.message }, { status: 403 });
-      }
-      if (e instanceof WorkItemsBackendNotReadyError) {
-        return NextResponse.json({ error: e.message }, { status: 503 });
-      }
-      throw e;
-    }
-  }
+  {
+    routeId: "work.items.delete",
+    // This handler always refuses; it reads and writes no item and grants no capability.
+    bearerWrite: "Retired endpoint: fixed HTTP 410 response only; no mutation",
+    auth: { mode: "required", getSessionUser },
+  },
+  async (_ctx, _request, _sessionUser, _context) =>
+    NextResponse.json(
+      {
+        error: "work_item_delete_removed",
+        message: "Work items cannot be deleted. Read the current revision, then PATCH with reason, expectedRevision and set.status=cancelled; history and artifacts are retained.",
+      },
+      { status: 410, headers: { "cache-control": "no-store" } }
+    )
 );

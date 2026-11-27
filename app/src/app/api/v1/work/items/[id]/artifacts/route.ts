@@ -21,6 +21,7 @@ import {
   artifactsNotConfigured,
   listWorkItemArtifacts,
   recordWorkItemArtifact,
+	routeAttribution,
 } from "@cogni/work-items";
 import { NextResponse } from "next/server";
 
@@ -59,10 +60,12 @@ export const POST = wrapRouteHandlerWithLogging<{
     const deps = getContainer().workItemArtifacts;
     if (!deps) return respond(ctx, startedAt, artifactsNotConfigured(id, "write"));
 
+    const attribution = routeAttribution(sessionUser.id);
     return respond(
       ctx,
       startedAt,
-      await recordWorkItemArtifact(deps, id, sessionUser.id, body)
+      await recordWorkItemArtifact(deps, id, attribution, body),
+      attribution
     );
   }
 );

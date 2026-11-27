@@ -21,6 +21,7 @@ import {
 } from "@/app/_facades/work/items.server";
 import { getSessionUser } from "@/app/_lib/auth/session";
 import { wrapRouteHandlerWithLogging } from "@/bootstrap/http";
+import { backendUnavailable } from "../../_backend-unavailable";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -75,6 +76,7 @@ export const POST = wrapRouteHandlerWithLogging<{
       const result = await heartbeatWorkItem({
         id: parsed.data.id,
         runId: parsed.data.runId,
+        leaseToken: parsed.data.leaseToken,
         ...(parsed.data.command !== undefined && {
           command: parsed.data.command,
         }),
@@ -85,7 +87,8 @@ export const POST = wrapRouteHandlerWithLogging<{
         "work.items.heartbeat_success"
       );
       return NextResponse.json(
-        workItemsHeartbeatOperation.output.parse(result)
+        workItemsHeartbeatOperation.output.parse(result),
+        { headers: { "cache-control": "no-store" } }
       );
     } catch (error) {
       if (error instanceof WorkItemNotFoundError) {
@@ -95,7 +98,7 @@ export const POST = wrapRouteHandlerWithLogging<{
         return NextResponse.json({ error: error.message }, { status: 409 });
       }
       if (error instanceof WorkItemsBackendNotReadyError) {
-        return NextResponse.json({ error: error.message }, { status: 503 });
+        return backendUnavailable(ctx, error.reason);
       }
       throw error;
     }

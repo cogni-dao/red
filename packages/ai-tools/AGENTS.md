@@ -118,3 +118,5 @@ pnpm --filter @cogni/ai-tools build
 The catalog composes released evaluation entries; app bindings import published factories/types directly. Existing private factories, http_request and runtime helpers remain intact.
 
 Read/query/search contracts, capability types and JSON schema compilation delegate to the shared release. Red-owned tools use Zod4 and retain their catalog positions.
+
+EDO contracts and implementations re-export the same published train; host-built attribution stays in bootstrap. The private package retains Red product HTTP, sandbox and other composition exports.

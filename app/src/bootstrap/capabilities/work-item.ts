@@ -6,6 +6,7 @@
  * Purpose: RED's WorkItemCapability over the live Doltgres backlog and the markdown ports.
  * Scope: Capability composition only. The store, not this module, enforces the reason and cites.
  * Invariants:
+ *   - ACTING_PRINCIPAL_FOR_WRITES (task.0175): `patch` goes through the Doltgres store attributed to `backlogWriter.attribution()`, built at invocation (never at construction) from the run's scope.
  *   - PATCH_REASON_AND_CITES (task.0086): the required `reason` and the optional `cites` are forwarded to the Doltgres store, the one enforcer.
  *     The markdown fallback (development only) has no history, so it DROPS both reason and cites; the tool schema still requires a reason.
  *   - MOVES_READ_AT_READ_TIME (story.0033): a read that returns exactly one item (core__work_item_read) adds each move's baseline,
@@ -26,10 +27,12 @@ import type {
   WorkItemQueryPort,
   WorkItemsContentPort,
   WorkQuery,
+  WriteAttribution,
 } from "@cogni/work-items";
 import type {
   EnvelopeDegradedEvent,
   ItemLinksPort,
+  ItemEnvelopeDeps,
   MoveReadingPort,
 } from "@cogni/work-items";
 import {
@@ -46,12 +49,20 @@ export interface WorkItemCapabilityDeps {
   readonly moveReadings?: MoveReadingPort | undefined;
   /** First page of an item's citation links (`read` with `includeLinks`); absent reads `unavailable`. */
   readonly links?: ItemLinksPort | undefined;
+  /** Lazy because the content/artifact stores are assigned later during bootstrap. */
+  readonly refs?: () => ItemEnvelopeDeps;
   /** One event per degraded envelope part (chain or links). */
   readonly log?: ((event: EnvelopeDegradedEvent) => void) | undefined;
   readonly backlogReader?: Pick<WorkItemsContentPort, "get" | "list">;
   readonly backlogWriter?: {
-    readonly patch: WorkItemsContentPort["patch"];
-    readonly principalId: () => string;
+    readonly store: Pick<WorkItemsContentPort, "patch">;
+    /** Host-built at invocation: the run's acting principal and the run (task.0175). */
+    readonly attribution: () => WriteAttribution;
+    /** One terminal refusal when the attribution could not be built (a run with no acting principal): nothing was written. */
+    readonly attributionDenied?: (event: {
+      workItemId: string;
+      error: unknown;
+    }) => void;
   };
 }
 const toInfo: (item: WorkItem) => WorkItemInfo = toWorkItemDto;
@@ -97,8 +108,8 @@ export function createWorkItemCapability(
       // ONE_COMPOSITION: the same `composeItemEnvelope` the HTTP facade calls.
       return composeItemEnvelope(
         item,
-        { readings: deps.moveReadings, links: deps.links, log: deps.log },
-        { includeLinks: options?.includeLinks === true }
+        { ...deps.refs?.(), readings: deps.moveReadings, links: deps.links, log: deps.log },
+        options
       );
     },
     query: async (params) =>
@@ -113,11 +124,19 @@ export function createWorkItemCapability(
           `authz_denied: priority ${input.set.priority} requires node admin — propose it instead`
         );
       if (deps.backlogWriter) {
-        const principal = deps.backlogWriter.principalId();
-        if (!principal)
-          throw new Error("WorkItemCapability: authenticated actor required");
-        return toInfo(
-          await deps.backlogWriter.patch(
+        let attribution: WriteAttribution;
+        try {
+          attribution = deps.backlogWriter.attribution();
+        } catch (error) {
+          // Fail closed, and say so in the same terminal event a refused patch always uses.
+          deps.backlogWriter.attributionDenied?.({
+            workItemId: input.id,
+            error,
+          });
+          throw error;
+        }
+        try {
+          return toInfo(await deps.backlogWriter.store.patch(
             {
               id: toWorkItemId(input.id),
               ...(input.expectedRevision !== undefined && {
@@ -129,9 +148,15 @@ export function createWorkItemCapability(
                 WorkItemsContentPort["patch"]
               >[0]["set"],
             },
-            principal
-          )
-        );
+            attribution
+          ));
+        } catch (error) {
+          if (error instanceof Error && error.name === "WorkItemRevisionConflictError") {
+            const conflict = error as Error & { expectedRevision: number; currentRevision: number };
+            throw new WorkItemPatchConflictError(input.id, conflict.expectedRevision, conflict.currentRevision);
+          }
+          throw error;
+        }
       }
       const current = await deps.workItemQuery.get(toWorkItemId(input.id));
       if (!current) throw new Error(`Work item not found: ${input.id}`);

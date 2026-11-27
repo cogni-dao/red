@@ -274,6 +274,13 @@
       "when": 1795674361491,
       "tag": "0038_far_archangel",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1795797946353,
+      "tag": "0039_freezing_nick_fury",
+      "breakpoints": true
     }
   ]
 }

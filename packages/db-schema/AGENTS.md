@@ -87,7 +87,8 @@ pnpm --filter @cogni/db-schema build
 ## Notes
 
 - `src/agent-authority.ts` declares node-owned principal and grant tables for the released grants store. Conditional legacy adoption, FORCE RLS and identity bootstrap live in the paired generated migrations; no capabilities are seeded.
-- Last reviewed: 2026-11-21 (story.0090 authority schema adoption).
+- `work-item-leases.ts` declares the published adapter’s PostgreSQL lease table. Migration 0039 enables and forces RLS without app policies; only the existing service client owns coordination.
+- Last reviewed: 2026-11-27 (story.0086 lease compatibility).
 
 - Subpath exports enable tree-shaking: consumers import only needed slices
 - `refs.ts` defines FK target tables shared across all slices

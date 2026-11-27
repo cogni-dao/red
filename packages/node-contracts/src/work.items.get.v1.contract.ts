@@ -14,23 +14,23 @@
  * @internal
  */
 
-import { z } from "zod";
+import {
+  WORK_ITEM_INCLUDES,
+  WorkItemGetInputSchema,
+  WorkItemReadDtoSchema,
+} from "@cogni/work-items";
+import type { z } from "zod";
 
-import { WorkItemDtoSchema } from "./work.items.list.v1.contract";
-
-/** Optional envelope parts a single-item read can add: `GET /api/v1/work/items/{id}?include=links`. */
-export const WORK_ITEM_INCLUDES = ["links"] as const;
+/** The envelope parts and the input schema are owned by `@cogni/work-items` (story.0085); this contract re-exports them. */
+export { WORK_ITEM_INCLUDES };
 
 export const workItemsGetOperation = {
   id: "work.items.get.v1",
   summary: "Get a work item by ID",
   description:
-    "Returns a single work item by its ID, or 404 if not found. Each moves entry carries its metric, the KPI it serves and the goal (task.0118). include=links adds the first page of citation links.",
-  input: z.object({
-    id: z.string(),
-    include: z.array(z.enum(WORK_ITEM_INCLUDES)).optional(),
-  }),
-  output: WorkItemDtoSchema,
+    "Returns a single work item by its ID, or 404 if not found. Each moves entry carries its metric, the KPI it serves and the goal (task.0118). include=links adds the first page of citation links; include=artifacts adds `artifactRefs` and include=history adds `historyRefs`, each the first page of refs with `nextCursor` (story.0058); artifact=<id> adds `artifact`, that one artifact in full, or `{ notFound: true }`.",
+  input: WorkItemGetInputSchema,
+  output: WorkItemReadDtoSchema,
 } as const;
 
 // Export inferred types
