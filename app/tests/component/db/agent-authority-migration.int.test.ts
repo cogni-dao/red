@@ -182,7 +182,7 @@ describe("agent authority migration", () => {
       );
       const store = createPostgresAgentGrantsStore(service as unknown as SqlTag);
       expect(await store.findInternalPrincipal("node-ai")).toEqual({ userId: nodeAi });
-      // 0039: the in-process provider's principal lock needs a seed row for each catalog graph's principal (no role rows).
+      // 0040: the in-process provider's principal lock needs a seed row for each catalog graph's principal (no role rows).
       expect(await store.findInternalPrincipal("prioritizer")).toEqual({ userId: prioritizer });
       expect(await store.findInternalPrincipal("red-solver")).toEqual({ userId: redSolver });
       expect(await store.liveScopes(redSolver, ["red.http_request", "sandbox:exec"])).toEqual([]);
