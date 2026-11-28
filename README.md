@@ -43,3 +43,4 @@ authenticated graph discovery still prove the stack. The fast path for iterating
 the hub guide [Improve a Cogni agent locally](https://cognidao.org/knowledge/local-agent-development).
 
 [PolyForm Shield license](https://polyformproject.org/licenses/shield/1.0.0)
+validate-candidate pr95 probe 2 (safe to close)
