@@ -14,13 +14,7 @@
  * @public
  */
 
-export type { InProcRunnerOptions as SharedRunnerOptions } from "@cogni/shared-langgraph-graphs";
-// The shared graph and runner must resolve through the same package instance.
-export {
-	createInProcGraphRunner as createSharedInProcGraphRunner,
-	NODE_LANGGRAPH_CATALOG as SHARED_NODE_CATALOG,
-} from "@cogni/shared-langgraph-graphs";
-// Re-export catalog (single source of truth for graph definitions)
+// Re-export catalog (Red's one composed catalog; the published catalog stays behind `createNodeCatalog`)
 export {
 	DEFAULT_LANGGRAPH_GRAPH_ID,
 	LANGGRAPH_CATALOG,
@@ -31,20 +25,34 @@ export {
 } from "./catalog";
 // Re-export graph constants and factories
 export { RED_SOLVER_GRAPH_NAME } from "./graphs/index";
-// Re-export inproc runner (all LangChain logic contained in package)
-export { createInProcGraphRunner } from "./inproc/runner";
-// Re-export inproc types for provider to use
+// The in-process provider, runner and their ports are the published package's: one import path for the node, no copy.
 export type {
-	CompletionFn,
-	CompletionResult,
+	AgentAuthorityPort,
+	CodingCallerPolicy,
+	CompletionUnitFinal,
+	CompletionUnitParams,
+	CompletionUnitPort,
 	CreateGraphFn,
 	GraphResult,
 	InProcGraphRequest,
 	InProcRunnerOptions,
-	Message,
+	Persistence,
+	ProviderLogger,
+	RunScopePort,
+	SourceContext,
 	ToolExecFn,
 	ToolExecResult,
-} from "./inproc/types";
+} from "@cogni/shared-langgraph-graphs/inproc";
+export {
+	createInProcGraphRunner,
+	createLangGraphInProcProvider,
+	createNodeCatalog,
+	INPROC_EVENTS,
+	LANGGRAPH_INPROC_PROVIDER_ID,
+	requiresInProcess,
+	resolveNodeSourceContext,
+} from "@cogni/shared-langgraph-graphs/inproc";
+export type { LangGraphCatalog } from "@cogni/shared-langgraph-graphs";
 // Re-export runtime types (interfaces only, not implementations)
 export type { MakeLangChainToolOptions } from "./runtime/index";
 export type { McpServerConfig, McpServersConfig } from "./runtime/mcp/index";

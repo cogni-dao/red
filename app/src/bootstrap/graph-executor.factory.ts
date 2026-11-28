@@ -20,7 +20,11 @@
  * @public
  */
 
-import type { SourceSystem, ToolSourcePort } from "@cogni/ai-core";
+import type {
+	BoundToolRuntime,
+	SourceSystem,
+	ToolSourcePort,
+} from "@cogni/ai-core";
 import { type CatalogBoundTool, CORE_TOOL_BUNDLE } from "@cogni/ai-tools";
 import type {
 	ExecutionContext,
@@ -42,6 +46,8 @@ import {
 	loadMcpTools,
 	McpToolSource,
 	parseMcpConfigFromEnv,
+	requiresInProcess,
+	resolveNodeSourceContext,
 } from "@cogni/langgraph-graphs";
 import {
 	contractToRuntime,
@@ -59,8 +65,8 @@ import {
 	LangGraphInProcProvider,
 } from "@/adapters/server";
 import { runInScope } from "@/adapters/server/ai/execution-scope";
+import type { RunTools } from "@/adapters/server/ai/langgraph";
 import { createLangGraphDispatch } from "@/adapters/server/ai/langgraph/dispatch";
-import { loadCogniSourceContext } from "@/adapters/server/ai/langgraph/source-context";
 import { resolveSandboxWorkspaceOrigin } from "@/bootstrap/capabilities/sandbox-workspace";
 import { bindScheduleModel } from "@/bootstrap/capabilities/schedule-model";
 import type {
@@ -81,6 +87,9 @@ import {
 	resolveAiAdapterDeps,
 	resolveServiceDb,
 } from "./container";
+
+/** Red's tool contracts: the node's core bundle. The provider reads `requires`, `effect` and `secretArgs` from them. */
+const TOOL_BUNDLE: readonly CatalogBoundTool[] = [...CORE_TOOL_BUNDLE];
 
 /**
  * Factory for creating NamespaceGraphRouter with all configured providers.
@@ -109,7 +118,7 @@ export function createGraphExecutor(
 	const devUrl = serverEnv().LANGGRAPH_DEV_URL;
 	const inproc = createInProcProvider(deps, completionStreamFn);
 	const dev = devUrl ? createDevProvider(devUrl) : undefined;
-	const langGraphProvider = createLangGraphDispatch(inproc, dev);
+	const langGraphProvider = createLangGraphDispatch(inproc, dev, TOOL_BUNDLE);
 
 	// Build namespace → provider map
 	const env = serverEnv();
@@ -544,42 +553,19 @@ function createInProcProvider(
 	);
 
 	const cache = getMcpCache();
-	return new LangGraphInProcProvider(
-		inprocAdapter,
-		container.toolSource,
-		() => cache.getSource(),
-		[...CORE_TOOL_BUNDLE],
-		{
-			sharedTools: (req) => ({
-				[scheduleListContract.name]: {
-					contract:
-						scheduleListContract as unknown as CatalogBoundTool["contract"],
-					runtime: contractToRuntime(
-						scheduleListContract,
-						createScheduleListImplementation({
-							scheduleCapability: container.sharedScheduleCapability,
-						}),
-					),
-				},
-				[scheduleManageContract.name]: {
-					contract:
-						scheduleManageContract as unknown as CatalogBoundTool["contract"],
-					runtime: contractToRuntime(
-						scheduleManageContract,
-						createScheduleManageImplementation({
-							scheduleCapability: bindScheduleModel(
-								container.sharedScheduleCapability,
-								req.modelRef,
-							),
-						}),
-					),
-				},
-			}),
-			guardDeps: container.agentAuthority.guardDeps,
-			resolvePrincipal: container.agentAuthority.resolvePrincipal,
+	return new LangGraphInProcProvider({
+		completion: inprocAdapter,
+		tools: container.toolSource,
+		toolBundle: TOOL_BUNDLE,
+		mcpTools: () => cache.getSource(),
+		authority: container.agentAuthority,
+		// The schedule tools carry the run's model (`bindScheduleModel`), so Red composes them per run.
+		composeTools: (req) => composeScheduleTools(container, req),
+		// COGNI_CODING_ACTOR_IDS is the coding audience (.cogni/workloads/app.yaml). The shell opens only for a claimed run by one of them.
+		coding: {
 			isCodingActor: (actor) =>
 				serverEnv().COGNI_CODING_ACTOR_IDS.includes(actor),
-			sandboxReady: () => {
+			prerequisitesReady: () => {
 				const env = serverEnv();
 				return Boolean(
 					env.SANDBOX_EXECD_TOKEN &&
@@ -588,21 +574,68 @@ function createInProcProvider(
 						resolveSandboxWorkspaceOrigin(env, getNodeName()),
 				);
 			},
-			sourceContext: async () => {
-				const env = serverEnv();
-				const mission = getNodeMission();
-				if (!mission || !env.APP_BASE_URL || !container.knowledgeStorePort)
-					throw new Error("node_source_context_unavailable");
-				return loadCogniSourceContext({
-					store: container.knowledgeStorePort,
-					nodeId: container.nodeId,
-					origin: env.APP_BASE_URL,
-					mission,
-					buildSha: env.APP_BUILD_SHA,
-				});
-			},
 		},
-	);
+		sourceContext: async (required) => {
+			const env = serverEnv();
+			return resolveNodeSourceContext(
+				required,
+				container.nodeId,
+				env.APP_BASE_URL,
+				getNodeMission(),
+				env.APP_BUILD_SHA,
+				container.knowledgeStorePort,
+			);
+		},
+	});
+}
+
+/**
+ * The tool source and contracts for one run: the released schedule contracts, with the run's model bound into `schedule_manage`.
+ * Every other tool is the container's.
+ */
+function composeScheduleTools(
+	container: ReturnType<typeof getContainer>,
+	req: GraphRunRequest,
+): RunTools {
+	const overrides: Record<
+		string,
+		{ contract: CatalogBoundTool["contract"]; runtime: BoundToolRuntime }
+	> = {
+		[scheduleListContract.name]: {
+			contract: scheduleListContract as unknown as CatalogBoundTool["contract"],
+			runtime: contractToRuntime(
+				scheduleListContract,
+				createScheduleListImplementation({
+					scheduleCapability: container.sharedScheduleCapability,
+				}),
+			),
+		},
+		[scheduleManageContract.name]: {
+			contract:
+				scheduleManageContract as unknown as CatalogBoundTool["contract"],
+			runtime: contractToRuntime(
+				scheduleManageContract,
+				createScheduleManageImplementation({
+					scheduleCapability: bindScheduleModel(
+						container.sharedScheduleCapability,
+						req.modelRef,
+					),
+				}),
+			),
+		},
+	};
+	const base = container.toolSource;
+	return {
+		tools: {
+			getBoundTool: (id) => overrides[id]?.runtime ?? base.getBoundTool(id),
+			listToolSpecs: () => base.listToolSpecs(),
+			hasToolId: (id) => id in overrides || base.hasToolId(id),
+		},
+		toolBundle: TOOL_BUNDLE.map((bound) => {
+			const override = overrides[bound.contract.name];
+			return override ? { ...bound, contract: override.contract } : bound;
+		}),
+	};
 }
 
 /**
@@ -611,9 +644,10 @@ function createInProcProvider(
  */
 function createDevProvider(apiUrl: string): LangGraphDevProvider {
 	const client = createLangGraphDevClient({ apiUrl });
-	const availableGraphs = Object.keys(LANGGRAPH_CATALOG).filter(
-		(name) => name !== "cogni",
-	);
+	// The dev server runs only plain read-only graphs; anything the package routes in-process never reaches it.
+	const availableGraphs = Object.entries(LANGGRAPH_CATALOG)
+		.filter(([, entry]) => !requiresInProcess(entry, TOOL_BUNDLE))
+		.map(([name]) => name);
 	return new LangGraphDevProvider(client, { availableGraphs });
 }
 

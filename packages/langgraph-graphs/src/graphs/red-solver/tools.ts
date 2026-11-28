@@ -16,6 +16,12 @@
 import { HTTP_REQUEST_NAME, SANDBOX_SHELL_NAME } from "@cogni/red-ai-tools";
 
 /**
+ * The internal agent principal red-solver acts as (`agent_principals.slug`, seeded by Red's migration 0040).
+ * A graph with no principal gets no scoped tool, and a slug with no seed row denies the run before any tool runs.
+ */
+export const RED_SOLVER_PRINCIPAL_SLUG = "red-solver" as const;
+
+/**
  * Tool IDs for red-solver graph.
  * Single source of truth - imported by server.ts, cogni-exec.ts, and catalog.ts.
  *

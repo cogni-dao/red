@@ -28,7 +28,10 @@ import type { ChatCompletionOutput, ChatMessage } from "@cogni/node-contracts";
 import type { SessionUser } from "@cogni/node-shared";
 import { EVENT_NAMES } from "@cogni/node-shared";
 import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client";
-import { signChatActor } from "@/bootstrap/chat-actor-proof";
+import {
+	isClaimedChatGraph,
+	signChatActor,
+} from "@/bootstrap/chat-actor-proof";
 import {
 	getContainer,
 	getTemporalWorkflowClient,
@@ -499,10 +502,10 @@ export async function completionStream(
 						chatMessageId: input.messageId,
 						chatWorkflowId: workflowId,
 						executionRequestHash: requestHash,
-						...(graphId === "langgraph:cogni"
+						...(isClaimedChatGraph(graphId)
 							? { executionClaimKey: idempotencyKey }
 							: {}),
-						...(graphId === "langgraph:cogni"
+						...(isClaimedChatGraph(graphId)
 							? {
 									chatActorProof: signChatActor(
 										{

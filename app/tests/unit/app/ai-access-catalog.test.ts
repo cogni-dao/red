@@ -41,6 +41,7 @@ describe("AI access permission catalog", () => {
 				"account:read",
 				"edo:write",
 				"knowledge:write",
+				"red.http_request",
 				"sandbox:exec",
 				"schedule:manage",
 				"vcs:create_branch",

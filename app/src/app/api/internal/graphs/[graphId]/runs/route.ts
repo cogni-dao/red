@@ -37,7 +37,10 @@ import {
 	persistAssistantThenPublishTerminal,
 	TerminalPublicationError,
 } from "@/app/_lib/ai/durable-chat-terminal";
-import { verifyChatActor } from "@/bootstrap/chat-actor-proof";
+import {
+	isClaimedChatGraph,
+	verifyChatActor,
+} from "@/bootstrap/chat-actor-proof";
 import { getContainer } from "@/bootstrap/container";
 import {
 	createGraphExecutor,
@@ -222,10 +225,10 @@ export const POST = wrapRouteHandlerWithLogging<RouteParams>(
 			runId: providedRunId,
 		} = parseResult.data;
 		let runId = providedRunId ?? randomUUID();
-		const sharedChat = graphId === "langgraph:cogni" && !executionGrantId;
+		const claimedChat = isClaimedChatGraph(graphId) && !executionGrantId;
 		const claimKey = input.executionClaimKey;
 		if (
-			sharedChat &&
+			claimedChat &&
 			(!providedRunId ||
 				transportKey !== `api:${providedRunId}` ||
 				typeof claimKey !== "string" ||
@@ -236,7 +239,7 @@ export const POST = wrapRouteHandlerWithLogging<RouteParams>(
 				{ status: 403 },
 			);
 		}
-		const idempotencyKey = sharedChat ? (claimKey as string) : transportKey;
+		const idempotencyKey = claimedChat ? (claimKey as string) : transportKey;
 
 		// --- 5. Compute request hash for idempotency ---
 		// API completions preclaim the slot before Temporal start and pass the
@@ -252,7 +255,7 @@ export const POST = wrapRouteHandlerWithLogging<RouteParams>(
 			suppliedRequestHash ?? computeRequestHash(graphId, rawBody);
 
 		// Authenticate the exact launcher-created claim before any cache or claim path.
-		if (sharedChat) {
+		if (claimedChat) {
 			const actor = input.actorUserId;
 			const account = input.billingAccountId;
 			const key = input.virtualKeyId;
@@ -366,7 +369,7 @@ export const POST = wrapRouteHandlerWithLogging<RouteParams>(
 		}
 
 		if (
-			sharedChat &&
+			claimedChat &&
 			(idempotencyResult.status === "new" ||
 				((idempotencyResult.status === "pending" ||
 					idempotencyResult.status === "stale") &&
@@ -384,7 +387,7 @@ export const POST = wrapRouteHandlerWithLogging<RouteParams>(
 			if (suppliedRequestHash && pending.runId === runId) {
 				// The completion facade durably claimed this exact request before
 				// starting Temporal. This workflow owns the pending record.
-				requestAlreadyClaimed = !sharedChat;
+				requestAlreadyClaimed = !claimedChat;
 			} else {
 				log.info(
 					{ idempotencyKey, runId: pending.runId },
@@ -768,6 +771,12 @@ export const POST = wrapRouteHandlerWithLogging<RouteParams>(
 				actorUserId,
 				requestId: runId,
 				...(sessionId ? { sessionId } : {}),
+				// Set only after `verifyChatActor` accepted this run's launcher proof above (any LangGraph graph a chat actor
+				// started, not only cogni); never from the payload. The shell needs it.
+				...(claimedChat ? { runClaimVerified: true as const } : {}),
+				// A grant-backed run is a validated schedule tick (the grant was checked above): no caller waits on it, so the
+				// provider words its stop as a tick's and ends a run with no usable write tool before any model call.
+				...(executionGrantId ? { unattended: true as const } : {}),
 			},
 		);
 

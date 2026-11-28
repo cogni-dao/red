@@ -8,6 +8,7 @@
  * Invariants:
  *   - TOOL_ID_NAMESPACED: ID is `core__http_request` (double-underscore for provider compat)
  *   - EFFECT_TYPED: effect is `external_side_effect` (performs outbound network IO)
+ *   - SCOPED_BY_REQUIRES: declares `requires` (`red.http_request`), so the tool guard opens it only for a principal with a live role row
  *   - SCOPE_BOUND: requests ONLY `new URL(path, targetBaseUrl)`; rejects any host pivot
  *     (absolute-URL path or resolved origin != targetBaseUrl origin)
  *   - OUTPUT_SIZE_GUARD: response body capped to ~64KB
@@ -143,6 +144,16 @@ export const httpRequestContract: ToolContract<
     "subset, and a size-capped body. Secret/PII spans are withheld and flagged. " +
     "Use for in-scope recon and proof-of-concept vulnerability checks only.",
   effect: "external_side_effect",
+  // The guard runs this tool only for a principal that holds the scope (node-plugin-architecture; add-a-node-permission).
+  // `red-solver` is that principal; an admin turns the scope On. Without it the tool is not offered.
+  requires: {
+    scope: "red.http_request",
+    kind: "node",
+    subject: "member",
+    label: "Send scoped web requests to an authorized target",
+    description:
+      "Lets the AI send single HTTP requests to one target origin an operator authorized, for security testing.",
+  },
   inputSchema: HttpRequestInputSchema,
   outputSchema: HttpRequestOutputSchema,
 

@@ -34,6 +34,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const migrations = path.resolve(import.meta.dirname, "../../../src/adapters/server/db/migrations");
 const nodeAi = "00000000-0000-4000-a000-0000000a0001";
+const prioritizer = "00000000-0000-4000-a000-0000000a0002";
+const redSolver = "00000000-0000-4000-a000-0000000b0001";
 const suffix = randomUUID().replaceAll("-", "").slice(0, 12);
 const roles = {
   app: `app_authority_${suffix}`,
@@ -180,6 +182,10 @@ describe("agent authority migration", () => {
       );
       const store = createPostgresAgentGrantsStore(service as unknown as SqlTag);
       expect(await store.findInternalPrincipal("node-ai")).toEqual({ userId: nodeAi });
+      // 0040: the in-process provider's principal lock needs a seed row for each catalog graph's principal (no role rows).
+      expect(await store.findInternalPrincipal("prioritizer")).toEqual({ userId: prioritizer });
+      expect(await store.findInternalPrincipal("red-solver")).toEqual({ userId: redSolver });
+      expect(await store.liveScopes(redSolver, ["red.http_request", "sandbox:exec"])).toEqual([]);
       expect(await store.liveScopes(nodeAi, ["sandbox:exec"])).toEqual([]);
       expect(await service`SELECT * FROM agent_roles`).toHaveLength(0);
       expect(await service`SELECT wallet_address, email FROM users WHERE id = ${nodeAi}`).toEqual([
